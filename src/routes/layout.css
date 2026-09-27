@@ -1,0 +1,36 @@
+@import 'tailwindcss';
+
+/*
+ * Glen Idunno color scheme: light, pastel, muted eucalyptus tones.
+ *
+ * The app uses the `slate` neutral palette throughout (backgrounds, borders,
+ * text, primary buttons via slate-900). Instead of touching every component,
+ * we override the slate scale with a desaturated sage/eucalyptus scale – this
+ * gives the whole UI a consistent, muted green tint. Semantic accents
+ * (emerald/amber/red) remain in place for status indicators.
+ */
+@theme {
+	--color-slate-50: #f3f6f3;
+	--color-slate-100: #e4ece6;
+	--color-slate-200: #c8d8cc;
+	--color-slate-300: #a4bdaa;
+	--color-slate-400: #789a82;
+	--color-slate-500: #5a7d64;
+	--color-slate-600: #47654f;
+	--color-slate-700: #3a5141;
+	--color-slate-800: #314236;
+	--color-slate-900: #2a382e;
+	--color-slate-950: #161f19;
+
+	/* Emerald (success) slightly aligned with the eucalyptus tone,
+	   so it doesn't clash with the muted scheme. */
+	--color-emerald-50: #eef6f0;
+	--color-emerald-300: #9ccaab;
+	--color-emerald-900: #2c4734;
+
+	/* Primary/brand color for filled action buttons: medium eucalyptus green.
+	   Deliberately decoupled from the text color (slate-900) – slate-900 must
+	   stay dark for readable text, the button should look lighter/greener. */
+	--color-brand: #47654f;
+	--color-brand-hover: #3a5141;
+}

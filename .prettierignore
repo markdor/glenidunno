@@ -1,0 +1,17 @@
+# Package Managers
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+bun.lock
+bun.lockb
+
+# Miscellaneous
+/static/
+
+# Repo-level docs and tooling config: prettier's scope stays the app code,
+# these files are maintained in their own style.
+*.md
+/.github/
+/.claude/
+/compose*.yaml
+/.releaserc.json

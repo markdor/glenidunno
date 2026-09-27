@@ -1,5 +1,5 @@
-# Override for `npm run docker:test` (packages/app/playwright.docker.config.ts).
-# Isolates e2e runs from the dev/prod `dahamm-data` volume and exposes the
+# Override for `npm run docker:test` (playwright.docker.config.ts).
+# Isolates e2e runs from the dev/prod `glenidunno-data` volume and exposes the
 # test-only magic-link capture file to the host so Playwright's auth.setup.ts
 # can read it (see CLAUDE.md > Teststrategie > E2E-Login).
 services:
@@ -11,8 +11,8 @@ services:
       - BASE_URL=http://127.0.0.1:3000
       - MAGIC_LINK_DEBUG_PATH=/e2e-docker/magic-link.log
     volumes:
-      - dahamm-data-e2e:/data
-      - ./packages/app/.e2e-docker:/e2e-docker
+      - glenidunno-data-e2e:/data
+      - ./.e2e-docker:/e2e-docker
 
 volumes:
-  dahamm-data-e2e:
+  glenidunno-data-e2e:

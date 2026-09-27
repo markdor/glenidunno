@@ -1,16 +1,10 @@
-# Dahamm
+# Glen Idunno
 
 Selbst gehostete Web-App (PWA) mit Magic-Link-Login und Nutzerverwaltung.
 
 ## Architektur
 
-Monorepo via npm Workspaces, ein Docker-Container hinter Traefik v3:
-
-```
-packages/
-├── app/        SvelteKit PWA + Auth
-└── shared/     Geteilte Validierungs-Konstanten
-```
+Eine SvelteKit-App im Repo-Root, ein Docker-Container hinter Traefik v3:
 
 ```
 Browser (PWA) ◄──► app (SvelteKit)
@@ -28,7 +22,6 @@ Browser (PWA) ◄──► app (SvelteKit)
 | Auth | Better Auth (Magic Link, kein Sign-up) |
 | Mail | nodemailer (Hetzner SMTP) |
 | Deployment | Docker Compose + Traefik v3 (Hetzner VPS) |
-| Monorepo | npm Workspaces |
 
 ## Zugriff
 
@@ -41,17 +34,17 @@ Passwort.
 
 ```bash
 # Repo klonen
-git clone <repo-url> dahamm && cd dahamm
+git clone git@github.com:markdor/glenidunno.git && cd glenidunno
 
-# Workspace-Dependencies installieren
+# Dependencies installieren
 npm install
 
 # App im Dev-Mode starten (Magic Link wird in die Konsole geloggt,
 # SMTP-Konfiguration nicht nötig)
-npm run dev --workspace packages/app
+npm run dev
 ```
 
-`.env` aus `.env.example` ableiten und mindestens `BETTER_AUTH_SECRET`,
+`.env` aus `.env.example` ableiten und mindestens `AUTH_SECRET`,
 `ADMIN_EMAIL`, `ADMIN_USERNAME` setzen.
 
 ## Deployment

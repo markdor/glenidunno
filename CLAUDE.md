@@ -1,15 +1,20 @@
-# Dahamm – CLAUDE.md
+# Glen Idunno – CLAUDE.md
 
 Selbst gehostete Web-App (PWA) mit Magic-Link-Login, Nutzerverwaltung und Startseite.
+
+Anzeigename überall „Glen Idunno" (mit Leerzeichen); technische Bezeichner (Paket, Image, Container, Volumes, DB-Datei, Domain) lauten `glenidunno`.
 
 ---
 
 ## Architektur-Überblick
 
+Eine einzelne SvelteKit-App (PWA + Auth) direkt im Repo-Root – kein Monorepo, keine npm Workspaces:
+
 ```
-packages/
-├── app/        # SvelteKit PWA + Auth
-└── shared/     # Geteilte Validierungs-Konstanten
+src/        # SvelteKit-App (Routen, Komponenten, $lib, $lib/server)
+static/     # Statische Assets (Icons, Manifest)
+tests/      # Playwright-E2E
+drizzle/    # Versionierte SQL-Migrationen
 ```
 
 Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
@@ -24,7 +29,6 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
 | Datenbank | SQLite via Drizzle ORM |
 | Auth | Magic Link via nodemailer (Hetzner SMTP) |
 | Deployment | Docker Compose + Traefik v3 (Hetzner VPS) |
-| Monorepo | npm Workspaces (kein Nx, kein Turborepo) |
 
 ---
 
@@ -34,7 +38,7 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
 - Startseite, Login und Admin-Seite (Nutzerverwaltung)
 - Auth: Magic Link per Mail (nodemailer + Hetzner SMTP)
 - Session-Dauer: 30 Tage Cookie
-- SQLite-Datei liegt in einem Named Docker Volume unter `/app/data/dahamm.db`
+- SQLite-Datei liegt in einem Named Docker Volume unter `/data/glenidunno.db` (`DB_PATH`)
 
 ---
 
@@ -146,13 +150,13 @@ SMTP_HOST=mail.your-server.de
 SMTP_PORT=465
 SMTP_USER=
 SMTP_PASS=
-SMTP_FROM=dahamm@your-server.de
+SMTP_FROM=glenidunno@your-server.de
 
 # App
-DATABASE_URL=file:/app/data/dahamm.db
-BASE_URL=https://dahamm.markdor.net   # öffentliche Basis-URL der App, dient sowohl
-                                      # Better Auth (Magic-Link-Erzeugung) als auch
-                                      # SvelteKit (origin / CSRF) als einzige Quelle
+DB_PATH=/data/glenidunno.db
+BASE_URL=https://glenidunno.markdor.net   # öffentliche Basis-URL der App, dient sowohl
+                                          # Better Auth (Magic-Link-Erzeugung) als auch
+                                          # SvelteKit (origin / CSRF) als einzige Quelle
 
 # Auth
 AUTH_SECRET=        # zufälliger langer String (z. B. `openssl rand -hex 32`)
@@ -165,8 +169,8 @@ ADMIN_USERNAME=            # Username des initialen Admin-Users (nur beim ersten
 ## Konventionen
 
 - **Sprache:** Deutsch im UI, Englisch im Code (Variablen, Funktionen, Kommentare)
-- **Geteilte Validierungs-Constraints** liegen als Konstanten in `packages/shared` (`@dahamm/shared`), nicht je Schicht dupliziert: `EMAIL_LENGTH`/`EMAIL_REGEX` (+ Helper `isValidEmail()`) und `USERNAME_RE` sind die einzige Quelle für Login-Formular und Admin-Nutzerverwaltung, damit Client- und Server-Validierung nicht auseinanderdriften. `shared` bleibt dependency-frei.
-- **Kein Nx, kein Turborepo** – plain npm Workspaces reichen
+- **Geteilte Validierungs-Constraints** liegen als Konstanten in `src/lib/validation.ts` (`$lib/validation`), nicht je Schicht dupliziert: `EMAIL_LENGTH`/`EMAIL_REGEX` (+ Helper `isValidEmail()`) und `USERNAME_RE` sind die einzige Quelle für Login-Formular und Admin-Nutzerverwaltung, damit Client- und Server-Validierung nicht auseinanderdriften. Bewusst **nicht** unter `$lib/server`, weil `login/+page.svelte` `isValidEmail()` im Browser nutzt – das Modul bleibt deshalb frei von Server-Importen.
+- **Kein Monorepo** – eine SvelteKit-App im Repo-Root, keine npm Workspaces, kein Nx/Turborepo
 - **Kein Postgres** – SQLite ist für diesen Use Case ausreichend, einfacher zu backupen
 - **Named Docker Volume** für SQLite, kein Bind Mount
 
@@ -177,7 +181,7 @@ ADMIN_USERNAME=            # Username des initialen Admin-Users (nur beim ersten
 - Hetzner VPS mit Docker + Traefik v3
 - Bestehendes Traefik-Netzwerk: `traefik` (external)
 - TLS via Let's Encrypt (DNS-01 Challenge mit Hetzner DNS)
-- App erreichbar unter `dahamm.deine-domain.de`
+- App erreichbar unter `glenidunno.markdor.net`
 ### Compose-Konventionen
 
 Aufbau analog zu den App-Stacks in `C:\Users\Markus\git\vps-config`, insbesondere
@@ -189,7 +193,7 @@ Netzwerk und Traefik). Konkret:
   volumes:
     db:
       external: true
-      name: dahamm-db
+      name: glenidunno-db
   ```
 - **Netzwerk:** `web: external: true` – das vorhandene Traefik-Netzwerk
 - **Pro Service:** `container_name`, `restart: unless-stopped`, `image` (bzw. `build`),
@@ -199,10 +203,10 @@ Netzwerk und Traefik). Konkret:
   - Traefik-Labels nach diesem Muster (nur der nach außen erreichbare Service – hier `app`):
     ```yaml
     - "traefik.enable=true"
-    - "traefik.http.routers.dahamm.rule=Host(`dahamm.markdor.net`)"
-    - "traefik.http.routers.dahamm.entrypoints=websecure"
-    - "traefik.http.routers.dahamm.tls.certresolver=le-resolver"
-    - "traefik.http.services.dahamm.loadbalancer.server.port=3000"
+    - "traefik.http.routers.glenidunno.rule=Host(`glenidunno.markdor.net`)"
+    - "traefik.http.routers.glenidunno.entrypoints=websecure"
+    - "traefik.http.routers.glenidunno.tls.certresolver=le-resolver"
+    - "traefik.http.services.glenidunno.loadbalancer.server.port=3000"
     ```
 - **Healthcheck:** Der `app`-Service hat einen eigenen Healthcheck (`GET /health`,
   siehe Authentifizierung) für Docker-Sichtbarkeit und `depends_on`-Nutzung.
@@ -233,11 +237,16 @@ Aufbau analog zu `C:\Users\Markus\git\gritshot`.
 - **E2E-Login via Setup-Project + `storageState`** (Playwright-Standardmuster, https://playwright.dev/docs/auth): ein `auth.setup.ts`-Project loggt sich einmal per echtem Magic-Link-Flow als der `ADMIN_EMAIL`-Testuser ein und speichert die Session in `playwright/.auth/admin.json`. Das `e2e`-Project hängt per `dependencies: ['setup']` daran und startet alle weiteren Specs bereits eingeloggt – kein Login-Boilerplate pro Testdatei.
   - **Ein geteilter Admin-Account** für alle E2E-Tests (kein Per-Worker-Isolation-Setup). Ausreichend, solange E2E auf wenige Smoke-/Critical-Path-Tests beschränkt bleibt; Per-Worker-Accounts erst nötig, falls parallel laufende Tests sich gegenseitig über geteilten Server-State stören.
   - Tests, die explizit unauthentifiziert starten müssen (Closed-App-Guard, der Login-Flow selbst), resetten den State lokal mit `test.use({ storageState: { cookies: [], origins: [] } })`.
-  - Tokens werden gehasht gespeichert, das Klartext-Magic-Link landet nur in der `MAGIC_LINK_DEBUG_PATH`-Capture-Datei (Test-Seam, siehe `auth.ts`). Lokal (`test:e2e`, Vite Preview) liegt diese Datei direkt auf dem Host. Gegen den Container (`docker:test`) macht `compose.e2e.yaml` sie per Bind-Mount host-sichtbar und isoliert den Lauf zusätzlich auf ein eigenes DB-Volume (`dahamm-data-e2e`, vor jedem Lauf per `down -v` geleert) statt der echten Dev-Volume `dahamm-data`.
+  - Tokens werden gehasht gespeichert, das Klartext-Magic-Link landet nur in der `MAGIC_LINK_DEBUG_PATH`-Capture-Datei (Test-Seam, siehe `auth.ts`). Lokal (`test:e2e`, Vite Preview) liegt diese Datei direkt auf dem Host. Gegen den Container (`docker:test`) macht `compose.e2e.yaml` sie per Bind-Mount host-sichtbar und isoliert den Lauf zusätzlich auf ein eigenes DB-Volume (`glenidunno-data-e2e`, vor jedem Lauf per `down -v` geleert) statt der echten Dev-Volume `glenidunno-data`.
   - Derselbe `MAGIC_LINK_DEBUG_PATH`-Schalter lockert in `auth.ts` beide Rate-Limits, weil ein lokaler Preview-/Docker-Lauf keine echte Client-IP hat und alle Requests im selben Bucket landen. **Asymmetrisch bewusst gewählt:** der Pro-IP-Limiter geht auf `max: 1000` (soll im Test nie greifen), der Pro-Mail-Limiter nur auf `max: 20` – niedrig genug, dass ein E2E-Fall ihn mit echten Requests ausschöpfen und das Über-Quota-Verhalten prüfen kann. Der Wert ist in `tests/e2e/magic-link.ts` als `MAGIC_LINK_EMAIL_TEST_LIMIT` gespiegelt (bewusste Duplikation: E2E-Tests importieren grundsätzlich keine Server-Module) – beide Stellen zusammen ändern.
   - Der Rate-Limit-E2E-Fall verbrennt das Kontingent des geteilten Admin-Accounts und muss deshalb der **letzte Test in `auth-login.e2e.ts`** bleiben (Playwright führt Tests innerhalb einer Datei seriell aus; `fullyParallel` ist bewusst nicht gesetzt).
   - **E2E-DB-Reset im `webServer`-Command, nicht in `globalSetup`**: Playwright startet den `webServer` *vor* `globalSetup`. Der Preview-Server hält die alte `e2e.db` dann schon offen, unter Windows scheitert das Löschen, und der Lauf erbt den Zustand des vorigen (u. a. das vom Rate-Limit-Fall verbrauchte Kontingent). Deshalb läuft `playwright.reset-e2e.ts` als erster Teil des `webServer.command`.
 - **E2E-Klicks auf Karten** zielen auf die Kartenüberschrift, nicht auf die Karte als Ganzes: Ein Klick auf die Kartenmitte (Playwright-Default) kann auf einem interaktiven Kindelement landen und die Navigation über dessen `stopPropagation()` verschlucken (siehe Komponenten-Konventionen).
+
+### Lint-Scope
+
+- `npm run lint` (Prettier + ESLint) läuft im Repo-Root, zielt aber nur auf den App-Code: Markdown, `.github/`, `.claude/`, `compose*.yaml` und `.releaserc.json` stehen bewusst in `.prettierignore` und werden in ihrem eigenen Stil gepflegt.
+- Beide Tools lesen zusätzlich die Root-`.gitignore` (ESLint per `includeIgnoreFile`). Ein zu breites Muster dort nimmt getrackten App-Code still aus dem Lint – `git ls-files -ci --exclude-standard` muss leer bleiben.
 
 ### Magic-Link-Callback (Enumeration-Schutz)
 
@@ -258,13 +267,14 @@ Trigger: `on: push` (alle Branches) + `workflow_dispatch`. Drei Jobs, analog gri
 2. **`release`** – `needs: test`, nur auf `main`, `cycjimmy/semantic-release-action` mit
    `@semantic-release/git`, GitHub App Token (`CICD_CLIENT_ID` / `CICD_PRIVATE_KEY`).
    Exportiert die Outputs `new_release_published` / `new_release_version` für den
-   nachgelagerten Docker-Job.
+   nachgelagerten Docker-Job. `@semantic-release/npm` schreibt die Version direkt in die
+   einzige `package.json` (Quelle für `__APP_VERSION__` im Footer) – kein Sync-Skript nötig.
 3. **`docker`** – `needs: [test, release]`, läuft **nur auf `main` und nur wenn ein neues
    Release publiziert wurde** (`needs.test.result == 'success' && github.ref == 'refs/heads/main'
    && needs.release.outputs.new_release_published == 'true'`):
-   Build & Push nach `ghcr.io/markdor/dahamm-app` mit Tags `latest` / `<version>`.
-   Pro Service ein eigenes Image mit `dahamm-`-Präfix (aktuell nur `dahamm-app`);
-   Owner/Repo-Präfix bleibt dynamisch via `${{ github.repository }}-<service>`.
+   Build & Push des Root-`Dockerfile` nach `ghcr.io/markdor/glenidunno` mit Tags
+   `latest` / `<version>`. Ein einziges Image, Name dynamisch via
+   `ghcr.io/${{ github.repository }}` (kein Service-Suffix).
 
 Action-Versionen sinngemäß auf aktuellem Stand pinnen (gritshot aktuell: `checkout@v6`,
 `setup-node@v6`, `upload-artifact@v7`, `create-github-app-token@v3`,

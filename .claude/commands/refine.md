@@ -45,7 +45,7 @@ Spawne einen **Explore-Agenten** (subagent_type: `Explore`, Breadth: `medium`) m
 > Analysiere den Code für Issue #$ARGUMENTS ("$ISSUE_TITLE"). Finde:
 > 1. Betroffene Routen und SvelteKit-Komponenten (pages, layouts, +page.svelte, +server.ts)
 > 2. Betroffenes Drizzle-Datenbankschema (src/lib/server/db/schema.ts)
-> 3. Betroffene API-Endpunkte (src/routes/api/)
+> 3. Betroffene oder neu nötige geteilte Typen/Konstanten zentral in `$lib` (Validierungs-Constraints in src/lib/validation.ts)
 > 4. Bestehende ähnliche Implementierungen, die als Vorlage dienen können
 > 5. Auth/Security-Relevanz: Braucht die Seite einen Auth-Guard? Neue API-Endpoints?
 > 6. Geschätzter Impact: Welche Tests müssten angepasst/geschrieben werden?

@@ -5,15 +5,15 @@ services:
   app:
     build:
       context: .
-      dockerfile: packages/app/Dockerfile
-    image: dahamm-app:local
-    container_name: dahamm-app
+      dockerfile: Dockerfile
+    image: glenidunno:local
+    container_name: glenidunno
     restart: unless-stopped
     ports:
       - '3000:3000'
-    env_file: packages/app/.env
+    env_file: .env
     volumes:
-      - dahamm-data:/data
+      - glenidunno-data:/data
     healthcheck:
       test:
         [
@@ -27,4 +27,4 @@ services:
       retries: 3
 
 volumes:
-  dahamm-data:
+  glenidunno-data:
