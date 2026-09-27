@@ -2,7 +2,7 @@
 	import { untrack } from 'svelte';
 	import { isValidEmail } from '$lib/validation';
 	import { authClient } from '$lib/auth-client';
-	import logo from '$lib/assets/dahamm-320.png';
+	import logo from '$lib/assets/glen-idunno-logo.svg';
 	import { toast } from '$lib/components/toastStore.svelte';
 
 	let { data } = $props();
@@ -56,9 +56,12 @@
 </svelte:head>
 
 <main class="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 px-6 py-12">
-	<header class="flex flex-col items-center gap-3 text-center">
-		<img src={logo} alt="Glen Idunno" class="h-40 w-auto" />
-		<h1 class="text-3xl font-semibold tracking-tight">Glen Idunno</h1>
+	<header class="flex flex-col items-center gap-5 text-center">
+		<!-- The logo contains the wordmark, so it replaces the text heading; its alt
+		     text keeps the <h1> accessible name "Glen Idunno". -->
+		<h1>
+			<img src={logo} alt="Glen Idunno" width="628" height="546" class="h-auto w-66" />
+		</h1>
 		<p class="text-sm text-slate-500">Melde dich mit deiner E-Mail-Adresse an.</p>
 	</header>
 
@@ -79,7 +82,7 @@
 				class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
 			/>
 			{#if invalidEmail}
-				<p class="text-xs text-amber-700">Bitte gib eine gültige E-Mail-Adresse ein.</p>
+				<p class="text-xs text-red-700">Bitte gib eine gültige E-Mail-Adresse ein.</p>
 			{/if}
 		</div>
 		<button

@@ -1,36 +1,44 @@
 @import 'tailwindcss';
 
 /*
- * Glen Idunno color scheme: light, pastel, muted eucalyptus tones.
+ * Glen Idunno color scheme: warm cream-to-dark-brown tones taken from the logo
+ * (whisky barrel). Logo colors: cream #f3ebdd, dark brown #2b1a0d, amber
+ * #7d5212, gold #c9973f (decorative only – fails WCAG AA as text or with
+ * white text on it).
  *
  * The app uses the `slate` neutral palette throughout (backgrounds, borders,
- * text, primary buttons via slate-900). Instead of touching every component,
- * we override the slate scale with a desaturated sage/eucalyptus scale – this
- * gives the whole UI a consistent, muted green tint. Semantic accents
- * (emerald/amber/red) remain in place for status indicators.
+ * text). Instead of touching every component, we override the slate scale
+ * with a cream → dark brown scale (OKLCH-interpolated between the two logo
+ * anchors, 50 = page background, 900 = text color). Semantic accents stay on
+ * Tailwind's defaults: red (error), emerald (success), sky (info – not amber,
+ * which would be indistinguishable from the amber brand color).
+ *
+ * Contrast notes (WCAG AA, 4.5:1 for body text):
+ * - slate-500 is used as muted text on the cream page background (5.0:1).
+ * - slate-400 is used as text on white (placeholder, admin dates), so it is
+ *   deliberately darker than a typical 400 step (4.5:1 on white). Keep this
+ *   in mind before overriding `--color-white` with an off-white.
+ *
+ * The cream #f3ebdd is duplicated in src/app.html (theme-color) and
+ * static/site.webmanifest (theme_color/background_color) – change all three
+ * together.
  */
 @theme {
-	--color-slate-50: #f3f6f3;
-	--color-slate-100: #e4ece6;
-	--color-slate-200: #c8d8cc;
-	--color-slate-300: #a4bdaa;
-	--color-slate-400: #789a82;
-	--color-slate-500: #5a7d64;
-	--color-slate-600: #47654f;
-	--color-slate-700: #3a5141;
-	--color-slate-800: #314236;
-	--color-slate-900: #2a382e;
-	--color-slate-950: #161f19;
+	--color-slate-50: #f3ebdd;
+	--color-slate-100: #e9decd;
+	--color-slate-200: #d9ccb7;
+	--color-slate-300: #c2b29b;
+	--color-slate-400: #87735e;
+	--color-slate-500: #75604c;
+	--color-slate-600: #614d3b;
+	--color-slate-700: #4d3a2a;
+	--color-slate-800: #3a281a;
+	--color-slate-900: #2b1a0d;
+	--color-slate-950: #170b03;
 
-	/* Emerald (success) slightly aligned with the eucalyptus tone,
-	   so it doesn't clash with the muted scheme. */
-	--color-emerald-50: #eef6f0;
-	--color-emerald-300: #9ccaab;
-	--color-emerald-900: #2c4734;
-
-	/* Primary/brand color for filled action buttons: medium eucalyptus green.
-	   Deliberately decoupled from the text color (slate-900) – slate-900 must
-	   stay dark for readable text, the button should look lighter/greener. */
-	--color-brand: #47654f;
-	--color-brand-hover: #3a5141;
+	/* Primary/brand color for filled action buttons: the logo's amber.
+	   Deliberately decoupled from the text color (slate-900). White text on it
+	   reaches 6.8:1, on the hover shade 9.1:1. */
+	--color-brand: #7d5212;
+	--color-brand-hover: #65410f;
 }

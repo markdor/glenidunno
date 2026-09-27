@@ -47,7 +47,10 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
 - Klar und minimalistisch, kein visuelles Rauschen
 - **Mobile-first** – primäres Endgerät ist das Smartphone, Touch-Targets großzügig
 - Desktop-Layout darf vorhanden sein, hat aber niedrigere Priorität
-- Farbschema: gedeckte Eukalyptus-/Salbei-Palette (slate-Skala überschrieben, siehe `layout.css`), semantische Akzente nur für Status (Amber für Hinweise, Brand-Grün für Hauptaktion)
+- Farbschema aus den Logo-Farben: `slate`-Skala als Creme→Dunkelbraun überschrieben (`slate-50` = Creme `#f3ebdd` als Seitenhintergrund, `slate-900` = Dunkelbraun `#2b1a0d` als Text), `brand` = Bernstein `#7d5212` für die Hauptaktion, alles in `layout.css`. Semantische Akzente nur für Status und als Tailwind-Defaults: red für Fehler, emerald für Erfolg, **sky für Info** (nicht amber – wäre von Bernstein nicht unterscheidbar). Gold `#c9973f` nur dekorativ (als Text oder mit weißer Schrift unter AA).
+  - `slate-400` wird als Text auf Weiß genutzt (Placeholder, Admin-Metadaten) und ist deshalb bewusst dunkler als üblich (AA auf Weiß) – ein Off-White-Override von `--color-white` würde das kippen.
+  - Die Creme steht zusätzlich in `src/app.html` (`theme-color`) und `static/site.webmanifest` – alle drei Stellen zusammen ändern.
+- Logo und Fass-Mark liegen als SVG-Dateien in `src/lib/assets/` und werden per `$lib/assets`-Import als `<img>` eingebunden (gehashte Dateinamen, immutable Caching) – nicht inline und nicht über Lucide. `glen-idunno-logo.svg` weicht bewusst vom Original aus Issue #6 ab: `viewBox` auf den Inhalt zugeschnitten (der leere Creme-Rand kostete auf dem Smartphone Platz) und Untertitel „Blind Tasting" ×1,5 samt nach außen gerückter Goldlinien (sonst unlesbar); die eingebettete C2PA-Signatur ist entfernt, weil sie nach der Bearbeitung nicht mehr zum Inhalt passte – bei einem Re-Export des Logos alles wieder anwenden.
 
 ### Icons
 
@@ -67,7 +70,7 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
 
 Reine Begrüßungsseite, keine Arbeitsfläche. Aufbau von oben nach unten:
 
-1. **Header** – App-Name links, Username-Dropdown rechts (Logout, ggf. Admin)
+1. **Header** – Fass-Mark (dekorativ, `alt=""`) + App-Name links als gemeinsamer Link auf `/`, Username-Dropdown rechts (Logout, ggf. Admin)
 2. **Begrüßung** „Hallo {username} 👋"
 3. **Leerzustand-Hinweis** – eine gedämpfte Zeile (`text-slate-500`), keine Module oder Karten
 
