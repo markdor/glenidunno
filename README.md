@@ -1,46 +1,31 @@
 # Dahamm
 
-Selbst gehostete Familien-App mit Dashboard, Einkaufsliste, Essensplaner,
-Todos und Notizen – bedienbar per Web-PWA und Telegram-Bot mit
-Spracheingabe (Whisper + Claude AI).
-
-git commit -m "Initial SvelteKit setup with typescript, prettier, eslint, vitest, playwright, tailwindcss, sveltekit-adapter"
+Selbst gehostete Web-App (PWA) mit Magic-Link-Login und Nutzerverwaltung.
 
 ## Architektur
 
-Monorepo via npm Workspaces, drei Docker-Container hinter Traefik v3:
+Monorepo via npm Workspaces, ein Docker-Container hinter Traefik v3:
 
 ```
 packages/
-├── app/        SvelteKit PWA + API-Endpunkte + Auth
-├── bot/        Telegram Bot (grammy)
-├── whisper/    Speech-to-Text REST-Service (FastAPI)
-└── shared/     Geteilte TypeScript-Types
+├── app/        SvelteKit PWA + Auth
+└── shared/     Geteilte Validierungs-Konstanten
 ```
 
 ```
-Telegram ──► bot ──► whisper (STT)
-                │
-                ▼
-              Claude Haiku (Intent-Parsing)
-                │
-                ▼
-              app  ◄──► Browser (PWA)
-                │
-                ▼
-              SQLite (Drizzle ORM, named Docker Volume)
+Browser (PWA) ◄──► app (SvelteKit)
+                     │
+                     ▼
+                   SQLite (Drizzle ORM, named Docker Volume)
 ```
 
 ## Stack
 
 | Bereich | Technologie |
 |---|---|
-| Frontend + API | SvelteKit (PWA-fähig) |
+| Frontend + Backend | SvelteKit (PWA-fähig) |
 | Datenbank | SQLite via Drizzle ORM (better-sqlite3) |
 | Auth | Better Auth (Magic Link, kein Sign-up) |
-| Bot | grammy (TypeScript) |
-| Speech-to-Text | OpenAI Whisper (small, lokal) |
-| Intent-Parsing | Claude Haiku |
 | Mail | nodemailer (Hetzner SMTP) |
 | Deployment | Docker Compose + Traefik v3 (Hetzner VPS) |
 | Monorepo | npm Workspaces |
@@ -51,9 +36,6 @@ Closed App – keine anonyme Nutzung. Initial ist nur die in `.env`
 hinterlegte Admin-Mailadresse freigeschaltet; weitere User legt der Admin
 auf einer eigenen Admin-Seite an. Login erfolgt per Magic Link, ohne
 Passwort.
-
-Der Bot authentifiziert sich gegen die App-API mit einem vom Admin
-generierten Bearer-Token.
 
 ## Entwicklung
 
