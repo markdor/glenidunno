@@ -1,6 +1,6 @@
 # Local build/run of the app container, mirroring gritshot's compose.yaml.
-# The full production stack (bot + whisper + Traefik + named external volume,
-# per CLAUDE.md) comes later once those services exist.
+# The production setup (Traefik labels + named external volume, per
+# CLAUDE.md > Compose-Konventionen) is not part of this file.
 services:
   app:
     build:

@@ -28,7 +28,7 @@ Merke dir Titel, Beschreibung, Branch-Namen, geänderte Dateien und den Diff-Inh
 
 Spawne einen **Explore-Agenten** (subagent_type: `Explore`, Breadth: `medium`) mit folgendem Auftrag:
 
-> PR #$ARGUMENTS ("$PR_TITLE") ändert diese Dateien: $GEÄNDERTE_DATEIEN. Finde für jede thematisch passende bestehende Implementierungen im **übrigen** Code (nicht im PR selbst), die als Vergleichsmaßstab dienen: analoge Routen/Komponenten, bestehendes Error-Handling-Pattern, bestehende Test-Struktur, bestehende UI-Bausteine (Dashboard-Karten, Farbschema-Nutzung). Gib eine kompakte Liste mit Datei + Ein-Satz-Erklärung zurück, worin die Vergleichsstelle relevant ist.
+> PR #$ARGUMENTS ("$PR_TITLE") ändert diese Dateien: $GEÄNDERTE_DATEIEN. Finde für jede thematisch passende bestehende Implementierungen im **übrigen** Code (nicht im PR selbst), die als Vergleichsmaßstab dienen: analoge Routen/Komponenten, bestehendes Error-Handling-Pattern, bestehende Test-Struktur, bestehende UI-Bausteine (Formulare, Toast, Farbschema-Nutzung). Gib eine kompakte Liste mit Datei + Ein-Satz-Erklärung zurück, worin die Vergleichsstelle relevant ist.
 
 Warte auf das Ergebnis. Es dient als Referenz, um Konsistenz zu beurteilen – nicht nur den Diff isoliert zu betrachten.
 
@@ -46,7 +46,7 @@ Prüfe den Diff systematisch gegen jede Dimension. Nutze konkret aus CLAUDE.md a
    - CI (`gh pr checks`) grün, insbesondere Test- und Coverage-Job.
 
 2. **Security**
-   - Neue Routen respektieren den Closed-App-Auth-Guard; neue `/api/*`-Endpunkte prüfen den Bot-Token per Bearer + `timingSafeEqual`, nicht per einfachem String-Vergleich.
+   - Neue Routen respektieren den Closed-App-Auth-Guard.
    - Eingabevalidierung nutzt geteilte Konstanten aus `packages/shared` statt Magic Numbers je Schicht.
    - Keine internen Fehlertexte/Stacktraces, die an den Client durchgereicht werden.
    - Bei neuen Auth-/Rate-Limiting-relevanten Routen: Rate-Limits bedacht, Timing-Equalization bei sicherheitskritischen Vergleichen (z. B. Enumeration).
@@ -55,9 +55,8 @@ Prüfe den Diff systematisch gegen jede Dimension. Nutze konkret aus CLAUDE.md a
 
 3. **UX-Konsistenz**
    - Mobile-first, großzügige Touch-Targets, Desktop nur nachrangig.
-   - Eukalyptus-/Salbei-Farbschema (`layout.css`) eingehalten, keine neuen Ad-hoc-Farben; semantische Akzente (Amber „heute", Brand-Grün) nur für Status.
+   - Eukalyptus-/Salbei-Farbschema (`layout.css`) eingehalten, keine neuen Ad-hoc-Farben; semantische Akzente (Amber für Hinweise, Brand-Grün) nur für Status.
    - UI-Texte auf Deutsch, Code/Kommentare auf Englisch.
-   - Neue Dashboard-Bausteine folgen dem Modul-Karten-Muster (Icon, Titel, Status-Pille, 2–3 Zeilen Vorschau), falls zutreffend.
 
 4. **Clean Code**
    - Sprechende Namen, keine überflüssigen Kommentare (nur WHY bei nicht-offensichtlichen Constraints).
