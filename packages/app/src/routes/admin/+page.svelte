@@ -293,13 +293,13 @@
 									Bearbeiten
 								</button>
 								{#if u.id !== data.user?.id}
+									<!-- cancel(), not preventDefault() in onsubmit: enhance ignores
+									     defaultPrevented and would send the request anyway. -->
 									<form
 										method="POST"
 										action="?/delete"
-										use:enhance
-										onsubmit={(e) => {
-											if (!confirm(`Benutzer „${u.username}" wirklich löschen?`))
-												e.preventDefault();
+										use:enhance={({ cancel }) => {
+											if (!confirm(`Benutzer „${u.username}" wirklich löschen?`)) cancel();
 										}}
 									>
 										<input type="hidden" name="id" value={u.id} />
