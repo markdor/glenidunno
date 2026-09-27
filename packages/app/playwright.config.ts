@@ -1,9 +1,10 @@
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-	globalSetup: './playwright.global-setup.ts',
 	webServer: {
-		command: 'npm run build && npm run preview',
+		// Reset before the server starts – see playwright.reset-e2e.ts for why
+		// this can't be a globalSetup.
+		command: 'node playwright.reset-e2e.ts && npm run build && npm run preview',
 		port: 4173,
 		env: {
 			BASE_URL: 'http://localhost:4173',
@@ -11,7 +12,7 @@ export default defineConfig({
 			// Host-side SQLite file (admin bootstrap, whitelist) lives here.
 			DB_PATH: './e2e.db',
 			// Tokens are stored hashed, so the plaintext magic-link URL is captured
-			// here instead of read back from the DB (see playwright.global-setup.ts).
+			// here instead of read back from the DB (see playwright.reset-e2e.ts).
 			MAGIC_LINK_DEBUG_PATH: './e2e-magic-link.log',
 			// Admin gets bootstrapped into the user table on boot -> whitelisted,
 			// so this address may request a magic link.
