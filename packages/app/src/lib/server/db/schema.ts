@@ -84,24 +84,7 @@ export const magicLinkThrottle = sqliteTable('magic_link_throttle', {
 	windowStart: integer('window_start', { mode: 'timestamp' }).notNull()
 });
 
-// Shared family shopping list – not per-user. Mirrors the `ShoppingItem` domain
-// type in @dahamm/shared (id, name, done, createdAt); the API and bot derive
-// from the same shape.
-export const shoppingItem = sqliteTable('shopping_item', {
-	id: text('id').primaryKey(),
-	name: text('name').notNull(),
-	done: integer('done', { mode: 'boolean' }).notNull().default(false),
-	// Millisecond precision so „newest first" stays deterministic even when
-	// several items are added within the same second (e.g. a bot batch from one
-	// message). SQL column stays `integer` – this only changes Date ↔ int scaling.
-	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-	// Null while open. Set when checked off, cleared on reopen – the sort key
-	// for the "erledigt" list (completion order, not creation order).
-	completedAt: integer('completed_at', { mode: 'timestamp_ms' })
-});
-
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
 export type Session = typeof session.$inferSelect;
 export type BotToken = typeof botToken.$inferSelect;
-export type ShoppingItemRow = typeof shoppingItem.$inferSelect;
