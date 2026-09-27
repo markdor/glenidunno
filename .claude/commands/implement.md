@@ -43,7 +43,7 @@ Spawne einen **Explore-Agenten** (subagent_type: `Explore`, Breadth: `medium`) m
 > Analysiere den Code für Issue #$ARGUMENTS ("$ISSUE_TITLE"). Finde:
 > 1. Betroffene Routen und SvelteKit-Komponenten (pages, layouts, +page.svelte, +server.ts)
 > 2. Betroffenes Drizzle-Datenbankschema (src/lib/server/db/schema.ts) und ob eine neue Migration nötig ist
-> 3. Betroffene API-Endpunkte (src/routes/api/) bzw. geteilte Typen/Konstanten in src/lib/validation.ts
+> 3. Betroffene oder neu nötige geteilte Typen/Konstanten zentral in `$lib` (Validierungs-Constraints in src/lib/validation.ts)
 > 4. Bestehende ähnliche Implementierungen, die als Vorlage für Struktur, Error-Handling und Tests dienen können
 > 5. Auth/Security-Relevanz: Auth-Guard, Validierung, Rate-Limiting nötig?
 > 6. Betroffene Tests: welche `*.svelte.test.ts` (client) bzw. `*.test.ts` (server) müssten neu geschrieben oder angepasst werden, inkl. grober Einschätzung zur Coverage-Gate-Auswirkung (>85 %)
@@ -60,7 +60,7 @@ Kombiniere Issue-Inhalt + Codebase-Analyse zu einem konkreten Schritt-für-Schri
 - jedes Akzeptanzkriterium des Issues auf mindestens einen Umsetzungsschritt abbilden (nichts darf ohne Abdeckung bleiben) – merke dir diese Zuordnung Schritt → Akzeptanzkriterium/-ien explizit, sie wird in Phase 6 gebraucht,
 - neue/geänderte Dateien explizit benennen (Pfad + Zweck),
 - Reihenfolge sinnvoll wählen (z. B. Schema/Migration → API-Endpoint → UI → Tests, oder TDD-Reihenfolge falls passend),
-- CLAUDE.md-Konventionen respektieren: geteilte Typen/Konstanten in `src/lib/validation.ts` (client-tauglich, nicht unter `$lib/server`), typisierte Fehlerklassen mit `userMessage`, pino-Logging, Vitest-Projektaufteilung (client/server), Playwright nur bei kritischen Flows,
+- CLAUDE.md-Konventionen respektieren: geteilte Typen/Konstanten zentral in `$lib` (Validierungs-Constraints in `src/lib/validation.ts`, client-tauglich, nicht unter `$lib/server`), typisierte Fehlerklassen mit `userMessage`, pino-Logging, Vitest-Projektaufteilung (client/server), Playwright nur bei kritischen Flows,
 - Security-relevante Punkte (Auth-Guard, Validierung, Rate-Limiting) als eigene Schritte ausweisen, falls die Analyse sie identifiziert hat,
 - am Ende einen Schritt für Tests/Coverage-Check enthalten.
 
