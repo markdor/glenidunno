@@ -57,7 +57,8 @@ const emailRateLimit = magicLinkDebugPath
 	: MAGIC_LINK_EMAIL_LIMIT;
 
 export const auth = betterAuth({
-	// Mounted at /auth so the /api/* namespace stays free for the bot endpoints.
+	// Mounted at /auth instead of Better Auth's default /api/auth; the closed-app
+	// guard treats /auth/* as public (see guard.ts).
 	basePath: '/auth',
 	database: drizzleAdapter(db, { provider: 'sqlite' }),
 	secret,
@@ -73,8 +74,7 @@ export const auth = betterAuth({
 	user: {
 		additionalFields: {
 			username: { type: 'string', required: true, input: false },
-			isAdmin: { type: 'boolean', required: false, defaultValue: false, input: false },
-			telegramUserId: { type: 'string', required: false, input: false }
+			isAdmin: { type: 'boolean', required: false, defaultValue: false, input: false }
 		}
 	},
 	session: {

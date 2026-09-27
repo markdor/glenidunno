@@ -15,12 +15,11 @@ describe('root layout load', () => {
 					id: 'u1',
 					username: 'maxi',
 					isAdmin: true,
-					email: 'secret@dahamm.de',
-					telegramUserId: '999'
+					email: 'secret@dahamm.de'
 				}
 			}
 		} as unknown as Arg);
-		// No email / telegram id leaks into the client payload.
+		// No email leaks into the client payload.
 		expect(result).toEqual({ user: { id: 'u1', username: 'maxi', isAdmin: true } });
 	});
 });

@@ -15,7 +15,6 @@ const adminUser = {
 	email: 'admin@dahamm.de',
 	username: 'admin',
 	isAdmin: true,
-	telegramUserId: null,
 	createdAt: new Date('2026-01-01')
 };
 
@@ -24,7 +23,6 @@ const kidUser = {
 	email: 'kid@dahamm.de',
 	username: 'kid',
 	isAdmin: false,
-	telegramUserId: '12345',
 	createdAt: new Date('2026-02-01')
 };
 
@@ -92,7 +90,6 @@ describe('Admin page', () => {
 				id: 'u2',
 				email: 'bad',
 				username: 'kid',
-				telegramUserId: '',
 				fieldErrors: { [field]: code }
 			}
 		});
@@ -109,7 +106,6 @@ describe('Admin page', () => {
 				action: 'create',
 				email: 'bad',
 				username: '',
-				telegramUserId: '',
 				fieldErrors: { email: 'invalid', username: 'required' }
 			}
 		});

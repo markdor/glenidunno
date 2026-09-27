@@ -85,23 +85,7 @@
 						<p class="text-xs text-red-600">{fieldError('username')}</p>
 					{/if}
 				</div>
-				<div class="space-y-1">
-					<label for="c-telegram" class="block text-sm font-medium text-slate-700">
-						Telegram User-ID
-					</label>
-					<input
-						id="c-telegram"
-						name="telegramUserId"
-						inputmode="numeric"
-						placeholder="optional"
-						value={form?.action === 'create' ? (form?.telegramUserId ?? '') : ''}
-						class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-					/>
-					{#if form?.action === 'create' && fieldError('telegramUserId')}
-						<p class="text-xs text-red-600">{fieldError('telegramUserId')}</p>
-					{/if}
-				</div>
-				<label class="flex items-center gap-2 self-end py-2 text-sm text-slate-700">
+				<label class="flex items-center gap-2 py-2 text-sm text-slate-700 sm:col-span-2">
 					<input name="isAdmin" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
 					Admin
 				</label>
@@ -152,16 +136,7 @@
 										: u.username}
 									class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
 								/>
-								<input
-									name="telegramUserId"
-									inputmode="numeric"
-									placeholder="optional"
-									value={form?.action === 'update' && form?.id === u.id
-										? (form.telegramUserId ?? '')
-										: (u.telegramUserId ?? '')}
-									class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-								/>
-								<label class="flex items-center gap-2 self-center text-sm text-slate-700">
+								<label class="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
 									<input
 										name="isAdmin"
 										type="checkbox"
@@ -177,7 +152,7 @@
 							</div>
 							{#if form?.action === 'update' && form?.id === u.id && form?.fieldErrors}
 								<p class="text-xs text-red-600">
-									{fieldError('email') ?? fieldError('username') ?? fieldError('telegramUserId')}
+									{fieldError('email') ?? fieldError('username')}
 								</p>
 							{/if}
 							<div class="flex gap-2">
@@ -211,9 +186,7 @@
 									{/if}
 								</p>
 								<p class="truncate text-sm text-slate-500">{u.email}</p>
-								<p class="text-xs text-slate-400">
-									Telegram: {u.telegramUserId ?? '–'} · seit {fmtDate(u.createdAt)}
-								</p>
+								<p class="text-xs text-slate-400">seit {fmtDate(u.createdAt)}</p>
 							</div>
 							<div class="flex shrink-0 gap-2">
 								<button

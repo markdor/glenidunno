@@ -11,9 +11,7 @@ export const user = sqliteTable('user', {
 	// Whitelist + profile fields live directly on the Better Auth user table
 	// (no separate whitelist table): a row here means the address may log in.
 	username: text('username').notNull().unique(),
-	isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
-	// Optional – users without bot access are allowed.
-	telegramUserId: text('telegram_user_id').unique()
+	isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false)
 });
 
 export const session = sqliteTable('session', {
