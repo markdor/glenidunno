@@ -5,29 +5,8 @@
 		{
 			"idx": 0,
 			"version": "6",
-			"when": 1781704719526,
-			"tag": "0000_initial_auth_schema",
-			"breakpoints": true
-		},
-		{
-			"idx": 1,
-			"version": "6",
-			"when": 1782213390628,
-			"tag": "0001_free_lucky_pierre",
-			"breakpoints": true
-		},
-		{
-			"idx": 2,
-			"version": "6",
-			"when": 1782475933976,
-			"tag": "0002_melodic_magma",
-			"breakpoints": true
-		},
-		{
-			"idx": 3,
-			"version": "6",
-			"when": 1788159382246,
-			"tag": "0003_robust_daredevil",
+			"when": 1790506422594,
+			"tag": "0000_initial_schema",
 			"breakpoints": true
 		}
 	]
