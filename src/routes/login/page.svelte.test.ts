@@ -20,6 +20,7 @@ describe('Login page', () => {
 	test('renders the email form by default', async () => {
 		render(Page, { data: { user: null, error: null } });
 		await expect.element(page.getByRole('heading', { name: 'Glen Idunno' })).toBeVisible();
+		await expect.element(page.getByRole('img', { name: 'Glen Idunno' })).toBeVisible();
 		await expect.element(page.getByLabelText('E-Mail')).toBeVisible();
 		await expect.element(page.getByRole('button', { name: 'Link anfordern' })).toBeVisible();
 	});

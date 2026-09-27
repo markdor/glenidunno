@@ -4,6 +4,15 @@ import { page } from 'vitest/browser';
 import Header from './Header.svelte';
 
 describe('Header', () => {
+	test('links the app name to the start page with a decorative mark', async () => {
+		render(Header, { user: { username: 'maxi', isAdmin: false } });
+
+		const home = page.getByRole('link', { name: 'Glen Idunno' });
+		await expect.element(home).toHaveAttribute('href', '/');
+		// The mark is decorative – the text next to it is the accessible name.
+		expect(home.element().querySelector('img')?.getAttribute('alt')).toBe('');
+	});
+
 	test('shows the username and keeps the menu closed initially', async () => {
 		render(Header, { user: { username: 'maxi', isAdmin: false } });
 

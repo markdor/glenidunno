@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { ChevronDown } from '@lucide/svelte';
+	import mark from '$lib/assets/glen-idunno-mark.svg';
 
 	type HeaderUser = { username: string; isAdmin: boolean };
 	let { user }: { user: HeaderUser } = $props();
@@ -10,7 +11,12 @@
 
 <header class="border-b border-slate-200 bg-white">
 	<div class="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
-		<a href={resolve('/')} class="text-lg font-semibold tracking-tight text-slate-900">
+		<a
+			href={resolve('/')}
+			class="flex items-center gap-2 py-1.5 text-lg font-semibold tracking-tight text-slate-900"
+		>
+			<!-- Decorative: the text next to it is the link's accessible name. -->
+			<img src={mark} alt="" width="32" height="32" class="h-8 w-8" />
 			Glen Idunno
 		</a>
 
