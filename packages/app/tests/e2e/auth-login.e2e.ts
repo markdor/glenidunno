@@ -39,7 +39,7 @@ test.describe('Magic-Link-Login', () => {
 		// Always the same (neutral) confirmation – regardless of whitelist hit or miss.
 		await expect(page.getByRole('status')).toContainText(/wurde ein Link verschickt/i);
 
-		// Follow the link -> session cookie set, redirect to the dashboard.
+		// Follow the link -> session cookie set, redirect to the start page.
 		const magicLink = await waitForNewMagicLink(linesBefore);
 		await page.goto(magicLink);
 		await expect(page).toHaveURL(new URL('/', baseURL!).toString());

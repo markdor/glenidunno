@@ -31,7 +31,7 @@ Merke dir Titel, Body und Labels des Issues.
 Dieser Skill arbeitet **niemals direkt auf `main`**. Prüfe den aktuellen Branch (`git branch --show-current`):
 
 - **Branch beginnt bereits mit `feat/`**: weiter mit Phase 3, kein Wechsel nötig.
-- **Branch ist `main`**: Leite aus dem Issue-Titel einen sprechenden Slug ab (klein geschrieben, Umlaute transkribiert `ä→ae`, `ö→oe`, `ü→ue`, `ß→ss`, Nicht-alphanumerische Zeichen durch `-` ersetzt, keine doppelten/führenden/abschließenden Bindestriche) und erstelle daraus `feat/$ARGUMENTS-<slug>` (z. B. Issue #12 „Einkaufsliste ↔ Essensplaner Integration" → `feat/12-einkaufsliste-essensplaner-integration`). Erstelle den Branch mit `git checkout -b feat/$ARGUMENTS-<slug>` und teile dem User kurz mit, welcher Branch angelegt wurde.
+- **Branch ist `main`**: Leite aus dem Issue-Titel einen sprechenden Slug ab (klein geschrieben, Umlaute transkribiert `ä→ae`, `ö→oe`, `ü→ue`, `ß→ss`, Nicht-alphanumerische Zeichen durch `-` ersetzt, keine doppelten/führenden/abschließenden Bindestriche) und erstelle daraus `feat/$ARGUMENTS-<slug>` (z. B. Issue #3 „Rückbau auf Login und Admin-Seite" → `feat/3-rueckbau-auf-login-und-admin-seite`). Erstelle den Branch mit `git checkout -b feat/$ARGUMENTS-<slug>` und teile dem User kurz mit, welcher Branch angelegt wurde.
 - **Branch ist weder `main` noch `feat/*`**: Brich ab und frage den User per `AskUserQuestion`, ob er zu `main` wechseln möchte (damit der Skill automatisch einen passenden `feat/`-Branch anlegt) oder manuell zu einem bestehenden `feat/`-Branch wechselt. Lege selbstständig keinen Branch von einem fremden Branch aus an.
 
 ---

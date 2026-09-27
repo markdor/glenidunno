@@ -1,11 +1,10 @@
 import { fail, type Actions, type ServerLoad } from '@sveltejs/kit';
 import { asc, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { isValidEmail, USERNAME_RE, TELEGRAM_RE } from '@dahamm/shared';
+import { isValidEmail, USERNAME_RE } from '@dahamm/shared';
 import { db } from '$lib/server/db';
 import { user } from '$lib/server/db/schema';
 import { requireAdmin } from '$lib/server/authGuards';
-import { generateBotToken, getBotTokenStatus, revokeBotToken } from '$lib/server/botToken';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/server/errorMessages';
 import { logger } from '$lib/server/logger';
 
@@ -17,25 +16,22 @@ export const load: ServerLoad = ({ locals }) => {
 			email: user.email,
 			username: user.username,
 			isAdmin: user.isAdmin,
-			telegramUserId: user.telegramUserId,
 			createdAt: user.createdAt
 		})
 		.from(user)
 		.orderBy(asc(user.createdAt))
 		.all();
-	return { users, botToken: getBotTokenStatus(db) };
+	return { users };
 };
 
-type Fields = { email: string; username: string; telegramUserId: string | null };
+type Fields = { email: string; username: string };
 
 function validate(
 	rawEmail: string,
-	rawUsername: string,
-	rawTelegram: string
+	rawUsername: string
 ): Fields & { fieldErrors: Record<string, string> } {
 	const email = rawEmail.trim().toLowerCase();
 	const username = rawUsername.trim();
-	const telegram = rawTelegram.trim();
 	const fieldErrors: Record<string, string> = {};
 
 	if (!email) fieldErrors.email = 'required';
@@ -44,16 +40,11 @@ function validate(
 	if (!username) fieldErrors.username = 'required';
 	else if (!USERNAME_RE.test(username)) fieldErrors.username = 'invalid';
 
-	// Telegram ID is optional (users without bot access are allowed).
-	if (telegram && !TELEGRAM_RE.test(telegram)) fieldErrors.telegramUserId = 'invalid';
-
-	return { email, username, telegramUserId: telegram || null, fieldErrors };
+	return { email, username, fieldErrors };
 }
 
-function uniqueColumn(message: string): 'email' | 'username' | 'telegramUserId' {
-	if (message.includes('telegram')) return 'telegramUserId';
-	if (message.includes('username')) return 'username';
-	return 'email';
+function uniqueColumn(message: string): 'email' | 'username' {
+	return message.includes('username') ? 'username' : 'email';
 }
 
 export const actions: Actions = {
@@ -62,20 +53,14 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const rawEmail = String(form.get('email') ?? '');
 		const rawUsername = String(form.get('username') ?? '');
-		const rawTelegram = String(form.get('telegramUserId') ?? '');
 		const isAdmin = form.get('isAdmin') === 'on';
 
-		const { email, username, telegramUserId, fieldErrors } = validate(
-			rawEmail,
-			rawUsername,
-			rawTelegram
-		);
+		const { email, username, fieldErrors } = validate(rawEmail, rawUsername);
 		if (Object.keys(fieldErrors).length > 0) {
 			return fail(400, {
 				action: 'create',
 				email: rawEmail,
 				username: rawUsername,
-				telegramUserId: rawTelegram,
 				fieldErrors
 			});
 		}
@@ -90,7 +75,6 @@ export const actions: Actions = {
 					emailVerified: true,
 					username,
 					isAdmin,
-					telegramUserId,
 					createdAt: now,
 					updatedAt: now
 				})
@@ -102,7 +86,6 @@ export const actions: Actions = {
 					action: 'create',
 					email: rawEmail,
 					username: rawUsername,
-					telegramUserId: rawTelegram,
 					fieldErrors: { [uniqueColumn(message)]: 'taken' }
 				});
 			}
@@ -119,7 +102,6 @@ export const actions: Actions = {
 		const id = String(form.get('id') ?? '');
 		const rawEmail = String(form.get('email') ?? '');
 		const rawUsername = String(form.get('username') ?? '');
-		const rawTelegram = String(form.get('telegramUserId') ?? '');
 		const isAdmin = form.get('isAdmin') === 'on';
 
 		if (!id)
@@ -128,18 +110,13 @@ export const actions: Actions = {
 				userMessage: 'Eintrag konnte nicht verarbeitet werden.'
 			});
 
-		const { email, username, telegramUserId, fieldErrors } = validate(
-			rawEmail,
-			rawUsername,
-			rawTelegram
-		);
+		const { email, username, fieldErrors } = validate(rawEmail, rawUsername);
 		if (Object.keys(fieldErrors).length > 0) {
 			return fail(400, {
 				action: 'update',
 				id,
 				email: rawEmail,
 				username: rawUsername,
-				telegramUserId: rawTelegram,
 				fieldErrors
 			});
 		}
@@ -155,7 +132,6 @@ export const actions: Actions = {
 					email,
 					username,
 					name: username,
-					telegramUserId,
 					isAdmin: finalIsAdmin,
 					updatedAt: new Date()
 				})
@@ -176,7 +152,6 @@ export const actions: Actions = {
 					id,
 					email: rawEmail,
 					username: rawUsername,
-					telegramUserId: rawTelegram,
 					fieldErrors: { [uniqueColumn(message)]: 'taken' }
 				});
 			}
@@ -222,28 +197,5 @@ export const actions: Actions = {
 		}
 
 		return { action: 'delete', deleted: true };
-	},
-
-	generateToken: async ({ locals }) => {
-		requireAdmin(locals);
-		try {
-			// Plaintext is returned exactly once; only the hash is stored.
-			const token = generateBotToken(db);
-			return { action: 'generateToken', token };
-		} catch (err) {
-			logger.error({ err }, 'admin generate bot token failed');
-			return fail(500, { action: 'generateToken', userMessage: UNEXPECTED_ERROR_MESSAGE });
-		}
-	},
-
-	revokeToken: async ({ locals }) => {
-		requireAdmin(locals);
-		try {
-			revokeBotToken(db);
-			return { action: 'revokeToken', revoked: true };
-		} catch (err) {
-			logger.error({ err }, 'admin revoke bot token failed');
-			return fail(500, { action: 'revokeToken', userMessage: UNEXPECTED_ERROR_MESSAGE });
-		}
 	}
 };

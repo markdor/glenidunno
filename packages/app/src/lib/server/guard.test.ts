@@ -1,102 +1,74 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateGuard, isApiPath } from './guard';
+import { evaluateGuard } from './guard';
 
 describe('evaluateGuard', () => {
-	describe('/api/* (bot surface)', () => {
-		it('resolves when the bearer token is valid', () => {
-			expect(
-				evaluateGuard('/api/shopping', { authenticated: false, bearerAuthorized: true })
-			).toEqual({ action: 'resolve' });
-		});
-
-		it('returns unauthorized without a valid bearer token', () => {
-			expect(
-				evaluateGuard('/api/shopping', { authenticated: false, bearerAuthorized: false })
-			).toEqual({ action: 'unauthorized' });
-		});
-
-		it('does not fall back to the session for /api/* (no redirect)', () => {
-			// Even a logged-in browser session must present the bearer token here.
-			expect(evaluateGuard('/api/todos', { authenticated: true, bearerAuthorized: false })).toEqual(
-				{ action: 'unauthorized' }
-			);
-		});
-	});
-
 	describe('public routes', () => {
 		it('lets unauthenticated users reach /login', () => {
-			expect(evaluateGuard('/login', { authenticated: false, bearerAuthorized: false })).toEqual({
-				action: 'resolve'
-			});
+			expect(evaluateGuard('/login', { authenticated: false })).toEqual({ action: 'resolve' });
 		});
 
 		it('lets unauthenticated requests reach /health (container healthcheck)', () => {
-			expect(evaluateGuard('/health', { authenticated: false, bearerAuthorized: false })).toEqual({
-				action: 'resolve'
-			});
+			expect(evaluateGuard('/health', { authenticated: false })).toEqual({ action: 'resolve' });
 		});
 
 		it('lets Better Auth endpoints through', () => {
-			expect(
-				evaluateGuard('/auth/sign-in/magic-link', { authenticated: false, bearerAuthorized: false })
-			).toEqual({ action: 'resolve' });
+			expect(evaluateGuard('/auth/sign-in/magic-link', { authenticated: false })).toEqual({
+				action: 'resolve'
+			});
 		});
 
 		it('treats the bare /auth path as public', () => {
-			expect(evaluateGuard('/auth', { authenticated: false, bearerAuthorized: false })).toEqual({
-				action: 'resolve'
-			});
+			expect(evaluateGuard('/auth', { authenticated: false })).toEqual({ action: 'resolve' });
 		});
 	});
 
 	describe('prefix matching does not leak (fail-open) to sibling paths', () => {
 		it('does not treat /author as a public Better Auth endpoint', () => {
 			// startsWith('/auth') would wrongly let this through unauthenticated.
-			expect(evaluateGuard('/author', { authenticated: false, bearerAuthorized: false })).toEqual({
+			expect(evaluateGuard('/author', { authenticated: false })).toEqual({
 				action: 'redirect',
 				location: '/login'
 			});
 		});
 
 		it('does not treat /healthcheck as the public /health path', () => {
-			expect(
-				evaluateGuard('/healthcheck', { authenticated: false, bearerAuthorized: false })
-			).toEqual({ action: 'redirect', location: '/login' });
-		});
-
-		it('does not treat /apidocs as the bot surface', () => {
-			expect(isApiPath('/apidocs')).toBe(false);
-			expect(evaluateGuard('/apidocs', { authenticated: false, bearerAuthorized: false })).toEqual({
+			expect(evaluateGuard('/healthcheck', { authenticated: false })).toEqual({
 				action: 'redirect',
 				location: '/login'
 			});
-		});
-
-		it('recognises /api itself and sub-paths as the bot surface', () => {
-			expect(isApiPath('/api')).toBe(true);
-			expect(isApiPath('/api/shopping')).toBe(true);
 		});
 	});
 
 	describe('protected routes', () => {
 		it('redirects unauthenticated users to /login', () => {
-			expect(evaluateGuard('/', { authenticated: false, bearerAuthorized: false })).toEqual({
+			expect(evaluateGuard('/', { authenticated: false })).toEqual({
 				action: 'redirect',
 				location: '/login'
 			});
 		});
 
 		it('redirects unauthenticated users away from /admin', () => {
-			expect(evaluateGuard('/admin', { authenticated: false, bearerAuthorized: false })).toEqual({
+			expect(evaluateGuard('/admin', { authenticated: false })).toEqual({
 				action: 'redirect',
 				location: '/login'
 			});
 		});
 
 		it('resolves for an authenticated user', () => {
-			expect(evaluateGuard('/admin', { authenticated: true, bearerAuthorized: false })).toEqual({
-				action: 'resolve'
+			expect(evaluateGuard('/admin', { authenticated: true })).toEqual({ action: 'resolve' });
+		});
+
+		// /api/* gets no special treatment: it must fall under the normal session
+		// guard like any other route, never become a public path.
+		it.each(['/api', '/api/users'])('redirects unauthenticated requests to %s', (path) => {
+			expect(evaluateGuard(path, { authenticated: false })).toEqual({
+				action: 'redirect',
+				location: '/login'
 			});
+		});
+
+		it('resolves /api/* only for an authenticated user', () => {
+			expect(evaluateGuard('/api/users', { authenticated: true })).toEqual({ action: 'resolve' });
 		});
 	});
 });

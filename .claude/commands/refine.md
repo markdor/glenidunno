@@ -30,7 +30,7 @@ Stelle dem User **3–4 gezielte Fragen** via `AskUserQuestion`. Wähle nur die 
 
 - **Motivation**: Warum brauchen wir das? Welches Problem löst es konkret?
 - **Akzeptanzkriterien**: Was muss am Ende funktionieren, damit das Issue als „done" gilt?
-- **UX/Interaktion**: Wie stellt du dir die Bedienung vor? Gibt es Mockups oder Vorgaben aus dem Dashboard-Konzept?
+- **UX/Interaktion**: Wie stellt du dir die Bedienung vor? Gibt es Mockups oder bestehende Seiten als Vorlage?
 - **Scope-Abgrenzung**: Was gehört explizit *nicht* in dieses Issue?
 - **Priorität/Abhängigkeiten**: Hängt das von einem anderen Issue ab? Gibt es eine Deadline?
 
@@ -61,7 +61,7 @@ Kombiniere Interview-Antworten + Codebase-Analyse zu einem vollständig ausformu
 
 ```markdown
 ## Kontext & Motivation
-<!-- Warum brauchen wir das? Welches Problem löst es für die Familie? -->
+<!-- Warum brauchen wir das? Welches Problem löst es für die Nutzer? -->
 
 ## Ziel
 <!-- Ein-Satz-Zusammenfassung: Was soll am Ende möglich sein? -->
@@ -72,14 +72,14 @@ Kombiniere Interview-Antworten + Codebase-Analyse zu einem vollständig ausformu
 
 ## UI / UX
 <!-- Beschreibung der Interaktion, betroffene Seiten, Navigation, Touch-Targets -->
-<!-- Verweis auf Dashboard-Mockup oder bestehende Seiten als Vorlage, falls passend -->
+<!-- Verweis auf Mockups oder bestehende Seiten als Vorlage, falls passend -->
 
 ## Technischer Kontext
 <!-- Betroffene Dateien (mit Pfad), Schema-Änderungen, neue/geänderte API-Endpoints -->
 <!-- Beispiel:
-- `src/routes/shopping/+page.svelte` – neue Seite, analog zu Dashboard-Karte
-- `src/lib/server/db/schema.ts` – kein Schema-Change nötig
-- `src/routes/api/shopping/+server.ts` – bestehender Endpoint ausreichend
+- `src/routes/admin/+page.svelte` – neues Formularfeld, analog zu den bestehenden Feldern
+- `src/lib/server/db/schema.ts` – neue Spalte am `user`-Table, Migration via `drizzle-kit generate`
+- `src/lib/server/guard.ts` – kein neuer öffentlicher Pfad nötig
 -->
 
 ## Sicherheits- & Qualitätshinweise

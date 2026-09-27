@@ -1,6 +1,6 @@
 # Dahamm – CLAUDE.md
 
-Selbst gehostete Familien-App mit Dashboard, Einkaufsliste, Essensplaner und Todos.
+Selbst gehostete Web-App (PWA) mit Magic-Link-Login, Nutzerverwaltung und Startseite.
 
 ---
 
@@ -8,8 +8,8 @@ Selbst gehostete Familien-App mit Dashboard, Einkaufsliste, Essensplaner und Tod
 
 ```
 packages/
-├── app/        # SvelteKit PWA + API-Endpunkte + Auth
-└── shared/     # Geteilte TypeScript-Types
+├── app/        # SvelteKit PWA + Auth
+└── shared/     # Geteilte Validierungs-Konstanten
 ```
 
 Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
@@ -20,7 +20,7 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
 
 | Bereich | Technologie |
 |---|---|
-| Frontend + API | SvelteKit (PWA-fähig) |
+| Frontend + Backend | SvelteKit (PWA-fähig) |
 | Datenbank | SQLite via Drizzle ORM |
 | Auth | Magic Link via nodemailer (Hetzner SMTP) |
 | Deployment | Docker Compose + Traefik v3 (Hetzner VPS) |
@@ -31,7 +31,7 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
 ## Services (Docker Compose)
 
 ### `app` – SvelteKit
-- Dashboard mit dem Modul: Einkaufsliste
+- Startseite, Login und Admin-Seite (Nutzerverwaltung)
 - Auth: Magic Link per Mail (nodemailer + Hetzner SMTP)
 - Session-Dauer: 30 Tage Cookie
 - SQLite-Datei liegt in einem Named Docker Volume unter `/app/data/dahamm.db`
@@ -43,7 +43,7 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
 - Klar und minimalistisch, kein visuelles Rauschen
 - **Mobile-first** – primäres Endgerät ist das Smartphone, Touch-Targets großzügig
 - Desktop-Layout darf vorhanden sein, hat aber niedrigere Priorität
-- Farbschema: gedeckte Eukalyptus-/Salbei-Palette (slate-Skala überschrieben, siehe `layout.css`), semantische Akzente nur für Status (Amber „heute", Brand-Grün für Hauptaktion)
+- Farbschema: gedeckte Eukalyptus-/Salbei-Palette (slate-Skala überschrieben, siehe `layout.css`), semantische Akzente nur für Status (Amber für Hinweise, Brand-Grün für Hauptaktion)
 
 ### Icons
 
@@ -52,36 +52,26 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
 
   | Verwendung | Beispiele | `size` | `strokeWidth` |
   |---|---|---|---|
-  | Primäre Buttons | `ShoppingCart`, `Plus` | `20` | `2` |
+  | Primäre Buttons | `Plus` | `20` | `2` |
   | Sekundär (Dropdown-Indikator) | `ChevronDown` | `16` | `2` |
   | Inline-Status (klein, kräftig) | `Check` | `14` | `3` |
   | Toast-Leiticon (visueller Anker) | `CircleAlert`, `CircleCheck`, `Info` | `20` | `2` |
   | Toast-Schließen-Button | `X` | `16` | `2` |
 - Keine eigene Icon-Wrapper-Komponente – bei der aktuell überschaubaren Anzahl an Vorkommen reicht die direkte `size`/`strokeWidth`-Prop-Vergabe an der jeweiligen Nutzungsstelle; eine Abstraktion erst einführen, falls sich das Muster wiederholt.
 
-### Dashboard (Startseite `/`)
+### Startseite (`/`)
 
-Überblicks-Seite, keine Arbeitsfläche. Aufbau von oben nach unten:
+Reine Begrüßungsseite, keine Arbeitsfläche. Aufbau von oben nach unten:
 
 1. **Header** – App-Name links, Username-Dropdown rechts (Logout, ggf. Admin)
-2. **Begrüßung** + Datum
-3. **Quick-Add** – ein Eingabefeld zum schnellen Hinzufügen; ein Icon-Button links zeigt/wechselt das Ziel (Einkaufsliste, später Todos/Essensplaner), der „+"-Button rechts fügt den Eintrag direkt zum aktuell gewählten Ziel hinzu
-4. **Modul-Karten** (je eine pro Modul, antippbar → Detailseite), jeweils mit Icon, Titel,
-   Status-Pille (offene Anzahl) und 2–3 Zeilen Vorschau:
-   - Einkaufsliste (offene Posten)
+2. **Begrüßung** „Hallo {username} 👋"
+3. **Leerzustand-Hinweis** – eine gedämpfte Zeile (`text-slate-500`), keine Module oder Karten
 
-Referenz-Mockup (heller Modus, Eukalyptus): ![Dahamm Dashboard Mockup](docs/ui/dashboard-mockup.png)
+### Komponenten-Konventionen
 
-### Einkaufsliste-Detailseite (`/shopping`)
-
-Vollbild-Ansicht der Einkaufsliste, erreichbar per Klick auf die Dashboard-Card (`ShoppingCard.svelte`).
-
-- **Zwei lokale Listen statt `invalidateAll()`**: Die Seite hält `openItems`/`doneItems` als eigene `$state`-Arrays (initial aus `load()` bzw. lazy aus der `loadMoreDone`-Action befüllt) statt sich nach jedem Toggle per `invalidateAll()` neu vom Server laden zu lassen. Grund: Beim Abhaken/Wiedereröffnen soll der Posten **live** in die jeweils andere Liste wandern (offene Liste sortiert nach `createdAt`, erledigte Liste nach `completedAt` eingefügt – generische `insertSortedDesc(list, entry, key)`-Hilfsfunktion für beide Richtungen), auch wenn diese gerade sichtbar ist – ein reiner Reload der offenen Liste (wie bei `ShoppingCard.svelte`) würde die bereits geladene, paginierte erledigte Liste nicht mitaktualisieren.
-  - **Kante:** Ein live eingefügter Posten kann einen `completedAt`-Wert unterhalb des aktuellen Keyset-Cursors der erledigten Liste haben. Eine spätere „Mehr laden"-Seite dedupliziert deshalb per `id`, bevor sie angehängt wird.
-  - **`completedAt` statt `createdAt` als Sortierschlüssel der erledigten Liste** (eigene, nullable Spalte auf `shoppingItem`, gesetzt von `completeShoppingItem()`/`uncompleteShoppingItem()` in `shoppingItems.ts`): Ursprünglich sortierte die erledigte Liste nach `createdAt`, was einen alten, aber gerade erst abgehakten Posten unten einsortierte statt oben. Reopen löscht `completedAt` wieder (`null`), damit ein späteres erneutes Abhaken einen frischen statt einen stehengebliebenen Zeitstempel bekommt. Der Client kennt beim optimistischen Verschieben in die erledigte Liste den echten, serverseitig gesetzten Wert nicht (die `completeShoppingItem`-Action gibt kein Item zurück) und nähert ihn lokal mit `new Date().toISOString()` an – ausreichend für die Einsortierung, ein Reload liefert den exakten Wert.
-- **Gnadenfrist-Logik gespiegelt, nicht extrahiert**: Das Pending/Committing-Pattern aus `ShoppingCard.svelte` (`SvelteMap`/`SvelteSet` + verstecktes Form + `use:enhance`) ist in `+page.svelte` dupliziert und um die Wiedereröffnen-Richtung erweitert, statt in eine gemeinsame Komposable ausgelagert zu werden – kein Präzedenzfall dafür im Projekt, und die neue Seite braucht ohnehin Zusatzlogik (zwei Listen, zwei Richtungen).
-- **`graceDelay.ts` als Test-Seam**: Die 700ms-Gnadenfrist steckt nicht in einer Prop (wie `ShoppingCard.svelte`s `removeDelayMs`), weil Routen-Komponenten laut `svelte/valid-prop-names-in-kit-pages` nur die SvelteKit-eigenen Props (`data`/`form`) akzeptieren dürfen. Stattdessen ein eigenes Modul mit `getGraceDelayMs()`/`setGraceDelayMsForTests()`, analog zum `MAGIC_LINK_DEBUG_PATH`-Seam in `auth.ts`.
-- **Karten-Klick vs. Checkbox-Klick**: `ShoppingCard.svelte` ist dafür ein klickbares `<div role="link">` (kein `<section>` – löst sonst den A11y-Lint `a11y_no_noninteractive_element_to_interactive_role` aus), Checkbox-Buttons rufen `event.stopPropagation()`. **Für E2E-/UI-Tests wichtig:** Ein Klick auf die Karten-Mitte (Playwright-Default) kann bei genügend offenen Posten geometrisch auf einer Checkbox statt auf dem Kartenhintergrund landen und dadurch die Navigation über `stopPropagation()` verschlucken – Tests klicken deshalb gezielt auf die Kartenüberschrift statt auf die Card als Ganzes.
+- **Route-Komponenten nur mit `data`/`form` als Props**: `svelte/valid-prop-names-in-kit-pages` erlaubt in Routen-Komponenten keine eigenen Props. Test-Seams (z. B. eine konfigurierbare Verzögerung) kommen deshalb nicht in eine Prop, sondern in ein eigenes Modul mit Getter und Test-Setter, analog zum `MAGIC_LINK_DEBUG_PATH`-Seam in `auth.ts`.
+- **Klickbare Karte = `<div role="link">`**, kein `<section>` – das löst sonst den A11y-Lint `a11y_no_noninteractive_element_to_interactive_role` aus. Interaktive Elemente in der Karte rufen `event.stopPropagation()`, damit ihr Klick nicht zusätzlich navigiert.
+- **Bestätigungsdialoge in `use:enhance`-Formularen** über `cancel()` im Submit-Callback (`use:enhance={({ cancel }) => { if (!confirm(…)) cancel(); }}`), nie über `preventDefault()` im `onsubmit`: `enhance` prüft `defaultPrevented` nicht und schickt den Request sonst trotzdem ab (so geschehen beim Löschen auf der Admin-Seite).
 
 ### Toast / Status-Hinweise
 
@@ -93,11 +83,10 @@ Vollbild-Ansicht der Einkaufsliste, erreichbar per Klick auf die Dashboard-Card 
 
 ## Authentifizierung
 
-- **Closed App – keine anonyme Nutzung.** Jeder nicht eingeloggte Request wird auf `/login` umgeleitet. Außer der `/login`-Route, den Better-Auth-Endpoints unter `/auth/*` und statischen Assets ist nichts öffentlich erreichbar.
+- **Closed App – keine anonyme Nutzung.** Jeder nicht eingeloggte Request wird auf `/login` umgeleitet. Außer der `/login`-Route, `/health`, den Better-Auth-Endpoints unter `/auth/*` und statischen Assets ist nichts öffentlich erreichbar – auch `/api/*` nicht, das keine Sonderbehandlung hat.
   - Implementierung als globaler Auth-Guard in `hooks.server.ts`: Session prüfen, sonst `throw redirect(302, '/login')`.
-  - Die Login-Seite ist die de-facto-Startseite für nicht eingeloggte User; nach erfolgreichem Login geht es auf `/` (Dashboard).
-  - **Ausnahme `/api/*`**: kein Redirect, sondern Bearer-Token-Check gegen den Bot-Token (siehe unten). Kein/ungültiger Token → `401 Unauthorized`.
-  - **Ausnahme `/health`**: rein technischer Liveness-Check (Docker-Healthcheck, siehe Compose-Konventionen) – öffentlich wie `/login`/`/auth/*`, kein Redirect, kein Bearer-Token. Response bleibt bewusst leer/status-only (kein Stacktrace, keine Versions-/Config-Details), da der Pfad ungeschützt erreichbar ist.
+  - Die Login-Seite ist die de-facto-Startseite für nicht eingeloggte User; nach erfolgreichem Login geht es auf `/` (Startseite).
+  - **Ausnahme `/health`**: rein technischer Liveness-Check (Docker-Healthcheck, siehe Compose-Konventionen) – öffentlich wie `/login`/`/auth/*`, kein Redirect. Response bleibt bewusst leer/status-only (kein Stacktrace, keine Versions-/Config-Details), da der Pfad ungeschützt erreichbar ist.
 - Im Header (nur sichtbar für eingeloggte User) steht der Username als Drop-Down-Trigger: "Logout" und – falls Admin – zusätzlich "Admin".
 - Der Login erfolgt via Angabe der Mailadresse an die dann ein Magic Link geschickt wird.
 - Eine Registrierung im herkömmlichen Sinne gibt es nicht – Initial ist nur der `.env`-Admin freigeschaltet, weitere User legt der Admin manuell an.
@@ -106,19 +95,12 @@ Vollbild-Ansicht der Einkaufsliste, erreichbar per Klick auf die Dashboard-Card 
   - der Admin Boot Strap soll bei jedem Containerstart durchgeführt werden, damit der User sich nicht versehentlich aussperren kann
   - Idempotenz beim Boostrap: Upsert auf E-Mail, der Admin-Flag wird immer auf true gezwungen, alle anderen Felder bleiben unangetastet.
 - das Whitelisting von Usern die sich anmelden dürfen erfolgt über Custom-Fields direkt am Better-Auth-user-Table, keine separate Whitelist-Tabelle.
-- Es gibt eine Admin-Seite, auf der der Admin weitere Mail-Adressen (mit Username und Telegram User-ID) angeben kann, auch diese können sich dann in Zukunft einloggen
+- Es gibt eine Admin-Seite, auf der der Admin weitere Mail-Adressen (mit Username) angeben kann, auch diese können sich dann in Zukunft einloggen
   - diese Admin-Seite kann nur von eingeloggten Usern aufgerufen werden, für die ein Admin Flag in der DB existiert
   - die Admin Seite erlaubt Full CRUD, also anlegen, löschen und ändern
-  - Pflichtfelder beim Anlegen: **E-Mail und Username**. Telegram-User-ID ist optional (User ohne Bot-Zugriff sind erlaubt).
+  - Pflichtfelder beim Anlegen: **E-Mail und Username**.
   - Ein Admin kann seinen eigenen Eintrag nicht löschen und sich nicht den Admin-Flag entziehen, andere Felder schon.
   - Beim Löschen eines Users werden alle seine aktiven Sessions sofort mitgelöscht (forced logout) – das Session-Cookie wird beim nächsten Request ungültig.
-- **Bot-Token-Verwaltung** auf der Admin-Seite – damit der Bot-Service die `/api/*`-Endpoints aufrufen darf:
-  - Genau **ein** aktiver Bot-Token zur Zeit (eigene Tabelle `bot_token`, ein Row).
-  - **Generate**: erzeugt `crypto.randomBytes(32)`-hex, zeigt das Klartext-Token **genau einmal** in der UI (kopierbar), speichert in der DB nur den SHA-256-Hash + `createdAt`. Eine neue Generierung invalidiert den alten Token (Row wird ersetzt).
-  - **Revoke**: löscht die Row → Bot kann nicht mehr authentifizieren, bis ein neuer Token generiert wird.
-  - **Anzeige**: Status ("aktiv seit …" oder "kein Token gesetzt") plus `lastUsedAt` für Sichtbarkeit, ob der Bot den Token aktuell nutzt.
-  - **Bot-Seite**: Token landet in der Bot-`.env` als `BOT_API_TOKEN`, wird bei jedem App-API-Call als `Authorization: Bearer <token>` mitgeschickt. Bot-Container neu starten nach Rotation.
-  - **Hash-Vergleich**: Auth-Guard hasht den eingehenden Bearer-Token mit SHA-256 und vergleicht via `crypto.timingSafeEqual` mit dem DB-Hash. Kein Bcrypt nötig – die Tokens haben 256 Bit Entropie.
 - Magic Link Flow mit Better-Auth-Plugin `magic-link`, konfiguriert mit **`disableSignUp: true`** – Better Auth legt niemals selbst User an, der einzige Weg in die `user`-Tabelle ist Admin-Bootstrap oder die Admin-Seite
   - Nutzer gibt E-Mail-Adresse ein
   - es erscheint eine Meldung, dass wenn die Mailadresse gültig ist, eine Mail gesendet wurde
@@ -183,11 +165,7 @@ ADMIN_USERNAME=            # Username des initialen Admin-Users (nur beim ersten
 ## Konventionen
 
 - **Sprache:** Deutsch im UI, Englisch im Code (Variablen, Funktionen, Kommentare)
-- **Geteilte Domänen-Typen** liegen in `packages/shared` (`@dahamm/shared`), damit App, API-Endpunkte und Bot dieselbe Definition nutzen. Erster Typ: `ShoppingItem` – Einkaufslisten-Posten **ohne** Menge, nur `id`, `name`, `done`, `createdAt`, `completedAt` (`null` solange offen; Zeitpunkt des Abhakens, Sortierschlüssel der erledigten Liste – siehe Einkaufsliste-Detailseite oben). DB-Schema und API leiten davon ab.
-  - **Domänen-Constraints als geteilte Konstanten** dort, nicht je Schicht dupliziert: `SHOPPING_ITEM_NAME_LENGTH = { min: 3, max: 64 }` ist die einzige Quelle für Web-UI (`maxlength`/Button-Freigabe), `/api/shopping`-Validierung und Bot. Die API-Spec verweist darauf, statt die Zahl zu wiederholen. Eine echte Schema-Validierung (Zod o. Ä.) kommt erst mit dem API-Endpoint – `shared` bleibt bis dahin dependency-frei.
-  - Nach demselben Muster liegen auch die Auth-Validierungs-Constraints dort: `EMAIL_LENGTH`/`EMAIL_REGEX` (+ Helper `isValidEmail()`), `USERNAME_RE`, `TELEGRAM_RE` – einzige Quelle für Login-Formular und Admin-Nutzerverwaltung, damit Client- und Server-Validierung nicht auseinanderdriften.
-- **Fehlerbehandlung:** Immer try/catch in Bot-Handlern, Nutzer bekommt lesbare Fehlermeldung
-- **Claude Haiku** für Intent-Parsing (günstig, schnell) – kein Sonnet für diese Aufgabe
+- **Geteilte Validierungs-Constraints** liegen als Konstanten in `packages/shared` (`@dahamm/shared`), nicht je Schicht dupliziert: `EMAIL_LENGTH`/`EMAIL_REGEX` (+ Helper `isValidEmail()`) und `USERNAME_RE` sind die einzige Quelle für Login-Formular und Admin-Nutzerverwaltung, damit Client- und Server-Validierung nicht auseinanderdriften. `shared` bleibt dependency-frei.
 - **Kein Nx, kein Turborepo** – plain npm Workspaces reichen
 - **Kein Postgres** – SQLite ist für diesen Use Case ausreichend, einfacher zu backupen
 - **Named Docker Volume** für SQLite, kein Bind Mount
@@ -198,7 +176,6 @@ ADMIN_USERNAME=            # Username des initialen Admin-Users (nur beim ersten
 
 - Hetzner VPS mit Docker + Traefik v3
 - Bestehendes Traefik-Netzwerk: `traefik` (external)
-- Internes Netzwerk: `internal` (nur zwischen den drei Containern)
 - TLS via Let's Encrypt (DNS-01 Challenge mit Hetzner DNS)
 - App erreichbar unter `dahamm.deine-domain.de`
 ### Compose-Konventionen
@@ -214,9 +191,7 @@ Netzwerk und Traefik). Konkret:
       external: true
       name: dahamm-db
   ```
-- **Netzwerke:**
-  - `dahamm-internal` (intern, nicht external) – verbindet `app`, `bot`, `whisper`
-  - `web: external: true` – das vorhandene Traefik-Netzwerk
+- **Netzwerk:** `web: external: true` – das vorhandene Traefik-Netzwerk
 - **Pro Service:** `container_name`, `restart: unless-stopped`, `image` (bzw. `build`),
   `env_file: .env`, `volumes`, `networks`, ggf. `depends_on` mit `condition: service_healthy`.
 - **Labels:**
@@ -229,19 +204,16 @@ Netzwerk und Traefik). Konkret:
     - "traefik.http.routers.dahamm.tls.certresolver=le-resolver"
     - "traefik.http.services.dahamm.loadbalancer.server.port=3000"
     ```
-- **Healthchecks** für Services, von denen andere abhängen (z. B. `whisper`,
-  damit `bot` erst startet, wenn STT bereit ist). Der `app`-Service hat davon
-  unabhängig bereits einen eigenen Healthcheck (`GET /health`, siehe
-  Authentifizierung) für Docker-Sichtbarkeit und künftige `depends_on`-Nutzung.
+- **Healthcheck:** Der `app`-Service hat einen eigenen Healthcheck (`GET /health`,
+  siehe Authentifizierung) für Docker-Sichtbarkeit und `depends_on`-Nutzung.
   - **Command ohne curl/wget**: Die Runtime-Stage im `Dockerfile` ist
     `node:24-slim` (Debian) ohne `curl`/`wget` – ein Zusatzpaket nur für den
     Healthcheck wäre unnötiger Image-Bloat. Stattdessen Node-eigenes,
     globales `fetch` per `node -e "fetch(...).then(...).catch(...)"`.
     `127.0.0.1` statt `localhost` in der URL, da Node `localhost` je nach
     Resolver zuerst zu `::1` (IPv6) auflösen kann, während der Server nur auf
-    `0.0.0.0`/IPv4 lauscht – Vorbild für künftige Node-basierte Services
-    (`bot`, `whisper`) auf ähnlich schlanken Images.
-- `bot` und `whisper` hängen **nur** im `dahamm-internal`-Netzwerk, nicht in `web`.
+    `0.0.0.0`/IPv4 lauscht – Vorbild für weitere Node-basierte Services
+    auf ähnlich schlanken Images.
 
 ---
 
@@ -258,12 +230,14 @@ Aufbau analog zu `C:\Users\Markus\git\gritshot`.
 - Coverage via `@vitest/coverage-v8`, Reporter: `text`, `lcov`, `html`, `json`, `json-summary`.
 - `expect: { requireAssertions: true }` aktiv – Tests ohne Assertion schlagen fehl.
 - E2E via Playwright (`tests/`), nur Smoke- und Critical-Path-Tests.
-- **E2E-Login via Setup-Project + `storageState`** (Playwright-Standardmuster, https://playwright.dev/docs/auth): ein `auth.setup.ts`-Project loggt sich einmal per echtem Magic-Link-Flow als der `ADMIN_EMAIL`-Testuser ein und speichert die Session in `playwright/.auth/admin.json`. Das `e2e`-Project hängt per `dependencies: ['setup']` daran und startet alle weiteren Specs (Einkaufsliste, Todos, …) bereits eingeloggt – kein Login-Boilerplate pro Testdatei.
+- **E2E-Login via Setup-Project + `storageState`** (Playwright-Standardmuster, https://playwright.dev/docs/auth): ein `auth.setup.ts`-Project loggt sich einmal per echtem Magic-Link-Flow als der `ADMIN_EMAIL`-Testuser ein und speichert die Session in `playwright/.auth/admin.json`. Das `e2e`-Project hängt per `dependencies: ['setup']` daran und startet alle weiteren Specs bereits eingeloggt – kein Login-Boilerplate pro Testdatei.
   - **Ein geteilter Admin-Account** für alle E2E-Tests (kein Per-Worker-Isolation-Setup). Ausreichend, solange E2E auf wenige Smoke-/Critical-Path-Tests beschränkt bleibt; Per-Worker-Accounts erst nötig, falls parallel laufende Tests sich gegenseitig über geteilten Server-State stören.
   - Tests, die explizit unauthentifiziert starten müssen (Closed-App-Guard, der Login-Flow selbst), resetten den State lokal mit `test.use({ storageState: { cookies: [], origins: [] } })`.
   - Tokens werden gehasht gespeichert, das Klartext-Magic-Link landet nur in der `MAGIC_LINK_DEBUG_PATH`-Capture-Datei (Test-Seam, siehe `auth.ts`). Lokal (`test:e2e`, Vite Preview) liegt diese Datei direkt auf dem Host. Gegen den Container (`docker:test`) macht `compose.e2e.yaml` sie per Bind-Mount host-sichtbar und isoliert den Lauf zusätzlich auf ein eigenes DB-Volume (`dahamm-data-e2e`, vor jedem Lauf per `down -v` geleert) statt der echten Dev-Volume `dahamm-data`.
   - Derselbe `MAGIC_LINK_DEBUG_PATH`-Schalter lockert in `auth.ts` beide Rate-Limits, weil ein lokaler Preview-/Docker-Lauf keine echte Client-IP hat und alle Requests im selben Bucket landen. **Asymmetrisch bewusst gewählt:** der Pro-IP-Limiter geht auf `max: 1000` (soll im Test nie greifen), der Pro-Mail-Limiter nur auf `max: 20` – niedrig genug, dass ein E2E-Fall ihn mit echten Requests ausschöpfen und das Über-Quota-Verhalten prüfen kann. Der Wert ist in `tests/e2e/magic-link.ts` als `MAGIC_LINK_EMAIL_TEST_LIMIT` gespiegelt (bewusste Duplikation: E2E-Tests importieren grundsätzlich keine Server-Module) – beide Stellen zusammen ändern.
   - Der Rate-Limit-E2E-Fall verbrennt das Kontingent des geteilten Admin-Accounts und muss deshalb der **letzte Test in `auth-login.e2e.ts`** bleiben (Playwright führt Tests innerhalb einer Datei seriell aus; `fullyParallel` ist bewusst nicht gesetzt).
+  - **E2E-DB-Reset im `webServer`-Command, nicht in `globalSetup`**: Playwright startet den `webServer` *vor* `globalSetup`. Der Preview-Server hält die alte `e2e.db` dann schon offen, unter Windows scheitert das Löschen, und der Lauf erbt den Zustand des vorigen (u. a. das vom Rate-Limit-Fall verbrauchte Kontingent). Deshalb läuft `playwright.reset-e2e.ts` als erster Teil des `webServer.command`.
+- **E2E-Klicks auf Karten** zielen auf die Kartenüberschrift, nicht auf die Karte als Ganzes: Ein Klick auf die Kartenmitte (Playwright-Default) kann auf einem interaktiven Kindelement landen und die Navigation über dessen `stopPropagation()` verschlucken (siehe Komponenten-Konventionen).
 
 ### Magic-Link-Callback (Enumeration-Schutz)
 
@@ -289,8 +263,8 @@ Trigger: `on: push` (alle Branches) + `workflow_dispatch`. Drei Jobs, analog gri
    Release publiziert wurde** (`needs.test.result == 'success' && github.ref == 'refs/heads/main'
    && needs.release.outputs.new_release_published == 'true'`):
    Build & Push nach `ghcr.io/markdor/dahamm-app` mit Tags `latest` / `<version>`.
-   Pro Service ein eigenes Image mit `dahamm-`-Präfix (`dahamm-app`, später `dahamm-bot`,
-   `dahamm-whisper`); Owner/Repo-Präfix bleibt dynamisch via `${{ github.repository }}-<service>`.
+   Pro Service ein eigenes Image mit `dahamm-`-Präfix (aktuell nur `dahamm-app`);
+   Owner/Repo-Präfix bleibt dynamisch via `${{ github.repository }}-<service>`.
 
 Action-Versionen sinngemäß auf aktuellem Stand pinnen (gritshot aktuell: `checkout@v6`,
 `setup-node@v6`, `upload-artifact@v7`, `create-github-app-token@v3`,
@@ -319,12 +293,10 @@ Holt die Metadaten via `dependabot/fetch-metadata`, aktiviert Auto-Merge (squash
     transport: dev ? { target: 'pino-pretty' } : undefined
   });
   ```
-- Im Bot- und Whisper-Service eigenes pino-Setup mit denselben Konventionen
-  (Level via Env, JSON in Prod, pretty in Dev).
 
 ### Error Handling
 
-- **Typisierte Fehlerklassen** mit separater `userMessage` (für UI/Telegram) und
+- **Typisierte Fehlerklassen** mit separater `userMessage` (für die UI) und
   technischer `message` (für Logs) – Muster wie `FileValidationError`:
   ```ts
   export class ValidationError extends Error {
@@ -334,12 +306,12 @@ Holt die Metadaten via `dependabot/fetch-metadata`, aktiviert Auto-Merge (squash
     }
   }
   ```
-- **Handler-Pattern** (SvelteKit Action / Bot-Handler):
-  - Validierungsfehler → `fail(422, { userMessage: e.userMessage })` bzw. lesbare Telegram-Antwort
+- **Handler-Pattern** (SvelteKit Action):
+  - Validierungsfehler → `fail(422, { userMessage: e.userMessage })`
   - Unerwarteter Fehler → `logger.error(...)` + generische User-Meldung (`fail(500, ...)`)
   - `catch (e: unknown)`, dann via `instanceof` verengen
 - Niemals interne Fehlertexte oder Stacktraces an den Nutzer durchreichen.
-- **`userMessage`-Vertrag in `fail()`-Payloads**: Jede generische (nicht feld-bezogene) Action-Fehlermeldung nutzt ausschließlich das Feld `userMessage` – nie interne Codes wie `'not_found'`/`'missing_id'` in einem generischen `error`-Feld. Der Client (`toastActionFailure()` in `src/lib/components/actionToast.ts`) liest `result.data?.userMessage` blind und zeigt es per Toast an, mit Fallback-Text nur wenn das Feld fehlt – es gibt also keinen Guard/Whitelist mehr auf Client-Seite, die Sicherheit kommt allein daher, dass der Server nie einen internen Code in dieses Feld schreibt.
+- **`userMessage`-Vertrag in `fail()`-Payloads**: Jede generische (nicht feld-bezogene) Action-Fehlermeldung nutzt ausschließlich das Feld `userMessage` – nie interne Codes wie `'not_found'`/`'missing_id'` in einem generischen `error`-Feld. Der Client liest `form.userMessage` und zeigt es unverändert per `toast.show('error', …)` an (Muster: `$effect` + `untrack` in `admin/+page.svelte`) – es gibt keinen Guard/Whitelist auf Client-Seite, die Sicherheit kommt allein daher, dass der Server nie einen internen Code in dieses Feld schreibt.
   - **Ausnahme `fieldErrors`**: Per-Feld-Validierungsfehler (z. B. `admin/+page.server.ts`, Codes `required`/`invalid`/`taken`) bleiben ein separates Pattern – dort sind es bewusst kurze, whitelisted Codes, die client-seitig über eine feste Map (`errorText` in `admin/+page.svelte`) in Text übersetzt werden, weil sie inline am jeweiligen Feld angezeigt werden, nicht global im Toast.
 
 Vor neuen Arbeiten in diesen Bereichen: in `gritshot` (Code) bzw. `vps-config/tandoor` (Compose)

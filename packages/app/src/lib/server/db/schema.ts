@@ -11,9 +11,7 @@ export const user = sqliteTable('user', {
 	// Whitelist + profile fields live directly on the Better Auth user table
 	// (no separate whitelist table): a row here means the address may log in.
 	username: text('username').notNull().unique(),
-	isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
-	// Optional – users without bot access are allowed.
-	telegramUserId: text('telegram_user_id').unique()
+	isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false)
 });
 
 export const session = sqliteTable('session', {
@@ -66,15 +64,6 @@ export const rateLimit = sqliteTable('rate_limit', {
 	lastRequest: integer('last_request')
 });
 
-// Exactly one active bot token at a time (single row). We store only the
-// SHA-256 hash of the token; the plaintext is shown once in the admin UI.
-export const botToken = sqliteTable('bot_token', {
-	id: text('id').primaryKey(),
-	tokenHash: text('token_hash').notNull(),
-	createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-	lastUsedAt: integer('last_used_at', { mode: 'timestamp' })
-});
-
 // Per-email throttle for magic-link requests. Better Auth's built-in rate
 // limiter only buckets per IP+path, so flooding a single mailbox from rotating
 // IPs would slip through. One row per email, rolling fixed window.
@@ -84,24 +73,6 @@ export const magicLinkThrottle = sqliteTable('magic_link_throttle', {
 	windowStart: integer('window_start', { mode: 'timestamp' }).notNull()
 });
 
-// Shared family shopping list – not per-user. Mirrors the `ShoppingItem` domain
-// type in @dahamm/shared (id, name, done, createdAt); the API and bot derive
-// from the same shape.
-export const shoppingItem = sqliteTable('shopping_item', {
-	id: text('id').primaryKey(),
-	name: text('name').notNull(),
-	done: integer('done', { mode: 'boolean' }).notNull().default(false),
-	// Millisecond precision so „newest first" stays deterministic even when
-	// several items are added within the same second (e.g. a bot batch from one
-	// message). SQL column stays `integer` – this only changes Date ↔ int scaling.
-	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-	// Null while open. Set when checked off, cleared on reopen – the sort key
-	// for the "erledigt" list (completion order, not creation order).
-	completedAt: integer('completed_at', { mode: 'timestamp_ms' })
-});
-
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
 export type Session = typeof session.$inferSelect;
-export type BotToken = typeof botToken.$inferSelect;
-export type ShoppingItemRow = typeof shoppingItem.$inferSelect;

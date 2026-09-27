@@ -15,11 +15,10 @@ CREATE TABLE `account` (
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE TABLE `bot_token` (
-	`id` text PRIMARY KEY NOT NULL,
-	`token_hash` text NOT NULL,
-	`created_at` integer NOT NULL,
-	`last_used_at` integer
+CREATE TABLE `magic_link_throttle` (
+	`email` text PRIMARY KEY NOT NULL,
+	`count` integer NOT NULL,
+	`window_start` integer NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `rate_limit` (
@@ -51,13 +50,11 @@ CREATE TABLE `user` (
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	`username` text NOT NULL,
-	`is_admin` integer DEFAULT false NOT NULL,
-	`telegram_user_id` text
+	`is_admin` integer DEFAULT false NOT NULL
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `user_email_unique` ON `user` (`email`);--> statement-breakpoint
 CREATE UNIQUE INDEX `user_username_unique` ON `user` (`username`);--> statement-breakpoint
-CREATE UNIQUE INDEX `user_telegram_user_id_unique` ON `user` (`telegram_user_id`);--> statement-breakpoint
 CREATE TABLE `verification` (
 	`id` text PRIMARY KEY NOT NULL,
 	`identifier` text NOT NULL,

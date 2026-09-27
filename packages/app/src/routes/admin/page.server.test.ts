@@ -20,7 +20,7 @@ vi.mock('$lib/server/logger', () => ({
 }));
 
 import { db } from '$lib/server/db';
-import { user, session, botToken } from '$lib/server/db/schema';
+import { user, session } from '$lib/server/db/schema';
 import { logger } from '$lib/server/logger';
 import { actions, load } from './+page.server';
 
@@ -37,13 +37,7 @@ function loadEvent(currentUser: unknown) {
 	return { locals: { user: currentUser, session: null } } as unknown as Parameters<typeof load>[0];
 }
 
-function insertUser(opts: {
-	id?: string;
-	email: string;
-	username: string;
-	isAdmin?: boolean;
-	telegramUserId?: string | null;
-}) {
+function insertUser(opts: { id?: string; email: string; username: string; isAdmin?: boolean }) {
 	const id = opts.id ?? randomUUID();
 	db.insert(user)
 		.values({
@@ -53,7 +47,6 @@ function insertUser(opts: {
 			emailVerified: true,
 			username: opts.username,
 			isAdmin: opts.isAdmin ?? false,
-			telegramUserId: opts.telegramUserId ?? null,
 			createdAt: new Date(),
 			updatedAt: new Date()
 		})
@@ -64,7 +57,6 @@ function insertUser(opts: {
 beforeEach(() => {
 	db.delete(session).run();
 	db.delete(user).run();
-	db.delete(botToken).run();
 	// The current admin always exists (bootstrap guarantees this in prod).
 	insertUser({ id: ADMIN.id, email: 'admin@dahamm.de', username: 'admin', isAdmin: true });
 });
@@ -80,10 +72,9 @@ describe('admin load', () => {
 		);
 	});
 
-	it('returns users and bot-token status for an admin', () => {
-		const result = load(loadEvent(ADMIN)) as { users: unknown[]; botToken: { exists: boolean } };
+	it('returns the users for an admin', () => {
+		const result = load(loadEvent(ADMIN)) as { users: unknown[] };
 		expect(result.users.length).toBe(1);
-		expect(result.botToken.exists).toBe(false);
 	});
 });
 
@@ -96,24 +87,17 @@ describe('admin create', () => {
 			.from(user)
 			.all()
 			.find((u) => u.email === 'new@dahamm.de');
-		expect(row).toMatchObject({ username: 'newbie', isAdmin: false, telegramUserId: null });
+		expect(row).toMatchObject({ username: 'newbie', isAdmin: false });
 	});
 
-	it('stores telegram id and admin flag when provided', async () => {
-		await actions.create(
-			makeEvent({
-				email: 'tg@dahamm.de',
-				username: 'tguser',
-				telegramUserId: '12345',
-				isAdmin: 'on'
-			})
-		);
+	it('stores the admin flag when provided', async () => {
+		await actions.create(makeEvent({ email: 'boss@dahamm.de', username: 'boss', isAdmin: 'on' }));
 		const row = db
 			.select()
 			.from(user)
 			.all()
-			.find((u) => u.email === 'tg@dahamm.de');
-		expect(row).toMatchObject({ telegramUserId: '12345', isAdmin: true });
+			.find((u) => u.email === 'boss@dahamm.de');
+		expect(row).toMatchObject({ isAdmin: true });
 	});
 
 	it('rejects an invalid email', async () => {
@@ -148,16 +132,6 @@ describe('admin create', () => {
 		});
 	});
 
-	it('rejects a non-numeric telegram id', async () => {
-		const result = await actions.create(
-			makeEvent({ email: 'a@dahamm.de', username: 'aa', telegramUserId: 'abc' })
-		);
-		expect(result).toMatchObject({
-			status: 400,
-			data: { fieldErrors: { telegramUserId: 'invalid' } }
-		});
-	});
-
 	it('returns 409 on a duplicate email', async () => {
 		insertUser({ email: 'dupe@dahamm.de', username: 'dupe' });
 		const result = await actions.create(makeEvent({ email: 'dupe@dahamm.de', username: 'other' }));
@@ -170,17 +144,6 @@ describe('admin create', () => {
 			makeEvent({ email: 'other@dahamm.de', username: 'dupeuser' })
 		);
 		expect(result).toMatchObject({ status: 409, data: { fieldErrors: { username: 'taken' } } });
-	});
-
-	it('returns 409 on a duplicate telegram id', async () => {
-		insertUser({ email: 'tg1@dahamm.de', username: 'tg1', telegramUserId: '555' });
-		const result = await actions.create(
-			makeEvent({ email: 'tg2@dahamm.de', username: 'tg2', telegramUserId: '555' })
-		);
-		expect(result).toMatchObject({
-			status: 409,
-			data: { fieldErrors: { telegramUserId: 'taken' } }
-		});
 	});
 
 	it('logs and returns 500 on an unexpected (non-UNIQUE) database error', async () => {
@@ -203,16 +166,14 @@ describe('admin create', () => {
 describe('admin update', () => {
 	it('updates a user', async () => {
 		const id = insertUser({ email: 'u@dahamm.de', username: 'u' });
-		const result = await actions.update(
-			makeEvent({ id, email: 'u2@dahamm.de', username: 'u2', telegramUserId: '999' })
-		);
+		const result = await actions.update(makeEvent({ id, email: 'u2@dahamm.de', username: 'u2' }));
 		expect(result).toMatchObject({ action: 'update', updated: true });
 		const row = db
 			.select()
 			.from(user)
 			.all()
 			.find((u) => u.id === id);
-		expect(row).toMatchObject({ email: 'u2@dahamm.de', username: 'u2', telegramUserId: '999' });
+		expect(row).toMatchObject({ email: 'u2@dahamm.de', username: 'u2' });
 	});
 
 	it('blocks an admin from demoting themselves', async () => {
@@ -370,63 +331,5 @@ describe('admin guards on actions', () => {
 				makeEvent({ email: 'x@dahamm.de', username: 'x' }, { id: 'u', isAdmin: false })
 			)
 		).rejects.toMatchObject({ status: 403 });
-	});
-});
-
-describe('admin bot token', () => {
-	it('generates a token and reports it active afterwards', async () => {
-		const result = (await actions.generateToken(makeEvent({}))) as { token: string };
-		expect(result.token).toMatch(/^[0-9a-f]{64}$/);
-		expect((load(loadEvent(ADMIN)) as { botToken: { exists: boolean } }).botToken.exists).toBe(
-			true
-		);
-	});
-
-	it('revokes the token', async () => {
-		await actions.generateToken(makeEvent({}));
-		const result = await actions.revokeToken(makeEvent({}));
-		expect(result).toEqual({ action: 'revokeToken', revoked: true });
-		expect((load(loadEvent(ADMIN)) as { botToken: { exists: boolean } }).botToken.exists).toBe(
-			false
-		);
-	});
-
-	it('requires admin to generate a token', async () => {
-		await expect(
-			actions.generateToken(makeEvent({}, { id: 'u', isAdmin: false }))
-		).rejects.toMatchObject({ status: 403 });
-	});
-
-	it('logs and returns 500 when generating a token hits a database error', async () => {
-		const err = new Error('disk full');
-		const deleteSpy = vi.spyOn(db, 'delete').mockImplementationOnce(() => {
-			throw err;
-		});
-
-		const result = await actions.generateToken(makeEvent({}));
-		expect(result).toMatchObject({
-			status: 500,
-			data: { action: 'generateToken', userMessage: 'Da ist etwas schiefgelaufen.' }
-		});
-		expect(logger.error).toHaveBeenCalledWith({ err }, 'admin generate bot token failed');
-
-		deleteSpy.mockRestore();
-	});
-
-	it('logs and returns 500 when revoking a token hits a database error', async () => {
-		await actions.generateToken(makeEvent({}));
-		const err = new Error('disk full');
-		const deleteSpy = vi.spyOn(db, 'delete').mockImplementationOnce(() => {
-			throw err;
-		});
-
-		const result = await actions.revokeToken(makeEvent({}));
-		expect(result).toMatchObject({
-			status: 500,
-			data: { action: 'revokeToken', userMessage: 'Da ist etwas schiefgelaufen.' }
-		});
-		expect(logger.error).toHaveBeenCalledWith({ err }, 'admin revoke bot token failed');
-
-		deleteSpy.mockRestore();
 	});
 });
