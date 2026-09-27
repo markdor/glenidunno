@@ -32,42 +32,17 @@ function makeData(over: Partial<Record<string, unknown>> = {}) {
 	return {
 		user: currentUser,
 		users: [adminUser, kidUser],
-		botToken: { exists: false, createdAt: null, lastUsedAt: null },
 		...over
 	};
 }
 
 describe('Admin page', () => {
-	test('lists users and offers to generate a token when none exists', async () => {
+	test('lists the users', async () => {
 		render(Page, { data: makeData(), form: null });
 
 		await expect.element(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
 		await expect.element(page.getByText('Benutzer (2)')).toBeVisible();
 		await expect.element(page.getByText('kid@dahamm.de')).toBeVisible();
-		await expect.element(page.getByText('Kein Token gesetzt.')).toBeVisible();
-		await expect.element(page.getByRole('button', { name: 'Token generieren' })).toBeVisible();
-	});
-
-	test('shows the active token status with rotate/revoke actions', async () => {
-		render(Page, {
-			data: makeData({
-				botToken: { exists: true, createdAt: new Date('2026-03-01'), lastUsedAt: null }
-			}),
-			form: null
-		});
-
-		await expect.element(page.getByText(/Aktiv seit/)).toBeVisible();
-		await expect.element(page.getByText(/Zuletzt genutzt: nie/)).toBeVisible();
-		await expect.element(page.getByRole('button', { name: 'Neu generieren' })).toBeVisible();
-		await expect.element(page.getByRole('button', { name: 'Widerrufen' })).toBeVisible();
-	});
-
-	test('renders a freshly generated token exactly once', async () => {
-		const token = 'a'.repeat(64);
-		render(Page, { data: makeData(), form: { action: 'generateToken', token } });
-
-		await expect.element(page.getByText(token)).toBeVisible();
-		await expect.element(page.getByRole('button', { name: 'Kopieren' })).toBeVisible();
 	});
 
 	test('hides the delete button for the current admin (self)', async () => {

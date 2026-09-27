@@ -20,7 +20,7 @@ vi.mock('$lib/server/logger', () => ({
 }));
 
 import { db } from '$lib/server/db';
-import { user, session, botToken } from '$lib/server/db/schema';
+import { user, session } from '$lib/server/db/schema';
 import { logger } from '$lib/server/logger';
 import { actions, load } from './+page.server';
 
@@ -64,7 +64,6 @@ function insertUser(opts: {
 beforeEach(() => {
 	db.delete(session).run();
 	db.delete(user).run();
-	db.delete(botToken).run();
 	// The current admin always exists (bootstrap guarantees this in prod).
 	insertUser({ id: ADMIN.id, email: 'admin@dahamm.de', username: 'admin', isAdmin: true });
 });
@@ -80,10 +79,9 @@ describe('admin load', () => {
 		);
 	});
 
-	it('returns users and bot-token status for an admin', () => {
-		const result = load(loadEvent(ADMIN)) as { users: unknown[]; botToken: { exists: boolean } };
+	it('returns the users for an admin', () => {
+		const result = load(loadEvent(ADMIN)) as { users: unknown[] };
 		expect(result.users.length).toBe(1);
-		expect(result.botToken.exists).toBe(false);
 	});
 });
 
@@ -370,63 +368,5 @@ describe('admin guards on actions', () => {
 				makeEvent({ email: 'x@dahamm.de', username: 'x' }, { id: 'u', isAdmin: false })
 			)
 		).rejects.toMatchObject({ status: 403 });
-	});
-});
-
-describe('admin bot token', () => {
-	it('generates a token and reports it active afterwards', async () => {
-		const result = (await actions.generateToken(makeEvent({}))) as { token: string };
-		expect(result.token).toMatch(/^[0-9a-f]{64}$/);
-		expect((load(loadEvent(ADMIN)) as { botToken: { exists: boolean } }).botToken.exists).toBe(
-			true
-		);
-	});
-
-	it('revokes the token', async () => {
-		await actions.generateToken(makeEvent({}));
-		const result = await actions.revokeToken(makeEvent({}));
-		expect(result).toEqual({ action: 'revokeToken', revoked: true });
-		expect((load(loadEvent(ADMIN)) as { botToken: { exists: boolean } }).botToken.exists).toBe(
-			false
-		);
-	});
-
-	it('requires admin to generate a token', async () => {
-		await expect(
-			actions.generateToken(makeEvent({}, { id: 'u', isAdmin: false }))
-		).rejects.toMatchObject({ status: 403 });
-	});
-
-	it('logs and returns 500 when generating a token hits a database error', async () => {
-		const err = new Error('disk full');
-		const deleteSpy = vi.spyOn(db, 'delete').mockImplementationOnce(() => {
-			throw err;
-		});
-
-		const result = await actions.generateToken(makeEvent({}));
-		expect(result).toMatchObject({
-			status: 500,
-			data: { action: 'generateToken', userMessage: 'Da ist etwas schiefgelaufen.' }
-		});
-		expect(logger.error).toHaveBeenCalledWith({ err }, 'admin generate bot token failed');
-
-		deleteSpy.mockRestore();
-	});
-
-	it('logs and returns 500 when revoking a token hits a database error', async () => {
-		await actions.generateToken(makeEvent({}));
-		const err = new Error('disk full');
-		const deleteSpy = vi.spyOn(db, 'delete').mockImplementationOnce(() => {
-			throw err;
-		});
-
-		const result = await actions.revokeToken(makeEvent({}));
-		expect(result).toMatchObject({
-			status: 500,
-			data: { action: 'revokeToken', userMessage: 'Da ist etwas schiefgelaufen.' }
-		});
-		expect(logger.error).toHaveBeenCalledWith({ err }, 'admin revoke bot token failed');
-
-		deleteSpy.mockRestore();
 	});
 });

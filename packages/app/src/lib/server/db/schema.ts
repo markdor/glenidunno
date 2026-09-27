@@ -66,15 +66,6 @@ export const rateLimit = sqliteTable('rate_limit', {
 	lastRequest: integer('last_request')
 });
 
-// Exactly one active bot token at a time (single row). We store only the
-// SHA-256 hash of the token; the plaintext is shown once in the admin UI.
-export const botToken = sqliteTable('bot_token', {
-	id: text('id').primaryKey(),
-	tokenHash: text('token_hash').notNull(),
-	createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-	lastUsedAt: integer('last_used_at', { mode: 'timestamp' })
-});
-
 // Per-email throttle for magic-link requests. Better Auth's built-in rate
 // limiter only buckets per IP+path, so flooding a single mailbox from rotating
 // IPs would slip through. One row per email, rolling fixed window.
@@ -87,4 +78,3 @@ export const magicLinkThrottle = sqliteTable('magic_link_throttle', {
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
 export type Session = typeof session.$inferSelect;
-export type BotToken = typeof botToken.$inferSelect;

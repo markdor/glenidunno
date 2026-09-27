@@ -6,7 +6,6 @@
 	let { data, form } = $props();
 
 	let editingId = $state<string | null>(null);
-	let copied = $state(false);
 
 	$effect(() => {
 		if (form?.userMessage) {
@@ -26,19 +25,12 @@
 		return code ? (errorText[code] ?? 'Ungültig') : null;
 	}
 
-	function fmtDate(d: Date | string | null | undefined): string {
-		if (!d) return '–';
+	function fmtDate(d: Date | string): string {
 		return new Date(d).toLocaleDateString('de-DE', {
 			day: '2-digit',
 			month: '2-digit',
 			year: 'numeric'
 		});
-	}
-
-	async function copyToken(token: string) {
-		await navigator.clipboard.writeText(token);
-		copied = true;
-		setTimeout(() => (copied = false), 2000);
 	}
 </script>
 
@@ -48,67 +40,6 @@
 
 <main class="mx-auto max-w-3xl space-y-10 px-4 py-8">
 	<h1 class="text-2xl font-semibold tracking-tight">Admin</h1>
-
-	<!-- ── Bot Token ─────────────────────────────────────────────── -->
-	<section class="space-y-4">
-		<h2 class="text-lg font-semibold">Bot-Token</h2>
-
-		{#if form?.action === 'generateToken' && form?.token}
-			<div class="space-y-2 rounded-xl border border-emerald-300 bg-emerald-50 p-4">
-				<p class="text-sm font-medium text-emerald-900">
-					Neues Token – wird nur einmal angezeigt. Jetzt kopieren und in der Bot-<code>.env</code>
-					als
-					<code>BOT_API_TOKEN</code> hinterlegen.
-				</p>
-				<div class="flex items-center gap-2">
-					<code class="flex-1 overflow-x-auto rounded-lg bg-white px-3 py-2 text-xs break-all">
-						{form.token}
-					</code>
-					<button
-						type="button"
-						onclick={() => copyToken(form.token as string)}
-						class="shrink-0 rounded-lg bg-brand px-3 py-2 text-xs font-medium text-white hover:bg-brand-hover"
-					>
-						{copied ? 'Kopiert ✓' : 'Kopieren'}
-					</button>
-				</div>
-			</div>
-		{/if}
-
-		<div class="rounded-xl border border-slate-200 bg-white p-4">
-			{#if data.botToken.exists}
-				<p class="text-sm text-slate-700">
-					Aktiv seit <span class="font-medium">{fmtDate(data.botToken.createdAt)}</span>
-				</p>
-				<p class="mt-1 text-sm text-slate-500">
-					Zuletzt genutzt: {data.botToken.lastUsedAt ? fmtDate(data.botToken.lastUsedAt) : 'nie'}
-				</p>
-			{:else}
-				<p class="text-sm text-slate-500">Kein Token gesetzt.</p>
-			{/if}
-
-			<div class="mt-4 flex flex-wrap gap-2">
-				<form method="POST" action="?/generateToken" use:enhance>
-					<button
-						type="submit"
-						class="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
-					>
-						{data.botToken.exists ? 'Neu generieren' : 'Token generieren'}
-					</button>
-				</form>
-				{#if data.botToken.exists}
-					<form method="POST" action="?/revokeToken" use:enhance>
-						<button
-							type="submit"
-							class="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-						>
-							Widerrufen
-						</button>
-					</form>
-				{/if}
-			</div>
-		</div>
-	</section>
 
 	<!-- ── Create user ───────────────────────────────────────────── -->
 	<section class="space-y-4">

@@ -5,7 +5,6 @@ import { isValidEmail, USERNAME_RE, TELEGRAM_RE } from '@dahamm/shared';
 import { db } from '$lib/server/db';
 import { user } from '$lib/server/db/schema';
 import { requireAdmin } from '$lib/server/authGuards';
-import { generateBotToken, getBotTokenStatus, revokeBotToken } from '$lib/server/botToken';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/server/errorMessages';
 import { logger } from '$lib/server/logger';
 
@@ -23,7 +22,7 @@ export const load: ServerLoad = ({ locals }) => {
 		.from(user)
 		.orderBy(asc(user.createdAt))
 		.all();
-	return { users, botToken: getBotTokenStatus(db) };
+	return { users };
 };
 
 type Fields = { email: string; username: string; telegramUserId: string | null };
@@ -222,28 +221,5 @@ export const actions: Actions = {
 		}
 
 		return { action: 'delete', deleted: true };
-	},
-
-	generateToken: async ({ locals }) => {
-		requireAdmin(locals);
-		try {
-			// Plaintext is returned exactly once; only the hash is stored.
-			const token = generateBotToken(db);
-			return { action: 'generateToken', token };
-		} catch (err) {
-			logger.error({ err }, 'admin generate bot token failed');
-			return fail(500, { action: 'generateToken', userMessage: UNEXPECTED_ERROR_MESSAGE });
-		}
-	},
-
-	revokeToken: async ({ locals }) => {
-		requireAdmin(locals);
-		try {
-			revokeBotToken(db);
-			return { action: 'revokeToken', revoked: true };
-		} catch (err) {
-			logger.error({ err }, 'admin revoke bot token failed');
-			return fail(500, { action: 'revokeToken', userMessage: UNEXPECTED_ERROR_MESSAGE });
-		}
 	}
 };

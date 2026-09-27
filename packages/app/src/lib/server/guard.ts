@@ -1,10 +1,8 @@
 export type GuardContext = {
 	authenticated: boolean;
-	bearerAuthorized: boolean;
 };
 
-export type GuardDecision =
-	{ action: 'resolve' } | { action: 'redirect'; location: string } | { action: 'unauthorized' };
+export type GuardDecision = { action: 'resolve' } | { action: 'redirect'; location: string };
 
 /**
  * Exact segment-prefix match: matches the path itself or any sub-path, but not
@@ -16,22 +14,12 @@ function underPrefix(pathname: string, prefix: string): boolean {
 	return pathname === prefix || pathname.startsWith(prefix + '/');
 }
 
-/** The bot surface. Kept here so hooks.server.ts decides identically. */
-export function isApiPath(pathname: string): boolean {
-	return underPrefix(pathname, '/api');
-}
-
 /**
  * Pure decision for the global auth guard (see hooks.server.ts):
- *   - /api/*                   → bot surface, needs a valid bearer token (401 otherwise)
  *   - /login, /health, /auth/* → public (login page, container healthcheck + Better Auth endpoints)
  *   - everything else          → requires a session, else redirect to /login
  */
 export function evaluateGuard(pathname: string, ctx: GuardContext): GuardDecision {
-	if (isApiPath(pathname)) {
-		return ctx.bearerAuthorized ? { action: 'resolve' } : { action: 'unauthorized' };
-	}
-
 	const isPublic =
 		pathname === '/login' || pathname === '/health' || underPrefix(pathname, '/auth');
 	if (!isPublic && !ctx.authenticated) {
