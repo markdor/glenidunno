@@ -70,6 +70,7 @@ web_modules/
 .env.*
 !.env.example
 !.env.local.example
+!.env.test
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -143,12 +144,27 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
-# Playwright E2E SQLite DB (host-side, recreated per run)
-e2e.db
-e2e.db-shm
-e2e.db-wal
-e2e.db-journal
+# Local SQLite databases (dev + host-side e2e DB, recreated per run)
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
 
-# Playwright saved auth state (storageState) + docker e2e bind-mount artifacts
+# SvelteKit build output and adapter/deploy artifacts
+/build
+.vercel
+.netlify
+.wrangler
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Playwright test results, saved auth state (storageState) + docker e2e
+# bind-mount artifacts
+test-results
 **/playwright/.auth/
 .e2e-docker/
+
+# E2E magic-link capture (MAGIC_LINK_DEBUG_PATH)
+e2e-magic-link.log

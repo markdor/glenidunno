@@ -47,7 +47,7 @@ Prüfe den Diff systematisch gegen jede Dimension. Nutze konkret aus CLAUDE.md a
 
 2. **Security**
    - Neue Routen respektieren den Closed-App-Auth-Guard.
-   - Eingabevalidierung nutzt geteilte Konstanten aus `packages/shared` statt Magic Numbers je Schicht.
+   - Eingabevalidierung nutzt geteilte Konstanten aus `src/lib/validation.ts` statt Magic Numbers je Schicht.
    - Keine internen Fehlertexte/Stacktraces, die an den Client durchgereicht werden.
    - Bei neuen Auth-/Rate-Limiting-relevanten Routen: Rate-Limits bedacht, Timing-Equalization bei sicherheitskritischen Vergleichen (z. B. Enumeration).
    - Keine Secrets, Tokens oder Klartext-Passwörter im Code, in Logs oder Kommentaren.
@@ -64,10 +64,10 @@ Prüfe den Diff systematisch gegen jede Dimension. Nutze konkret aus CLAUDE.md a
    - Duplikation nur dort vermieden, wo es die Domäne rechtfertigt (nicht um jeden Preis DRY).
 
 5. **Architektur**
-   - Geteilte Domänen-Typen/-Konstanten liegen in `packages/shared`, nicht pro Schicht dupliziert.
+   - Geteilte Domänen-Typen/-Konstanten liegen zentral in `$lib` (z. B. `src/lib/validation.ts`), nicht pro Schicht dupliziert.
    - Schema-Änderungen über Drizzle-Migration (committed, nicht `drizzle-kit push`).
    - Serverlogik in `src/lib/server/**`, keine DB-Zugriffe direkt aus Komponenten oder `+page.svelte`.
-   - Kein Nx/Turborepo/Postgres eingeführt; npm-Workspaces-Struktur eingehalten.
+   - Kein Nx/Turborepo/Postgres eingeführt; Single-App-Struktur im Repo-Root eingehalten (keine npm Workspaces, kein `packages/`).
 
 ---
 

@@ -40,10 +40,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: coverage-report
-          path: packages/app/coverage/
+          path: coverage/
 
       # Coverage summary directly in the PR/Action log.
-      # The app lives in the packages/app workspace, so look there for the report + vite.config.
       # if: always() so the PR comment still appears even when the coverage gate
       # is red; skipped when "Run Unit Tests" never ran (e.g. an earlier Lint failure).
       - name: Coverage Summary
@@ -51,7 +50,6 @@ jobs:
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: packages/app
 
   release:
     needs: test
@@ -92,7 +90,6 @@ jobs:
         with:
           extra_plugins: |
             @semantic-release/git
-            @semantic-release/exec
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
@@ -118,7 +115,7 @@ jobs:
       - uses: docker/metadata-action@v6
         id: meta
         with:
-          images: ghcr.io/${{ github.repository }}-app
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=latest,enable=${{ needs.release.outputs.new_release_published == 'true' }}
             type=raw,value=${{ needs.release.outputs.new_release_version }},enable=${{ needs.release.outputs.new_release_published == 'true' }}
@@ -126,7 +123,7 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
-          file: packages/app/Dockerfile
+          file: Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
