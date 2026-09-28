@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 
-// Only the entry phase can be tested end-to-end: the server clock can't be
-// controlled from Playwright, so order and reveal are covered by route and
-// component tests.
+// The server clock can't be controlled from Playwright: order and reveal are
+// reached here via the admin's 18-Uhr/9-Uhr buttons, the clock-based switch
+// at 18:00 and 9:00 is covered by route and component tests.
 
 const ALIASES = ['Nebelhorn', 'Blütenmeer'];
 const DISTILLERIES = ['Ardbeg', 'Glenkinchie'];
@@ -12,8 +12,8 @@ function dateInDays(days: number): string {
 	return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-test.describe('Tasting – Eingabephase', () => {
-	test('Admin legt an, Teilnehmer trägt ohne Login ein, Admin sieht nur den Fortschritt', async ({
+test.describe('Tasting – Ablauf', () => {
+	test('Admin legt an, Teilnehmer trägt ohne Login ein, Admin gibt Reihenfolge und Auflösung frei', async ({
 		page,
 		browser
 	}) => {
@@ -37,11 +37,10 @@ test.describe('Tasting – Eingabephase', () => {
 		expect(annaUrl).toBeTruthy();
 		const detailHref = await page.getByRole('link', { name: 'Zum Tasting' }).getAttribute('href');
 
+		const participant = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+		const p = await participant.newPage();
+
 		await test.step('Teilnehmer trägt zwei Flaschen ein', async () => {
-			const participant = await browser.newContext({
-				storageState: { cookies: [], origins: [] }
-			});
-			const p = await participant.newPage();
 			await p.goto(annaUrl!);
 			await expect(p).toHaveTitle('Whisky-Tasting');
 			await expect(p.getByText('Hallo Anna 👋')).toBeVisible();
@@ -57,7 +56,6 @@ test.describe('Tasting – Eingabephase', () => {
 					p.getByRole('status').filter({ hasText: `Flasche ${slot} gespeichert.` })
 				).toBeVisible();
 			}
-			await participant.close();
 		});
 
 		await test.step('Admin sieht den Fortschritt, aber keine Inhalte', async () => {
@@ -82,6 +80,37 @@ test.describe('Tasting – Eingabephase', () => {
 				expect(data).not.toContain(secret);
 			}
 		});
+
+		await test.step('18-Uhr-Button: alle Links zeigen nur die Reihenfolge samt Hinweis', async () => {
+			page.once('dialog', (dialog) => dialog.accept());
+			await page.getByRole('button', { name: 'Reihenfolge jetzt freigeben' }).click();
+			await expect(page.getByRole('heading', { name: 'Reihenfolge', exact: true })).toBeVisible();
+
+			await p.reload();
+			await expect(p.getByRole('heading', { name: 'Ausschankreihenfolge' })).toBeVisible();
+			await expect(
+				p.getByText(
+					/^Der Admin hat die Reihenfolge am .+ um \d\d:\d\d Uhr vorzeitig freigegeben\.$/
+				)
+			).toBeVisible();
+			await expect(p.getByText(ALIASES[0])).toBeVisible();
+			const html = await (await p.request.get(annaUrl!)).text();
+			for (const name of DISTILLERIES) expect(html).not.toContain(name);
+			await expect(p.getByRole('form')).toHaveCount(0);
+		});
+
+		await test.step('9-Uhr-Button: alle Links zeigen die Auflösung samt Hinweis', async () => {
+			page.once('dialog', (dialog) => dialog.accept());
+			await page.getByRole('button', { name: 'Jetzt auflösen' }).click();
+			await expect(page.getByRole('heading', { name: 'Auflösung' })).toBeVisible();
+
+			await p.reload();
+			await expect(p.getByRole('heading', { name: 'Auflösung' })).toBeVisible();
+			await expect(p.getByText(/vorzeitig aufgelöst\.$/)).toBeVisible();
+			for (const name of DISTILLERIES) await expect(p.getByText(name)).toBeVisible();
+		});
+
+		await participant.close();
 	});
 });
 

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, count, countDistinct, desc, eq, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type {
+	ManualPhaseChanges,
 	OrderEntry,
 	Progress,
 	RevealedBottle,
@@ -115,6 +116,19 @@ function pouredBottles(db: Db, tastingId: string) {
 // so created_at alone can't tell them apart).
 const participantOrder = [asc(tastingParticipant.createdAt), sql`${tastingParticipant}.rowid`];
 
+// Everything the phase depends on: the date and the admin's manual overrides.
+const phaseColumns = {
+	tastingDate: tasting.tastingDate,
+	orderOpenedAt: tasting.orderOpenedAt,
+	revealedAt: tasting.revealedAt
+};
+
+/** Current phase of a tasting, `null` if it doesn't exist. */
+function currentPhase(db: Db, id: string, now: Date): TastingPhase | null {
+	const t = db.select(phaseColumns).from(tasting).where(eq(tasting.id, id)).get();
+	return t ? getTastingPhase(t.tastingDate, now, t) : null;
+}
+
 // ── Admin ───────────────────────────────────────────────────────────────────
 
 export type NewTasting = {
@@ -201,7 +215,7 @@ export function listTastings(db: Db, now: Date = new Date()): TastingListItem[] 
 				id: t.id,
 				name: t.name,
 				tastingDate: t.tastingDate,
-				phase: getTastingPhase(t.tastingDate, now),
+				phase: getTastingPhase(t.tastingDate, now, t),
 				progress: {
 					entered: c?.bottles ?? 0,
 					total: (c?.participants ?? 0) * t.bottlesPerParticipant
@@ -236,6 +250,7 @@ export type AdminParticipant = { id: string; name: string; progress: Progress };
 export type AdminTastingDetail = {
 	tasting: { id: string; name: string; tastingDate: string; bottlesPerParticipant: number };
 	participants: AdminParticipant[];
+	manual: ManualPhaseChanges;
 } & (
 	| { phase: 'entry' }
 	| { phase: 'order'; order: OrderEntry[] }
@@ -280,10 +295,11 @@ export function getAdminTastingDetail(
 			tastingDate: t.tastingDate,
 			bottlesPerParticipant: t.bottlesPerParticipant
 		},
-		participants
+		participants,
+		manual: { orderOpenedAt: t.orderOpenedAt, revealedAt: t.revealedAt }
 	};
 
-	const phase = getTastingPhase(t.tastingDate, now);
+	const phase = getTastingPhase(t.tastingDate, now, t);
 	switch (phase) {
 		case 'entry':
 			return { ...base, phase };
@@ -304,19 +320,51 @@ export function updateTastingDate(
 	tastingDate: string,
 	now: Date = new Date()
 ): boolean {
-	const t = db
-		.select({ tastingDate: tasting.tastingDate })
-		.from(tasting)
-		.where(eq(tasting.id, id))
-		.get();
-	if (!t) return false;
-	if (getTastingPhase(t.tastingDate, now) !== 'entry') {
+	const phase = currentPhase(db, id, now);
+	if (!phase) return false;
+	if (phase !== 'entry') {
 		throw new TastingValidationError(
 			`date change rejected: tasting ${id} is past the entry phase`,
-			'Das Datum lässt sich nur bis 18 Uhr am Tasting-Tag ändern.'
+			'Das Datum lässt sich nur ändern, solange die Eingabe offen ist.'
 		);
 	}
 	db.update(tasting).set({ tastingDate }).where(eq(tasting.id, id)).run();
+	return true;
+}
+
+/**
+ * "18-Uhr-Button": shows the pouring order on all links right away and closes
+ * the entry, overruling the 18:00 rule. Only while the entry is still open.
+ * Returns false if the tasting doesn't exist.
+ */
+export function openOrderEarly(db: Db, id: string, now: Date = new Date()): boolean {
+	const phase = currentPhase(db, id, now);
+	if (!phase) return false;
+	if (phase !== 'entry') {
+		throw new TastingValidationError(
+			`open order rejected: tasting ${id} is already in phase ${phase}`,
+			'Die Reihenfolge ist bereits freigegeben.'
+		);
+	}
+	db.update(tasting).set({ orderOpenedAt: now }).where(eq(tasting.id, id)).run();
+	return true;
+}
+
+/**
+ * "9-Uhr-Button": reveals everything on all links right away, overruling the
+ * 9:00 rule – also straight from the entry phase. Returns false if the
+ * tasting doesn't exist.
+ */
+export function revealEarly(db: Db, id: string, now: Date = new Date()): boolean {
+	const phase = currentPhase(db, id, now);
+	if (!phase) return false;
+	if (phase === 'revealed') {
+		throw new TastingValidationError(
+			`reveal rejected: tasting ${id} is already revealed`,
+			'Das Tasting ist bereits aufgelöst.'
+		);
+	}
+	db.update(tasting).set({ revealedAt: now }).where(eq(tasting.id, id)).run();
 	return true;
 }
 
@@ -349,7 +397,7 @@ export function deleteTasting(db: Db, id: string): boolean {
 
 // ── Participant link ────────────────────────────────────────────────────────
 
-export type TokenHolder = {
+export type TokenHolder = ManualPhaseChanges & {
 	id: string;
 	name: string;
 	tastingId: string;
@@ -371,7 +419,9 @@ export function findParticipantByToken(db: Db, token: string): TokenHolder | nul
 				tastingId: tasting.id,
 				tastingName: tasting.name,
 				tastingDate: tasting.tastingDate,
-				bottlesPerParticipant: tasting.bottlesPerParticipant
+				bottlesPerParticipant: tasting.bottlesPerParticipant,
+				orderOpenedAt: tasting.orderOpenedAt,
+				revealedAt: tasting.revealedAt
 			})
 			.from(tastingParticipant)
 			.innerJoin(tasting, eq(tasting.id, tastingParticipant.tastingId))
@@ -389,10 +439,16 @@ export type ParticipantView =
 			participant: { name: string };
 			bottles: OwnBottle[];
 	  }
-	| { phase: 'order'; tasting: { name: string; tastingDate: string }; order: OrderEntry[] }
+	| {
+			phase: 'order';
+			tasting: { name: string; tastingDate: string };
+			manual: ManualPhaseChanges;
+			order: OrderEntry[];
+	  }
 	| {
 			phase: 'revealed';
 			tasting: { name: string; tastingDate: string };
+			manual: ManualPhaseChanges;
 			bottles: RevealedBottle[];
 	  };
 
@@ -407,7 +463,9 @@ export function getParticipantView(
 	now: Date = new Date()
 ): ParticipantView {
 	const tastingInfo = { name: holder.tastingName, tastingDate: holder.tastingDate };
-	const phase = getTastingPhase(holder.tastingDate, now);
+	// When the admin pressed the 18:00 / 9:00 button – every link shows it.
+	const manual = { orderOpenedAt: holder.orderOpenedAt, revealedAt: holder.revealedAt };
+	const phase = getTastingPhase(holder.tastingDate, now, manual);
 	switch (phase) {
 		case 'entry': {
 			const bottles = db
@@ -425,11 +483,17 @@ export function getParticipantView(
 			};
 		}
 		case 'order':
-			return { phase, tasting: tastingInfo, order: toOrder(pouredBottles(db, holder.tastingId)) };
+			return {
+				phase,
+				tasting: tastingInfo,
+				manual,
+				order: toOrder(pouredBottles(db, holder.tastingId))
+			};
 		case 'revealed':
 			return {
 				phase,
 				tasting: tastingInfo,
+				manual,
 				bottles: withoutBreakdown(toReveal(pouredBottles(db, holder.tastingId)))
 			};
 	}
@@ -460,14 +524,12 @@ export function saveBottle(
 ): 'saved' | 'alias-taken' {
 	return db.transaction((tx) => {
 		const t = tx
-			.select({
-				tastingDate: tasting.tastingDate,
-				bottlesPerParticipant: tasting.bottlesPerParticipant
-			})
+			.select({ ...phaseColumns, bottlesPerParticipant: tasting.bottlesPerParticipant })
 			.from(tasting)
 			.where(eq(tasting.id, holder.tastingId))
 			.get();
-		if (!t || getTastingPhase(t.tastingDate, now) !== 'entry') {
+		// Also catches the admin's 18:00 / 9:00 button pressed while the page was open.
+		if (!t || getTastingPhase(t.tastingDate, now, t) !== 'entry') {
 			throw new TastingValidationError(
 				`save rejected: tasting ${holder.tastingId} is past the entry phase`,
 				'Die Eingabe ist geschlossen, deine Änderung wurde nicht gespeichert.'

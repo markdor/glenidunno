@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import SubHeader from '$lib/components/SubHeader.svelte';
 	import TastingLinkList from '$lib/components/TastingLinkList.svelte';
+	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import TastingOrderList from '$lib/components/TastingOrderList.svelte';
 	import TastingReveal from '$lib/components/TastingReveal.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
@@ -23,6 +25,21 @@
 	$effect(() => {
 		if (form?.updated) untrack(() => toast.show('success', 'Datum geändert.'));
 	});
+
+	$effect(() => {
+		if (form?.phaseChanged) {
+			const message = form.action === 'reveal' ? 'Tasting aufgelöst.' : 'Reihenfolge freigegeben.';
+			untrack(() => toast.show('success', message));
+		}
+	});
+
+	// cancel(), not preventDefault() in onsubmit: enhance ignores
+	// defaultPrevented and would send the request anyway.
+	function confirmFirst(question: string): SubmitFunction {
+		return ({ cancel }) => {
+			if (!confirm(question)) cancel();
+		};
+	}
 
 	const errorText: Record<string, string> = {
 		required: 'Pflichtfeld',
@@ -56,6 +73,8 @@
 			</span>
 		</p>
 	</div>
+
+	<TastingManualNotice manual={detail.manual} />
 
 	{#if detail.phase === 'entry'}
 		<p class="rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900">
@@ -102,6 +121,39 @@
 		</section>
 	{/if}
 
+	{#if detail.phase !== 'revealed'}
+		<section class="space-y-3">
+			<h2 class="text-lg font-semibold">Vorzeitig freigeben</h2>
+			<p class="text-sm text-slate-500">
+				Überstimmt die Uhrzeit sofort für alle Links: die Reihenfolge statt um 18 Uhr am
+				Tasting-Tag, die Auflösung statt um 9 Uhr am Folgetag. Alle Links zeigen danach, wann du das
+				getan hast. Lässt sich nicht rückgängig machen.
+			</p>
+			<div class="flex flex-wrap gap-2">
+				{#if detail.phase === 'entry'}
+					<form
+						method="POST"
+						action="?/openOrder"
+						use:enhance={confirmFirst(
+							'Reihenfolge jetzt für alle Links freigeben? Danach kann niemand mehr Flaschen eintragen oder ändern.'
+						)}
+					>
+						<button type="submit" class={secondaryButton}>Reihenfolge jetzt freigeben</button>
+					</form>
+				{/if}
+				<form
+					method="POST"
+					action="?/reveal"
+					use:enhance={confirmFirst(
+						'Tasting jetzt für alle Links komplett auflösen? Alle sehen dann Namen, Werte und Mitbringer.'
+					)}
+				>
+					<button type="submit" class={secondaryButton}>Jetzt auflösen</button>
+				</form>
+			</div>
+		</section>
+	{/if}
+
 	<section class="space-y-3">
 		<h2 class="text-lg font-semibold">Teilnehmer ({detail.participants.length})</h2>
 		<ul class="space-y-2">
@@ -128,19 +180,12 @@
 	</section>
 
 	<section>
-		<!-- cancel(), not preventDefault() in onsubmit: enhance ignores
-		     defaultPrevented and would send the request anyway. -->
 		<form
 			method="POST"
 			action="?/delete"
-			use:enhance={({ cancel }) => {
-				if (
-					!confirm(
-						`Tasting „${detail.tasting.name}“ wirklich löschen? Alle Eingaben gehen verloren.`
-					)
-				)
-					cancel();
-			}}
+			use:enhance={confirmFirst(
+				`Tasting „${detail.tasting.name}“ wirklich löschen? Alle Eingaben gehen verloren.`
+			)}
 		>
 			<button
 				type="submit"

@@ -6,8 +6,11 @@ import { toast } from '$lib/components/toastStore.svelte';
 
 const tasting = { name: 'Herbst-Tasting', tastingDate: '2026-10-24' };
 
+// No admin button pressed unless a test says otherwise.
+const noManual = { orderOpenedAt: null, revealedAt: null };
+
 function renderView(view: Record<string, unknown>, form: unknown = null) {
-	return render(Page, { data: { user: null, view }, form } as never);
+	return render(Page, { data: { user: null, view: { manual: noManual, ...view } }, form } as never);
 }
 
 beforeEach(() => {
@@ -114,6 +117,27 @@ describe('Tasting link page', () => {
 		await expect.element(page.getByText('10 Jahre')).toBeVisible();
 		expect(page.getByText('Score-Aufschlüsselung').elements()).toHaveLength(0);
 	});
+
+	test.each([
+		{
+			phase: 'order',
+			view: { order: [{ position: 1, alias: 'Nebel' }] },
+			manual: { orderOpenedAt: new Date('2026-10-24T15:32:00Z'), revealedAt: null },
+			notice: 'Der Admin hat die Reihenfolge am Sa., 24.10.2026 um 17:32 Uhr vorzeitig freigegeben.'
+		},
+		{
+			phase: 'revealed',
+			view: { bottles: [] },
+			manual: { orderOpenedAt: null, revealedAt: new Date('2026-10-24T20:05:00Z') },
+			notice: 'Der Admin hat das Tasting am Sa., 24.10.2026 um 22:05 Uhr vorzeitig aufgelöst.'
+		}
+	])(
+		'tells when the admin changed the $phase phase by hand',
+		async ({ phase, view, manual, notice }) => {
+			renderView({ phase, tasting, manual, ...view });
+			await expect.element(page.getByText(notice)).toBeVisible();
+		}
+	);
 
 	test('reports a general save failure as a toast', async () => {
 		renderView(

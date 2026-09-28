@@ -157,9 +157,10 @@ Reine Begrüßungsseite, keine Arbeitsfläche. Aufbau von oben nach unten:
 
 Blindtastings: Der Admin legt unter `/admin/tastings` ein Tasting mit Datum und Teilnehmern an, jeder Teilnehmer trägt seine Flaschen ohne Login über einen persönlichen Token-Link (`/tasting/[token=tastingToken]`) ein, die App berechnet die Ausschankreihenfolge.
 
-- **Phasen allein aus dem Datum** (kein Status-Feld, keine manuelle Steuerung), berechnet vom Server in `Europe/Berlin` (`tastingPhase.ts`, `Intl.DateTimeFormat` – der Container läuft in UTC):
+- **Phasen aus dem Datum** (kein Status-Feld), berechnet vom Server in `Europe/Berlin` (`tastingPhase.ts`, `Intl.DateTimeFormat` – der Container läuft in UTC):
   - `entry` bis 18:00 am Tasting-Tag, `order` ab 18:00, `revealed` ab 9:00 am Folgetag. Zeitzone und Uhrzeiten sind Konstanten in `src/lib/tasting.ts`, nicht pro Tasting einstellbar.
   - `tasting_date` ist deshalb ein Kalenderdatum (`text`, `YYYY-MM-DD`) statt eines Zeitstempels – bewusste Abweichung vom Timestamp-Standard.
+  - **Admin-Buttons überstimmen die Uhr** (nachträglich gewünscht, entgegen dem ursprünglichen Nicht-Ziel „keine manuelle Status-Steuerung“ aus Issue #5): „Reihenfolge jetzt freigeben“ (18-Uhr-Button, nur in `entry`) setzt `tasting.order_opened_at`, „Jetzt auflösen“ (9-Uhr-Button, in `entry` und `order`) setzt `tasting.revealed_at`. Die Zeitstempel ziehen die Phase nur vor, nie zurück, und lassen sich nicht zurücknehmen (Bestätigungsdialog). Jeder Link und die Admin-Seite zeigen per `TastingManualNotice.svelte`, wann der Admin gedrückt hat (Berliner Zeit). Jede Phasenberechnung muss deshalb die beiden Spalten mitlesen (`getTastingPhase(date, now, manual)`) – auch die Speichern-Transaktion, damit ein Button-Druck die Eingabe sofort sperrt.
 - **Blind für alle, auch für den Admin** (er verkostet mit): Der Admin sieht nie mehr Inhalt als die Teilnehmer, nur zusätzlich Verwaltungsdaten (Teilnehmernamen, Fortschritt) und nach der Auflösung die Score-Aufschlüsselung.
   - Welche Felder ein `load` liefert, entscheidet ausschließlich die phasenabhängige Projektion in `src/lib/server/tastings.ts` (Felder explizit gepickt, nie gespreadet) – für Teilnehmerseite, Admin-Seiten und Startseite. Ausblenden im Template reicht nicht, `data` landet komplett im HTML bzw. `__data.json`. Der Whiskybase-Link zählt als Inhalt.
   - In `entry` werden fremde Flaschen gar nicht erst abgefragt; `order` liefert nur `{ position, alias }`.
@@ -270,7 +271,7 @@ Aufbau analog zu `C:\Users\Markus\git\gritshot`.
 - `expect: { requireAssertions: true }` aktiv – Tests ohne Assertion schlagen fehl.
 - E2E via Playwright (`tests/`), nur Smoke- und Critical-Path-Tests.
   - Keine Zufallswerte in Testtiteln (z. B. `randomUUID()` in einer Titel-Schleife): Playwright sammelt Tests im Hauptprozess und im Worker getrennt ein und findet den Test sonst nicht wieder („Test not found in the worker process“).
-  - Die Tasting-E2E-Tests (`tasting.e2e.ts`) decken nur die Eingabephase ab – die Server-Uhr lässt sich aus Playwright nicht steuern. Reihenfolge und Auflösung testen Route-Tests (`vi.setSystemTime()`) und Komponenten-Tests.
+  - Die Server-Uhr lässt sich aus Playwright nicht steuern: `tasting.e2e.ts` erreicht Reihenfolge und Auflösung über die Admin-Buttons, den uhrzeitbasierten Wechsel um 18 und 9 Uhr testen nur Route-Tests (`vi.setSystemTime()`) und Komponenten-Tests.
 - **Submit-Callbacks von `use:enhance`** (Toast, `update({ reset: false })`, `invalidateAll()`) testet man mit gemocktem `$app/forms` und `$app/navigation` (Muster `TastingBottleForm.svelte.test.ts`): Das echte `update()` braucht einen laufenden SvelteKit-Client. Für reine Bestätigungsdialoge bleibt das echte `enhance` mit abgefangenem `fetch` die Vorlage (`admin/page.svelte.test.ts`).
 - **Tests mit Cascade-Löschungen** auf einer eigenen In-Memory-DB müssen `pragma('foreign_keys = ON')` setzen – SQLite erzwingt Fremdschlüssel sonst nicht.
 - **E2E-Login via Setup-Project + `storageState`** (Playwright-Standardmuster, https://playwright.dev/docs/auth): ein `auth.setup.ts`-Project loggt sich einmal per echtem Magic-Link-Flow als der `ADMIN_EMAIL`-Testuser ein und speichert die Session in `playwright/.auth/admin.json`. Das `e2e`-Project hängt per `dependencies: ['setup']` daran und startet alle weiteren Specs bereits eingeloggt – kein Login-Boilerplate pro Testdatei.
@@ -355,7 +356,7 @@ Holt die Metadaten via `dependabot/fetch-metadata`, aktiviert Auto-Merge (squash
     }
   }
   ```
-  Erste Umsetzung im Projekt: `TastingValidationError` in `src/lib/server/tastings.ts` für Regelverstöße der Domain-Schicht (Speichern nach 18 Uhr, Datumsänderung außerhalb der Eingabephase, ungültiger Slot).
+  Erste Umsetzung im Projekt: `TastingValidationError` in `src/lib/server/tastings.ts` für Regelverstöße der Domain-Schicht (Speichern außerhalb der Eingabephase, Datumsänderung außerhalb der Eingabephase, ungültiger Slot, Admin-Button für eine schon erreichte Phase).
 - **Handler-Pattern** (SvelteKit Action):
   - Validierungsfehler (typisierte Fehlerklasse, nicht feld-bezogen) → `fail(422, { userMessage: e.userMessage })`; feld-bezogene Fehler laufen weiter über `fieldErrors` mit `fail(400)` bzw. `fail(409)` für `taken` (siehe unten)
   - Unerwarteter Fehler → `logger.error(...)` + generische User-Meldung (`fail(500, ...)`)

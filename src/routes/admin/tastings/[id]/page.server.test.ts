@@ -47,7 +47,7 @@ const ORDER = new Date('2026-10-24T16:00:00Z');
 const REVEALED = new Date('2026-10-25T08:00:00Z');
 
 type LoadEvent = Parameters<typeof load>[0];
-type ActionName = 'updateDate' | 'regenerate' | 'delete';
+type ActionName = 'updateDate' | 'openOrder' | 'reveal' | 'regenerate' | 'delete';
 
 let tastingId: string;
 let tokens: IssuedToken[];
@@ -119,7 +119,7 @@ describe('admin tasting detail – access', () => {
 		expect(() => loadAs(ADMIN, 'nope')).toThrowError(expect.objectContaining({ status: 404 }));
 	});
 
-	it.each(['updateDate', 'regenerate', 'delete'] as const)(
+	it.each(['updateDate', 'openOrder', 'reveal', 'regenerate', 'delete'] as const)(
 		'rejects %s for anonymous users and non-admins',
 		async (name) => {
 			await expect(act(name, {}, null)).rejects.toMatchObject({ status: 401 });
@@ -203,7 +203,7 @@ describe('updateDate', () => {
 		vi.setSystemTime(ORDER);
 		expect(await act('updateDate', { tastingDate: '2026-11-07' })).toMatchObject({
 			status: 422,
-			data: { userMessage: 'Das Datum lässt sich nur bis 18 Uhr am Tasting-Tag ändern.' }
+			data: { userMessage: 'Das Datum lässt sich nur ändern, solange die Eingabe offen ist.' }
 		});
 		expect(db.select().from(tasting).get()?.tastingDate).toBe('2026-10-24');
 	});
@@ -226,6 +226,65 @@ describe('updateDate', () => {
 			data: { userMessage: 'Da ist etwas schiefgelaufen.' }
 		});
 		expect(logger.error).toHaveBeenCalledWith({ err }, 'update tasting date failed');
+		spy.mockRestore();
+	});
+});
+
+describe('openOrder and reveal (18-Uhr and 9-Uhr buttons)', () => {
+	it('opens the order ahead of time and records when', async () => {
+		expect(await act('openOrder')).toEqual({ action: 'openOrder', phaseChanged: true });
+
+		const result = loadAs(ADMIN);
+		expect(result.detail).toMatchObject({
+			phase: 'order',
+			manual: { orderOpenedAt: expect.any(Date), revealedAt: null },
+			order: [
+				{ position: 1, alias: 'Blume' },
+				{ position: 2, alias: 'Nebel' }
+			]
+		});
+	});
+
+	it('reveals ahead of time, also straight from the entry phase', async () => {
+		expect(await act('reveal')).toEqual({ action: 'reveal', phaseChanged: true });
+		expect(loadAs(ADMIN).detail).toMatchObject({
+			phase: 'revealed',
+			manual: { revealedAt: expect.any(Date) }
+		});
+	});
+
+	it('refuses a button whose phase is already reached', async () => {
+		vi.setSystemTime(ORDER);
+		expect(await act('openOrder')).toMatchObject({
+			status: 422,
+			data: { action: 'openOrder', userMessage: 'Die Reihenfolge ist bereits freigegeben.' }
+		});
+		vi.setSystemTime(REVEALED);
+		expect(await act('reveal')).toMatchObject({
+			status: 422,
+			data: { action: 'reveal', userMessage: 'Das Tasting ist bereits aufgelöst.' }
+		});
+	});
+
+	it('answers 404 once the tasting is gone', async () => {
+		db.delete(tasting).run();
+		expect(await act('openOrder')).toMatchObject({ status: 404, data: { action: 'openOrder' } });
+		expect(await act('reveal')).toMatchObject({ status: 404, data: { action: 'reveal' } });
+	});
+
+	it('logs and returns 500 on an unexpected database error', async () => {
+		const err = new Error('disk full');
+		const spy = vi.spyOn(db, 'update').mockImplementationOnce(() => {
+			throw err;
+		});
+		expect(await act('reveal')).toMatchObject({
+			status: 500,
+			data: { action: 'reveal', userMessage: 'Da ist etwas schiefgelaufen.' }
+		});
+		expect(logger.error).toHaveBeenCalledWith(
+			{ err, action: 'reveal' },
+			'manual tasting phase change failed'
+		);
 		spy.mockRestore();
 	});
 });

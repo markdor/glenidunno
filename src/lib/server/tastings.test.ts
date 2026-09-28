@@ -13,7 +13,9 @@ import {
 	getParticipantView,
 	getStartPageSummary,
 	listTastings,
+	openOrderEarly,
 	regenerateParticipantToken,
+	revealEarly,
 	saveBottle,
 	TastingValidationError,
 	updateTastingDate,
@@ -186,6 +188,7 @@ describe('getParticipantView', () => {
 		expect(view).toEqual({
 			phase: 'order',
 			tasting: { name: 'Herbst-Tasting', tastingDate: TASTING_DATE },
+			manual: { orderOpenedAt: null, revealedAt: null },
 			order: [
 				{ position: 1, alias: 'Blume' },
 				{ position: 2, alias: 'Nebel' }
@@ -336,6 +339,79 @@ describe('updateTastingDate', () => {
 	it('refuses once the entry phase is over', () => {
 		const { id } = setup();
 		expect(() => updateTastingDate(db, id, '2026-11-07', ORDER)).toThrow(TastingValidationError);
+	});
+});
+
+describe('openOrderEarly and revealEarly (admin buttons)', () => {
+	// Drizzle stores timestamps in whole seconds.
+	const PRESSED = new Date('2026-10-22T15:32:10Z');
+
+	it('opens the order ahead of 18:00 and tells every link when', () => {
+		const ctx = setup();
+		saveBottle(db, ctx.anna, 1, bottle(), ENTRY);
+
+		expect(openOrderEarly(db, ctx.id, PRESSED)).toBe(true);
+
+		const holder = findParticipantByToken(db, ctx.tokens[1].token)!;
+		const view = getParticipantView(db, holder, PRESSED);
+		expect(view).toMatchObject({
+			phase: 'order',
+			manual: { orderOpenedAt: PRESSED, revealedAt: null },
+			order: [{ position: 1, alias: 'Nebel' }]
+		});
+		expect(getAdminTastingDetail(db, ctx.id, PRESSED)).toMatchObject({
+			phase: 'order',
+			manual: { orderOpenedAt: PRESSED }
+		});
+	});
+
+	it('closes the entry at once', () => {
+		const ctx = setup();
+		openOrderEarly(db, ctx.id, PRESSED);
+		expect(() => saveBottle(db, ctx.anna, 1, bottle(), PRESSED)).toThrow(TastingValidationError);
+		expect(() => updateTastingDate(db, ctx.id, '2026-11-07', PRESSED)).toThrow(
+			TastingValidationError
+		);
+	});
+
+	it('refuses to open the order twice or after 18:00', () => {
+		const ctx = setup();
+		expect(() => openOrderEarly(db, ctx.id, ORDER)).toThrow(
+			expect.objectContaining({ userMessage: 'Die Reihenfolge ist bereits freigegeben.' })
+		);
+		openOrderEarly(db, ctx.id, PRESSED);
+		expect(() => openOrderEarly(db, ctx.id, PRESSED)).toThrow(TastingValidationError);
+	});
+
+	it('reveals ahead of 9:00, also straight from the entry phase', () => {
+		const ctx = setup();
+		saveBottle(db, ctx.anna, 1, bottle(), ENTRY);
+
+		expect(revealEarly(db, ctx.id, PRESSED)).toBe(true);
+
+		const view = getParticipantView(db, findParticipantByToken(db, ctx.tokens[2].token)!, PRESSED);
+		expect(view).toMatchObject({
+			phase: 'revealed',
+			manual: { orderOpenedAt: null, revealedAt: PRESSED },
+			bottles: [{ alias: 'Nebel', distillery: 'Ardbeg', broughtBy: 'Anna' }]
+		});
+		// Revealed tastings no longer count as upcoming.
+		expect(getStartPageSummary(db, PRESSED).upcomingCount).toBe(0);
+		expect(listTastings(db, PRESSED)[0].phase).toBe('revealed');
+	});
+
+	it('refuses to reveal twice or after 9:00 on the next day', () => {
+		const ctx = setup();
+		expect(() => revealEarly(db, ctx.id, REVEALED)).toThrow(
+			expect.objectContaining({ userMessage: 'Das Tasting ist bereits aufgelöst.' })
+		);
+		revealEarly(db, ctx.id, ORDER);
+		expect(() => revealEarly(db, ctx.id, ORDER)).toThrow(TastingValidationError);
+	});
+
+	it('returns false for an unknown tasting', () => {
+		expect(openOrderEarly(db, 'nope', PRESSED)).toBe(false);
+		expect(revealEarly(db, 'nope', PRESSED)).toBe(false);
 	});
 });
 

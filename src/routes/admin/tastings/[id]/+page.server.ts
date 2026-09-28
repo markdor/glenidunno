@@ -10,7 +10,9 @@ import { buildTastingLink } from '$lib/server/tastingToken';
 import {
 	deleteTasting,
 	getAdminTastingDetail,
+	openOrderEarly,
 	regenerateParticipantToken,
+	revealEarly,
 	TastingValidationError,
 	updateTastingDate,
 	validateTastingDate
@@ -18,6 +20,19 @@ import {
 
 const TASTING_NOT_FOUND =
 	'Dieses Tasting wurde nicht gefunden – möglicherweise wurde es bereits gelöscht.';
+
+function changePhase(action: 'openOrder' | 'reveal', change: () => boolean) {
+	try {
+		if (!change()) return fail(404, { action, userMessage: TASTING_NOT_FOUND });
+	} catch (err: unknown) {
+		if (err instanceof TastingValidationError) {
+			return fail(422, { action, userMessage: err.userMessage });
+		}
+		logger.error({ err, action }, 'manual tasting phase change failed');
+		return fail(500, { action, userMessage: UNEXPECTED_ERROR_MESSAGE });
+	}
+	return { action, phaseChanged: true };
+}
 
 export const load: PageServerLoad = ({ locals, params }) => {
 	requireAdmin(locals);
@@ -56,6 +71,17 @@ export const actions: Actions = {
 		}
 
 		return { action: 'updateDate', updated: true };
+	},
+
+	// "18-Uhr-Button" and "9-Uhr-Button": overrule the clock for all links.
+	openOrder: async ({ locals, params }) => {
+		requireAdmin(locals);
+		return changePhase('openOrder', () => openOrderEarly(db, params.id));
+	},
+
+	reveal: async ({ locals, params }) => {
+		requireAdmin(locals);
+		return changePhase('reveal', () => revealEarly(db, params.id));
 	},
 
 	regenerate: async ({ request, locals, params, url }) => {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import TastingBottleForm from '$lib/components/TastingBottleForm.svelte';
+	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import TastingOrderList from '$lib/components/TastingOrderList.svelte';
 	import TastingReveal from '$lib/components/TastingReveal.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
@@ -53,6 +54,7 @@
 			/>
 		{/each}
 	{:else if view.phase === 'order'}
+		<TastingManualNotice manual={view.manual} />
 		<section class="space-y-3">
 			<h2 class="text-lg font-semibold">Ausschankreihenfolge</h2>
 			<p class="text-sm text-slate-500">
@@ -61,6 +63,7 @@
 			<TastingOrderList order={view.order} />
 		</section>
 	{:else}
+		<TastingManualNotice manual={view.manual} />
 		<section class="space-y-3">
 			<h2 class="text-lg font-semibold">Auflösung</h2>
 			<TastingReveal bottles={view.bottles} />

@@ -52,4 +52,41 @@ describe('getTastingPhase', () => {
 	])('tasting on %s at %s is in phase %s', (tastingDate, iso, phase) => {
 		expect(getTastingPhase(tastingDate, new Date(iso))).toBe(phase);
 	});
+
+	describe('manual changes by the admin', () => {
+		const pressed = new Date('2026-06-20T10:00:00Z');
+		const beforeEntryEnds = new Date('2026-06-20T12:00:00Z');
+		const duringOrder = new Date('2026-06-20T20:00:00Z');
+
+		it('opens the order before 18:00 with the 18-Uhr button', () => {
+			expect(
+				getTastingPhase('2026-06-20', beforeEntryEnds, { orderOpenedAt: pressed, revealedAt: null })
+			).toBe('order');
+		});
+
+		it('reveals right away with the 9-Uhr button, even from the entry phase', () => {
+			expect(
+				getTastingPhase('2026-06-20', beforeEntryEnds, { orderOpenedAt: null, revealedAt: pressed })
+			).toBe('revealed');
+			expect(
+				getTastingPhase('2026-06-20', duringOrder, { orderOpenedAt: pressed, revealedAt: pressed })
+			).toBe('revealed');
+		});
+
+		it('never holds the clock back', () => {
+			// Order opened early, the reveal still comes at 9:00 the next day.
+			expect(
+				getTastingPhase('2026-06-20', new Date('2026-06-21T07:00:00Z'), {
+					orderOpenedAt: pressed,
+					revealedAt: null
+				})
+			).toBe('revealed');
+		});
+
+		it('keeps the clock rules without any button pressed', () => {
+			expect(
+				getTastingPhase('2026-06-20', beforeEntryEnds, { orderOpenedAt: null, revealedAt: null })
+			).toBe('entry');
+		});
+	});
 });

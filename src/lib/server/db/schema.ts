@@ -121,7 +121,11 @@ export const tasting = sqliteTable(
 		name: text('name').notNull(),
 		tastingDate: text('tasting_date').notNull(),
 		bottlesPerParticipant: integer('bottles_per_participant').notNull(),
-		createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+		// Admin overrides of the 18:00 / 9:00 rules; null = the clock decides.
+		// Every link shows when the admin pressed the button.
+		orderOpenedAt: integer('order_opened_at', { mode: 'timestamp' }),
+		revealedAt: integer('revealed_at', { mode: 'timestamp' })
 	},
 	(t) => [
 		check('tasting_name_length', lengthUpTo(t.name, TASTING_NAME_LENGTH.max)),

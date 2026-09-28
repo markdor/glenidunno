@@ -16,7 +16,8 @@ const base = {
 	participants: [
 		{ id: 'p1', name: 'Anna', progress: { entered: 1, total: 2 } },
 		{ id: 'p2', name: 'Ben', progress: { entered: 2, total: 2 } }
-	]
+	],
+	manual: { orderOpenedAt: null, revealedAt: null }
 };
 
 const revealedBottle = {
@@ -115,17 +116,61 @@ describe('Tasting detail page', () => {
 		).toBe(true);
 	});
 
-	describe('delete confirmation', () => {
-		// Real enhance, only the delete request is intercepted (see admin/page.svelte.test.ts).
-		let deleteRequests: string[];
+	describe('18-Uhr and 9-Uhr buttons', () => {
+		test('offers both buttons during entry', async () => {
+			renderDetail({ phase: 'entry' });
+			await expect
+				.element(page.getByRole('button', { name: 'Reihenfolge jetzt freigeben' }))
+				.toBeVisible();
+			await expect.element(page.getByRole('button', { name: 'Jetzt auflösen' })).toBeVisible();
+		});
+
+		test('offers only the reveal once the order is shown', async () => {
+			renderDetail({ phase: 'order', order: [] });
+			expect(
+				page.getByRole('button', { name: 'Reihenfolge jetzt freigeben' }).elements()
+			).toHaveLength(0);
+			await expect.element(page.getByRole('button', { name: 'Jetzt auflösen' })).toBeVisible();
+		});
+
+		test('offers no button after the reveal', async () => {
+			renderDetail({ phase: 'revealed', bottles: [] });
+			expect(page.getByRole('button', { name: 'Jetzt auflösen' }).elements()).toHaveLength(0);
+			expect(page.getByRole('heading', { name: 'Vorzeitig freigeben' }).elements()).toHaveLength(0);
+		});
+
+		test('shows when the admin pressed a button', async () => {
+			renderDetail({
+				phase: 'order',
+				order: [],
+				manual: { orderOpenedAt: new Date('2026-10-24T15:32:00Z'), revealedAt: null }
+			});
+			await expect
+				.element(page.getByText(/Reihenfolge am Sa\., 24\.10\.2026 um 17:32 Uhr vorzeitig/))
+				.toBeVisible();
+		});
+
+		test.each([
+			{ action: 'openOrder', message: 'Reihenfolge freigegeben.' },
+			{ action: 'reveal', message: 'Tasting aufgelöst.' }
+		])('confirms $action with a toast', async ({ action, message }) => {
+			renderDetail({ phase: 'order', order: [] }, { action, phaseChanged: true });
+			expect(toast.toasts.some((t) => t.variant === 'success' && t.message === message)).toBe(true);
+		});
+	});
+
+	describe('confirmation before irreversible actions', () => {
+		// Real enhance, only the action requests are intercepted (see admin/page.svelte.test.ts).
+		let actionRequests: string[];
 
 		beforeEach(() => {
-			deleteRequests = [];
+			actionRequests = [];
 			const passThrough = window.fetch.bind(window);
 			vi.spyOn(window, 'fetch').mockImplementation((input, init) => {
 				const url = input instanceof Request ? input.url : String(input);
-				if (!url.includes('?/delete')) return passThrough(input, init);
-				deleteRequests.push(url);
+				if (!url.includes('?/')) return passThrough(input, init);
+				actionRequests.push(url);
+				// Never settles: the tests only care whether the request was sent.
 				return new Promise<Response>(() => {});
 			});
 		});
@@ -134,23 +179,32 @@ describe('Tasting detail page', () => {
 			vi.restoreAllMocks();
 		});
 
-		test('sends no request when the confirm dialog is dismissed', async () => {
+		test.each([
+			{ button: 'Tasting löschen', question: 'Herbst-Tasting' },
+			{ button: 'Reihenfolge jetzt freigeben', question: 'Reihenfolge jetzt' },
+			{ button: 'Jetzt auflösen', question: 'komplett auflösen' }
+		])('sends nothing when "$button" is not confirmed', async ({ button, question }) => {
 			const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
 			renderDetail({ phase: 'entry' });
 
-			await page.getByRole('button', { name: 'Tasting löschen' }).click();
+			await page.getByRole('button', { name: button }).click();
 
-			expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Herbst-Tasting'));
-			expect(deleteRequests).toHaveLength(0);
+			expect(confirm).toHaveBeenCalledWith(expect.stringContaining(question));
+			expect(actionRequests).toHaveLength(0);
 		});
 
-		test('sends the delete request once confirmed', async () => {
+		test.each([
+			{ button: 'Tasting löschen', action: '?/delete' },
+			{ button: 'Reihenfolge jetzt freigeben', action: '?/openOrder' },
+			{ button: 'Jetzt auflösen', action: '?/reveal' }
+		])('sends $action once "$button" is confirmed', async ({ button, action }) => {
 			vi.spyOn(window, 'confirm').mockReturnValue(true);
 			renderDetail({ phase: 'entry' });
 
-			await page.getByRole('button', { name: 'Tasting löschen' }).click();
+			await page.getByRole('button', { name: button }).click();
 
-			await expect.poll(() => deleteRequests).toHaveLength(1);
+			await expect.poll(() => actionRequests).toHaveLength(1);
+			expect(actionRequests[0]).toContain(action);
 		});
 	});
 });

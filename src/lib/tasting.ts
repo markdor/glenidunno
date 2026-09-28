@@ -23,6 +23,13 @@ export const TASTING_REVEAL_HOUR = 9;
  */
 export type TastingPhase = 'entry' | 'order' | 'revealed';
 
+/**
+ * Admin overrides of the clock rules (the "18-Uhr-" and "9-Uhr-Button"): when
+ * the pouring order was opened resp. the tasting revealed ahead of time, `null`
+ * if the button wasn't pressed. They only ever move the phase forward.
+ */
+export type ManualPhaseChanges = { orderOpenedAt: Date | null; revealedAt: Date | null };
+
 export const TASTING_PHASE_LABEL: Record<TastingPhase, string> = {
 	entry: 'Eingabe',
 	order: 'Reihenfolge',
@@ -86,6 +93,26 @@ export function formatTastingDate(date: string): string {
 		month: '2-digit',
 		year: 'numeric'
 	});
+}
+
+/**
+ * Formats an instant in Berlin time, e.g. "Sa., 24.10.2026 um 17:32 Uhr" – the
+ * same for every viewer, independent of the device's time zone.
+ */
+export function formatTastingTimestamp(value: Date): string {
+	const date = value.toLocaleDateString('de-DE', {
+		timeZone: TASTING_TIME_ZONE,
+		weekday: 'short',
+		day: '2-digit',
+		month: '2-digit',
+		year: 'numeric'
+	});
+	const time = value.toLocaleTimeString('de-DE', {
+		timeZone: TASTING_TIME_ZONE,
+		hour: '2-digit',
+		minute: '2-digit'
+	});
+	return `${date} um ${time} Uhr`;
 }
 
 /** German decimal with exactly one fraction digit, e.g. 46.3 → "46,3". */

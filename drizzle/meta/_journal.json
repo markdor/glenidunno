@@ -15,6 +15,13 @@
 			"when": 1790573508163,
 			"tag": "0001_tastings",
 			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "6",
+			"when": 1790586416959,
+			"tag": "0002_tasting_manual_phase",
+			"breakpoints": true
 		}
 	]
 }

@@ -23,7 +23,9 @@ import { TASTING_WRITE_LIMIT } from '$lib/server/tastingWriteThrottle';
 import {
 	createTasting,
 	deleteTasting,
+	openOrderEarly,
 	regenerateParticipantToken,
+	revealEarly,
 	type ParticipantView
 } from '$lib/server/tastings';
 import { actions, load } from './+page.server';
@@ -120,6 +122,7 @@ describe('tasting link load', () => {
 		expect(result.view).toEqual({
 			phase: 'order',
 			tasting: { name: 'Herbst-Tasting', tastingDate: '2026-10-24' },
+			manual: { orderOpenedAt: null, revealedAt: null },
 			order: [
 				{ position: 1, alias: 'Blume' },
 				{ position: 2, alias: 'Nebel' }
@@ -129,6 +132,37 @@ describe('tasting link load', () => {
 		for (const hidden of ['Ardbeg', 'Glenkinchie', 'whiskybase', 'Anna', 'Ben', 'score']) {
 			expect(serialized).not.toContain(hidden);
 		}
+	});
+
+	it('follows the admin’s 18-Uhr button at once and tells when it was pressed', async () => {
+		await save(annaToken, validBottle);
+		const pressed = new Date('2026-10-21T15:32:00Z');
+		vi.setSystemTime(pressed);
+		openOrderEarly(db, tastingId);
+
+		expect(loadFor(benToken).view).toMatchObject({
+			phase: 'order',
+			manual: { orderOpenedAt: pressed, revealedAt: null },
+			order: [{ position: 1, alias: 'Nebel' }]
+		});
+		// Saving is locked on the server as well; the page is told to reload.
+		expect(await save(annaToken, { ...validBottle, distillery: 'Other' })).toMatchObject({
+			status: 422,
+			data: { reload: true }
+		});
+	});
+
+	it('follows the admin’s 9-Uhr button at once', async () => {
+		await save(annaToken, validBottle);
+		const pressed = new Date('2026-10-21T15:32:00Z');
+		vi.setSystemTime(pressed);
+		revealEarly(db, tastingId);
+
+		expect(loadFor(benToken).view).toMatchObject({
+			phase: 'revealed',
+			manual: { orderOpenedAt: null, revealedAt: pressed },
+			bottles: [{ alias: 'Nebel', distillery: 'Ardbeg', broughtBy: 'Anna' }]
+		});
 	});
 
 	it('reveals everything but the score breakdown from 9:00 on the next day', async () => {

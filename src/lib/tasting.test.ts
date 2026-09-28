@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { formatBottleName, formatOneDecimal, formatTastingDate } from './tasting';
+import {
+	formatBottleName,
+	formatOneDecimal,
+	formatTastingDate,
+	formatTastingTimestamp
+} from './tasting';
 
 describe('formatBottleName', () => {
 	it('uses only the distillery when nothing else is set', () => {
@@ -36,6 +41,17 @@ describe('formatTastingDate', () => {
 
 	it('keeps the calendar day at a year boundary', () => {
 		expect(formatTastingDate('2026-12-31')).toBe('Do., 31.12.2026');
+	});
+});
+
+describe('formatTastingTimestamp', () => {
+	it.each([
+		// CEST (UTC+2)
+		['2026-10-24T15:32:10Z', 'Sa., 24.10.2026 um 17:32 Uhr'],
+		// CET (UTC+1), and already the next day in Berlin
+		['2026-12-31T23:05:00Z', 'Fr., 01.01.2027 um 00:05 Uhr']
+	])('formats %s in Berlin time as %s', (iso, expected) => {
+		expect(formatTastingTimestamp(new Date(iso))).toBe(expected);
 	});
 });
 

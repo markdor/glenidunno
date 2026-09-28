@@ -34,14 +34,19 @@ Magic Link, ohne Passwort.
 und Teilnehmern an. Jeder Teilnehmer trägt seine Flaschen ohne Login
 über einen persönlichen Link (`/tasting/<token>`) ein. Das ist die
 einzige anonym erreichbare Route, und ein Link gibt nur Zugriff auf die
-eigenen Eingaben in diesem einen Tasting. Die Phase ergibt sich allein
-aus dem Tasting-Datum (Berliner Zeit):
+eigenen Eingaben in diesem einen Tasting. Die Phase ergibt sich aus dem
+Tasting-Datum (Berliner Zeit):
 
 | Zeitraum | Alle Links und der Admin sehen |
 |---|---|
 | bis 18 Uhr am Tasting-Tag | nur die eigenen Flaschen (der Admin nur den Eingabefortschritt) |
 | ab 18 Uhr am Tasting-Tag | nur die Ausschankreihenfolge der Synonyme |
 | ab 9 Uhr am Folgetag | die komplette Auflösung |
+
+Der Admin kann beide Schritte per Knopfdruck vorziehen („Reihenfolge
+jetzt freigeben“ statt 18 Uhr, „Jetzt auflösen“ statt 9 Uhr). Das lässt
+sich nicht rückgängig machen, und alle Links zeigen danach, wann der
+Admin das getan hat.
 
 Blind für alle: Auch der Admin sieht vor 18 Uhr keine fremden Eingaben.
 Die Links zeigt die App dem Admin genau einmal (nach dem Anlegen bzw.
