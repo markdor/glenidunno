@@ -26,3 +26,68 @@ export function isValidEmail(value: string): boolean {
  * management, but lives here together with the other auth validation constraints.
  */
 export const USERNAME_RE = /^[a-zA-Z0-9_.-]{2,40}$/;
+
+// ── Whisky tasting ──────────────────────────────────────────────────────────
+// Single source for the form attributes (maxlength/min/max), the server-side
+// validation and the CHECK constraints in db/schema.ts. Changing a limit means
+// generating a new migration (`npm run db:generate`).
+
+export const TASTING_NAME_LENGTH = { max: 60 } as const;
+export const TASTING_PARTICIPANT_NAME_LENGTH = { max: 40 } as const;
+export const TASTING_PARTICIPANTS = { min: 2, max: 12, default: 3 } as const;
+export const TASTING_BOTTLES_PER_PARTICIPANT = { min: 1, max: 6, default: 2 } as const;
+
+export const TASTING_ALIAS_LENGTH = { max: 30 } as const;
+export const TASTING_DISTILLERY_LENGTH = { max: 60 } as const;
+/** Independent bottler; empty means original bottling. */
+export const TASTING_BOTTLER_LENGTH = { max: 60 } as const;
+export const TASTING_BOTTLING_LENGTH = { max: 80 } as const;
+/** Age statement in years; empty means NAS. */
+export const TASTING_AGE = { min: 1, max: 80 } as const;
+export const TASTING_WHISKYBASE_URL_LENGTH = { max: 300 } as const;
+/** 0–5 scale shared by smoke, cask and value. */
+export const TASTING_SCALE = { min: 0, max: 5 } as const;
+/** Alcohol by volume in percent, one decimal place. */
+export const TASTING_ABV = { min: 35, max: 75, step: 0.1 } as const;
+
+/**
+ * Format of a participant token: 24 random bytes as base64url (192 bit).
+ * Used by the param matcher (src/params/tastingToken.ts), which also runs in
+ * the browser.
+ */
+export const TASTING_TOKEN_RE = /^[A-Za-z0-9_-]{32}$/;
+
+/** Checks for a real calendar date in `YYYY-MM-DD` form (no 2026-02-30). */
+export function isValidTastingDate(value: string): boolean {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+	const [year, month, day] = value.split('-').map(Number);
+	const date = new Date(Date.UTC(year, month - 1, day));
+	return (
+		date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+	);
+}
+
+const WHISKYBASE_HOSTS = new Set(['whiskybase.com', 'www.whiskybase.com']);
+
+/**
+ * Returns the normalized URL if `value` is an `https:` link to whiskybase.com
+ * (or www.), otherwise `null`. Parsed with `new URL()` rather than a regex so
+ * `javascript:` links, look-alike hosts (whiskybase.com.evil.io) and embedded
+ * credentials can't slip into the reveal page.
+ */
+export function normalizeWhiskybaseUrl(value: string): string | null {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		return null;
+	}
+	const valid =
+		url.protocol === 'https:' &&
+		WHISKYBASE_HOSTS.has(url.hostname) &&
+		!url.username &&
+		!url.password &&
+		!url.port &&
+		url.href.length <= TASTING_WHISKYBASE_URL_LENGTH.max;
+	return valid ? url.href : null;
+}

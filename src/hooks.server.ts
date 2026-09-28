@@ -3,6 +3,7 @@ import { sequence } from '@sveltejs/kit/hooks';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 import { auth } from '$lib/server/auth';
 import { evaluateGuard } from '$lib/server/guard';
+import { getSecurityHeaders } from '$lib/server/securityHeaders';
 
 // Lets Better Auth own everything under /auth/* (sign-in, magic-link verify, …).
 // For all other paths svelteKitHandler just calls resolve() and the chain
@@ -20,11 +21,14 @@ const sessionHandle: Handle = async ({ event, resolve }) => {
 };
 
 // Closed app: nothing is public except the login page, the health check, the
-// Better Auth endpoints and static assets. The decision itself lives in
-// evaluateGuard so it can be unit-tested without a full request.
+// Better Auth endpoints, static assets and – by exact route ID – the tasting
+// participant link. The decision itself lives in evaluateGuard so it can be
+// unit-tested without a full request. event.route.id is already set here,
+// also for __data.json requests and action POSTs.
 const guardHandle: Handle = ({ event, resolve }) => {
 	const decision = evaluateGuard(event.url.pathname, {
-		authenticated: Boolean(event.locals.user)
+		authenticated: Boolean(event.locals.user),
+		routeId: event.route.id
 	});
 
 	switch (decision.action) {
@@ -35,4 +39,14 @@ const guardHandle: Handle = ({ event, resolve }) => {
 	}
 };
 
-export const handle = sequence(authHandle, sessionHandle, guardHandle);
+// Route-specific security headers (see securityHeaders.ts). Set after
+// resolve() so pages, __data.json, action responses and error pages get them.
+const securityHeadersHandle: Handle = async ({ event, resolve }) => {
+	const response = await resolve(event);
+	for (const [name, value] of Object.entries(getSecurityHeaders(event.route.id))) {
+		response.headers.set(name, value);
+	}
+	return response;
+};
+
+export const handle = sequence(authHandle, sessionHandle, guardHandle, securityHeadersHandle);

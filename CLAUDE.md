@@ -1,6 +1,6 @@
 # Glen Idunno – CLAUDE.md
 
-Selbst gehostete Web-App (PWA) mit Magic-Link-Login, Nutzerverwaltung und Startseite.
+Selbst gehostete Web-App (PWA) mit Magic-Link-Login, Nutzerverwaltung, Startseite und Whisky-Blindtastings.
 
 Anzeigename überall „Glen Idunno" (mit Leerzeichen); technische Bezeichner (Paket, Image, Container, Volumes, DB-Datei, Domain) lauten `glenidunno`.
 
@@ -35,7 +35,7 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
 ## Services (Docker Compose)
 
 ### `app` – SvelteKit
-- Startseite, Login und Admin-Seite (Nutzerverwaltung)
+- Startseite, Login, Admin-Seite (Nutzerverwaltung) und Whisky-Tastings (Admin-Verwaltung unter `/admin/tastings`, öffentliche Teilnehmer-Links unter `/tasting/<token>`, siehe „Whisky-Tasting“)
 - Auth: Magic Link per Mail (nodemailer + Hetzner SMTP)
 - Session-Dauer: 30 Tage Cookie
 - SQLite-Datei liegt in einem Named Docker Volume unter `/data/glenidunno.db` (`DB_PATH`)
@@ -60,7 +60,8 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
   | Verwendung | Beispiele | `size` | `strokeWidth` |
   |---|---|---|---|
   | Primäre Buttons | `Plus` | `20` | `2` |
-  | Sekundär (Dropdown-Indikator) | `ChevronDown` | `16` | `2` |
+  | Karten-Leiticon (Startseiten-Karte) | `GlassWater` | `20` | `2` |
+  | Sekundär (Dropdown-Indikator, Zurück-Link, Kopieren-Button) | `ChevronDown`, `ChevronLeft`, `Copy` | `16` | `2` |
   | Inline-Status (klein, kräftig) | `Check` | `14` | `3` |
   | Toast-Leiticon (visueller Anker) | `CircleAlert`, `CircleCheck`, `Info` | `20` | `2` |
   | Toast-Schließen-Button | `X` | `16` | `2` |
@@ -72,12 +73,15 @@ Reine Begrüßungsseite, keine Arbeitsfläche. Aufbau von oben nach unten:
 
 1. **Header** – Fass-Mark (dekorativ, `alt=""`) + App-Name links als gemeinsamer Link auf `/`, Username-Dropdown rechts (Logout, ggf. Admin)
 2. **Begrüßung** „Hallo {username} 👋"
-3. **Leerzustand-Hinweis** – eine gedämpfte Zeile (`text-slate-500`), keine Module oder Karten
+3. **Admin:** Tasting-Karte (`TastingCard.svelte`) – ersetzt bewusst die frühere Festlegung „keine Module oder Karten“. Zeigt nur Verwaltungsdaten (Name, Datum, „heute“, Fortschritt), vor der Auflösung nie Inhalte. Der Startseiten-`load` (`src/routes/+page.server.ts`) liefert die Daten nur bei `isAdmin`.
+   **Alle anderen:** Leerzustand-Hinweis – eine gedämpfte Zeile (`text-slate-500`)
 
 ### Komponenten-Konventionen
 
 - **Route-Komponenten nur mit `data`/`form` als Props**: `svelte/valid-prop-names-in-kit-pages` erlaubt in Routen-Komponenten keine eigenen Props. Test-Seams (z. B. eine konfigurierbare Verzögerung) kommen deshalb nicht in eine Prop, sondern in ein eigenes Modul mit Getter und Test-Setter, analog zum `MAGIC_LINK_DEBUG_PATH`-Seam in `auth.ts`.
-- **Klickbare Karte = `<div role="link">`**, kein `<section>` – das löst sonst den A11y-Lint `a11y_no_noninteractive_element_to_interactive_role` aus. Interaktive Elemente in der Karte rufen `event.stopPropagation()`, damit ihr Klick nicht zusätzlich navigiert.
+- **Klickbare Karte mit interaktiven Kindelementen = `<div role="link">`**, kein `<section>` – das löst sonst den A11y-Lint `a11y_no_noninteractive_element_to_interactive_role` aus. Interaktive Elemente in der Karte rufen `event.stopPropagation()`, damit ihr Klick nicht zusätzlich navigiert. Eine Karte ohne verschachtelte Controls ist ein normales `<a>` (z. B. `TastingCard.svelte`).
+- **Unter-Header** für Unterseiten: `SubHeader.svelte` (Zurück-Link, Titel, optionaler `action`-Snippet für die Hauptaktion). Die `backHref`-Prop ist als `ResolvedPathname` (aus `$app/types`) typisiert, weil `svelte/no-navigation-without-resolve` jedes `href` ohne `resolve()`-Ergebnis ablehnt.
+- **Dynamische externe Links** (z. B. der Whiskybase-Link) brauchen `rel="external noopener noreferrer"`: Dieselbe Lint-Regel akzeptiert ein `href` aus einer Variable nur mit `external` im `rel`.
 - **Bestätigungsdialoge in `use:enhance`-Formularen** über `cancel()` im Submit-Callback (`use:enhance={({ cancel }) => { if (!confirm(…)) cancel(); }}`), nie über `preventDefault()` im `onsubmit`: `enhance` prüft `defaultPrevented` nicht und schickt den Request sonst trotzdem ab (so geschehen beim Löschen auf der Admin-Seite).
 
 ### Toast / Status-Hinweise
@@ -90,8 +94,9 @@ Reine Begrüßungsseite, keine Arbeitsfläche. Aufbau von oben nach unten:
 
 ## Authentifizierung
 
-- **Closed App – keine anonyme Nutzung.** Jeder nicht eingeloggte Request wird auf `/login` umgeleitet. Außer der `/login`-Route, `/health`, den Better-Auth-Endpoints unter `/auth/*` und statischen Assets ist nichts öffentlich erreichbar – auch `/api/*` nicht, das keine Sonderbehandlung hat.
+- **Closed App – keine anonyme Nutzung.** Jeder nicht eingeloggte Request wird auf `/login` umgeleitet. Außer der `/login`-Route, `/health`, den Better-Auth-Endpoints unter `/auth/*`, den Tasting-Teilnehmer-Links (siehe unten) und statischen Assets ist nichts öffentlich erreichbar – auch `/api/*` nicht, das keine Sonderbehandlung hat.
   - Implementierung als globaler Auth-Guard in `hooks.server.ts`: Session prüfen, sonst `throw redirect(302, '/login')`.
+  - **Ausnahme Tasting-Link**: öffentlich ist genau die Route-ID `/tasting/[token=tastingToken]` – exakte Liste in `guard.ts` (`GuardContext.routeId` aus `event.route.id`), kein Präfix-Match auf den Pfad. Lehnt der Param-Matcher `src/params/tastingToken.ts` ein Token ab, gibt es keine Route (`route.id === null`), und die Anfrage bleibt geschützt (anonym → Login, eingeloggt → 404). Weitere öffentliche Routen nur über diese Liste, nie per Pfad-Präfix.
   - Die Login-Seite ist die de-facto-Startseite für nicht eingeloggte User; nach erfolgreichem Login geht es auf `/` (Startseite).
   - **Ausnahme `/health`**: rein technischer Liveness-Check (Docker-Healthcheck, siehe Compose-Konventionen) – öffentlich wie `/login`/`/auth/*`, kein Redirect. Response bleibt bewusst leer/status-only (kein Stacktrace, keine Versions-/Config-Details), da der Pfad ungeschützt erreichbar ist.
 - Im Header (nur sichtbar für eingeloggte User) steht der Username als Drop-Down-Trigger: "Logout" und – falls Admin – zusätzlich "Admin".
@@ -121,7 +126,10 @@ Reine Begrüßungsseite, keine Arbeitsfläche. Aufbau von oben nach unten:
   - ORM Mapper: Drizzle
   - Authentifizierung: better-auth
 - **DB-Migrationen** via Drizzle Kit, automatisch beim App-Start – kein separater Deploy-Schritt
-  - Schema in `src/lib/server/db/schema.ts` → `npx drizzle-kit generate` erzeugt versioniertes SQL-File in `./drizzle/`
+  - Schema in `src/lib/server/db/schema.ts` → `npm run db:generate -- --name <sprechender-name>` erzeugt versioniertes SQL-File in `./drizzle/` (ohne `--name` vergibt Drizzle Kit einen Zufallsnamen)
+  - Drizzle Kit schreibt `drizzle/meta/*.json` mit Leerzeichen-Einrückung – danach `npx prettier --write drizzle/meta`, sonst scheitert `npm run lint`
+  - `schema.ts` importiert Konstanten relativ (`../../validation`), nicht über `$lib`: Drizzle Kit lädt die Datei außerhalb von Vite und kennt den Alias nicht
+  - **CHECK-Constraints** (erstmals bei den Tasting-Tabellen) leiten ihre Grenzen aus den Konstanten in `validation.ts` ab und setzen sie per `sql.raw(String(K))` ein – als normale Template-Parameter landen sie als `?` in der Migration. Die generierte SQL-Datei auf die Grenzwerte prüfen; `schema.test.ts` sichert das ab.
   - Migration-Files werden committed (reviewbar im PR)
   - Boot-Reihenfolge im Container: `migrate()` → Admin-Bootstrap → SvelteKit-Server
   - Drizzle pflegt eine `__drizzle_migrations`-Tabelle, bereits angewendete Migrationen werden übersprungen (idempotent)
@@ -142,6 +150,28 @@ Reine Begrüßungsseite, keine Arbeitsfläche. Aufbau von oben nach unten:
   - Fehler → Redirect zu `/login?error=expired|invalid|used`
   - Die `/login`-Seite liest den Query-Param und zeigt über dem Formular eine Info-Box: „Dieser Link ist abgelaufen oder wurde bereits verwendet. Gib deine E-Mail erneut ein, um einen neuen zu erhalten."
   - Alle drei Error-Codes zeigen denselben Text (keine Zusatz-Info für Angreifer), Unterscheidung nur im Server-Log
+
+---
+
+## Whisky-Tasting
+
+Blindtastings: Der Admin legt unter `/admin/tastings` ein Tasting mit Datum und Teilnehmern an, jeder Teilnehmer trägt seine Flaschen ohne Login über einen persönlichen Token-Link (`/tasting/[token=tastingToken]`) ein, die App berechnet die Ausschankreihenfolge.
+
+- **Phasen allein aus dem Datum** (kein Status-Feld, keine manuelle Steuerung), berechnet vom Server in `Europe/Berlin` (`tastingPhase.ts`, `Intl.DateTimeFormat` – der Container läuft in UTC):
+  - `entry` bis 18:00 am Tasting-Tag, `order` ab 18:00, `revealed` ab 9:00 am Folgetag. Zeitzone und Uhrzeiten sind Konstanten in `src/lib/tasting.ts`, nicht pro Tasting einstellbar.
+  - `tasting_date` ist deshalb ein Kalenderdatum (`text`, `YYYY-MM-DD`) statt eines Zeitstempels – bewusste Abweichung vom Timestamp-Standard.
+- **Blind für alle, auch für den Admin** (er verkostet mit): Der Admin sieht nie mehr Inhalt als die Teilnehmer, nur zusätzlich Verwaltungsdaten (Teilnehmernamen, Fortschritt) und nach der Auflösung die Score-Aufschlüsselung.
+  - Welche Felder ein `load` liefert, entscheidet ausschließlich die phasenabhängige Projektion in `src/lib/server/tastings.ts` (Felder explizit gepickt, nie gespreadet) – für Teilnehmerseite, Admin-Seiten und Startseite. Ausblenden im Template reicht nicht, `data` landet komplett im HTML bzw. `__data.json`. Der Whiskybase-Link zählt als Inhalt.
+  - In `entry` werden fremde Flaschen gar nicht erst abgefragt; `order` liefert nur `{ position, alias }`.
+- **Token-Links**: 192 Bit (`randomBytes(24)`, base64url), gespeichert nur als SHA-256-Hash. Den Klartext gibt es nur in der Antwort der Actions „Anlegen“ und „Link neu generieren“ – der Admin sieht jeden Link genau einmal, als Text (nicht klickbar). Gründe: Links laufen nie ab (ein DB-Backup soll keine gültigen Links enthalten), und der Admin soll fremde Links später nicht öffnen können. „Neu generieren“ ersetzt nur den Hash, die Eingaben bleiben.
+  - Token-Lookup ist eine einzige Query über `token_hash`: unbekannte, gelöschte und ersetzte Tokens enden im selben `error(404)`.
+  - Die öffentliche Route liest `locals.user` nie, `participantId` kommt nur aus dem Token, aus `FormData` nur freigegebene Felder. `GET` hat keine Nebenwirkungen (Messenger-Link-Previews).
+  - Bewusst **kein** eigener `handleError`: SvelteKits Standard loggt bei Fehlern den Pfad samt Token – akzeptiert.
+- **Rate-Limit**: nur ein Schreib-Limit pro Teilnehmer auf der Speichern-Action (`tastingWriteThrottle.ts`, 30 / 10 min, Muster `consumeEmailRateLimit`, → `fail(429)`). Bewusst **kein** Limit pro IP: 192-Bit-Tokens sind nicht zu erraten, und ohne gesetztes `ADDRESS_HEADER` sieht `getClientAddress()` hinter Traefik nur die Proxy-IP.
+- **Speichern** prüft Phase `entry`, Slot und Synonym-Eindeutigkeit in derselben Transaktion wie den Upsert (kein TOCTOU um 18:00). Der Synonym-Vergleich läuft in JS (`toLocaleLowerCase('de-DE')`), weil SQLites `lower()` nur ASCII faltet. Ist die Eingabe geschlossen, antwortet die Action mit `reload: true`, und die Seite lädt per `invalidateAll()` die Reihenfolge nach.
+- **Security-Header** (`securityHeaders.ts`, gesetzt in `hooks.server.ts` nach `resolve()`, damit auch `__data.json`, Actions und die 404 abgedeckt sind): Teilnehmer-Route `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex, nofollow`, `Cache-Control: no-store`; `/admin/tastings/*` `Cache-Control: no-store` (einmalige Link-Anzeige). **Kein** `Disallow: /tasting/` in `robots.txt` – Crawler sähen das `noindex` sonst nie.
+- Der Seitentitel der Teilnehmerseite bleibt neutral („Whisky-Tasting“): Namen und Synonyme gehören weder in `<title>` noch in Meta-Tags (Messenger-Previews).
+- **Score/Reihenfolge** (`tastingScore.ts`, Gewichte/Rauchgruppen als Konstanten, Startwerte): Punkte pro Faktor werden einzeln berechnet und der Score vor dem Sortieren auf eine Stelle gerundet – sonst kehrt Float-Rauschen den Tie-Breaker um.
 
 ---
 
@@ -173,6 +203,8 @@ ADMIN_USERNAME=            # Username des initialen Admin-Users (nur beim ersten
 
 - **Sprache:** Deutsch im UI, Englisch im Code (Variablen, Funktionen, Kommentare)
 - **Geteilte Validierungs-Constraints** liegen als Konstanten in `src/lib/validation.ts` (`$lib/validation`), nicht je Schicht dupliziert: `EMAIL_LENGTH`/`EMAIL_REGEX` (+ Helper `isValidEmail()`) und `USERNAME_RE` sind die einzige Quelle für Login-Formular und Admin-Nutzerverwaltung, damit Client- und Server-Validierung nicht auseinanderdriften. Bewusst **nicht** unter `$lib/server`, weil `login/+page.svelte` `isValidEmail()` im Browser nutzt – das Modul bleibt deshalb frei von Server-Importen.
+  - Die Tasting-Grenzen (`TASTING_*`, `TASTING_TOKEN_RE`, `normalizeWhiskybaseUrl()`) liegen ebenfalls dort und sind zugleich die einzige Quelle für Formular-Attribute, Server-Validierung und die CHECK-Constraints im Schema.
+  - Fachliche Tasting-Konstanten, Typen und Anzeige-Helfer (Zeitzone, 18-/9-Uhr-Grenze, `TastingPhase`, `TastingBottle`, die View-Typen der Projektion, `formatBottleName()`) liegen in `src/lib/tasting.ts` – ebenfalls ohne Server-Importe, weil Teilnehmerseite und Param-Matcher im Browser laufen.
 - **Kein Monorepo** – eine SvelteKit-App im Repo-Root, keine npm Workspaces, kein Nx/Turborepo
 - **Kein Postgres** – SQLite ist für diesen Use Case ausreichend, einfacher zu backupen
 - **Named Docker Volume** für SQLite, kein Bind Mount
@@ -237,6 +269,10 @@ Aufbau analog zu `C:\Users\Markus\git\gritshot`.
 - Coverage via `@vitest/coverage-v8`, Reporter: `text`, `lcov`, `html`, `json`, `json-summary`.
 - `expect: { requireAssertions: true }` aktiv – Tests ohne Assertion schlagen fehl.
 - E2E via Playwright (`tests/`), nur Smoke- und Critical-Path-Tests.
+  - Keine Zufallswerte in Testtiteln (z. B. `randomUUID()` in einer Titel-Schleife): Playwright sammelt Tests im Hauptprozess und im Worker getrennt ein und findet den Test sonst nicht wieder („Test not found in the worker process“).
+  - Die Tasting-E2E-Tests (`tasting.e2e.ts`) decken nur die Eingabephase ab – die Server-Uhr lässt sich aus Playwright nicht steuern. Reihenfolge und Auflösung testen Route-Tests (`vi.setSystemTime()`) und Komponenten-Tests.
+- **Submit-Callbacks von `use:enhance`** (Toast, `update({ reset: false })`, `invalidateAll()`) testet man mit gemocktem `$app/forms` und `$app/navigation` (Muster `TastingBottleForm.svelte.test.ts`): Das echte `update()` braucht einen laufenden SvelteKit-Client. Für reine Bestätigungsdialoge bleibt das echte `enhance` mit abgefangenem `fetch` die Vorlage (`admin/page.svelte.test.ts`).
+- **Tests mit Cascade-Löschungen** auf einer eigenen In-Memory-DB müssen `pragma('foreign_keys = ON')` setzen – SQLite erzwingt Fremdschlüssel sonst nicht.
 - **E2E-Login via Setup-Project + `storageState`** (Playwright-Standardmuster, https://playwright.dev/docs/auth): ein `auth.setup.ts`-Project loggt sich einmal per echtem Magic-Link-Flow als der `ADMIN_EMAIL`-Testuser ein und speichert die Session in `playwright/.auth/admin.json`. Das `e2e`-Project hängt per `dependencies: ['setup']` daran und startet alle weiteren Specs bereits eingeloggt – kein Login-Boilerplate pro Testdatei.
   - **Ein geteilter Admin-Account** für alle E2E-Tests (kein Per-Worker-Isolation-Setup). Ausreichend, solange E2E auf wenige Smoke-/Critical-Path-Tests beschränkt bleibt; Per-Worker-Accounts erst nötig, falls parallel laufende Tests sich gegenseitig über geteilten Server-State stören.
   - Tests, die explizit unauthentifiziert starten müssen (Closed-App-Guard, der Login-Flow selbst), resetten den State lokal mit `test.use({ storageState: { cookies: [], origins: [] } })`.
@@ -319,8 +355,9 @@ Holt die Metadaten via `dependabot/fetch-metadata`, aktiviert Auto-Merge (squash
     }
   }
   ```
+  Erste Umsetzung im Projekt: `TastingValidationError` in `src/lib/server/tastings.ts` für Regelverstöße der Domain-Schicht (Speichern nach 18 Uhr, Datumsänderung außerhalb der Eingabephase, ungültiger Slot).
 - **Handler-Pattern** (SvelteKit Action):
-  - Validierungsfehler → `fail(422, { userMessage: e.userMessage })`
+  - Validierungsfehler (typisierte Fehlerklasse, nicht feld-bezogen) → `fail(422, { userMessage: e.userMessage })`; feld-bezogene Fehler laufen weiter über `fieldErrors` mit `fail(400)` bzw. `fail(409)` für `taken` (siehe unten)
   - Unerwarteter Fehler → `logger.error(...)` + generische User-Meldung (`fail(500, ...)`)
   - `catch (e: unknown)`, dann via `instanceof` verengen
 - Niemals interne Fehlertexte oder Stacktraces an den Nutzer durchreichen.

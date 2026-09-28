@@ -25,10 +25,29 @@ Browser (PWA) ◄──► app (SvelteKit)
 
 ## Zugriff
 
-Closed App – keine anonyme Nutzung. Initial ist nur die in `.env`
-hinterlegte Admin-Mailadresse freigeschaltet; weitere User legt der Admin
-auf einer eigenen Admin-Seite an. Login erfolgt per Magic Link, ohne
-Passwort.
+Closed App – keine anonyme Nutzung, mit genau einer Ausnahme. Initial ist
+nur die in `.env` hinterlegte Admin-Mailadresse freigeschaltet; weitere
+User legt der Admin auf einer eigenen Admin-Seite an. Login erfolgt per
+Magic Link, ohne Passwort.
+
+**Ausnahme Whisky-Blindtasting:** Der Admin legt ein Tasting mit Datum
+und Teilnehmern an. Jeder Teilnehmer trägt seine Flaschen ohne Login
+über einen persönlichen Link (`/tasting/<token>`) ein. Das ist die
+einzige anonym erreichbare Route, und ein Link gibt nur Zugriff auf die
+eigenen Eingaben in diesem einen Tasting. Die Phase ergibt sich allein
+aus dem Tasting-Datum (Berliner Zeit):
+
+| Zeitraum | Alle Links und der Admin sehen |
+|---|---|
+| bis 18 Uhr am Tasting-Tag | nur die eigenen Flaschen (der Admin nur den Eingabefortschritt) |
+| ab 18 Uhr am Tasting-Tag | nur die Ausschankreihenfolge der Synonyme |
+| ab 9 Uhr am Folgetag | die komplette Auflösung |
+
+Blind für alle: Auch der Admin sieht vor 18 Uhr keine fremden Eingaben.
+Die Links zeigt die App dem Admin genau einmal (nach dem Anlegen bzw.
+„Link neu generieren“), gespeichert wird nur ein Hash. Wer einen Link
+hat, sieht und ändert die Eingaben dieses Teilnehmers – Links deshalb
+einzeln verschicken, nicht in die Gruppe.
 
 ## Entwicklung
 
