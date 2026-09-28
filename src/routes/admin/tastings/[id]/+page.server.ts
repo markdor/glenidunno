@@ -5,11 +5,14 @@ import { db } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/authGuards';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/server/errorMessages';
 import { logger } from '$lib/server/logger';
+import type { FileChange } from '$lib/server/presentationFiles';
+import { applyFileChanges } from '$lib/server/tastingMedia';
 import { getBerlinToday } from '$lib/server/tastingPhase';
 import { buildTastingLink } from '$lib/server/tastingToken';
 import {
 	deleteTasting,
 	getAdminTastingDetail,
+	listPresentationFiles,
 	openOrderEarly,
 	regenerateParticipantToken,
 	revealEarly,
@@ -58,10 +61,9 @@ export const actions: Actions = {
 			});
 		}
 
+		let fileChanges: FileChange[] | null;
 		try {
-			if (!updateTastingDate(db, params.id, tastingDate)) {
-				return fail(404, { action: 'updateDate', userMessage: TASTING_NOT_FOUND });
-			}
+			fileChanges = updateTastingDate(db, params.id, tastingDate);
 		} catch (err: unknown) {
 			if (err instanceof TastingValidationError) {
 				return fail(422, { action: 'updateDate', userMessage: err.userMessage });
@@ -69,7 +71,10 @@ export const actions: Actions = {
 			logger.error({ err }, 'update tasting date failed');
 			return fail(500, { action: 'updateDate', userMessage: UNEXPECTED_ERROR_MESSAGE });
 		}
+		if (!fileChanges) return fail(404, { action: 'updateDate', userMessage: TASTING_NOT_FOUND });
 
+		// Presentation files carry the date in their name (Tasting_<date>_<alias>).
+		await applyFileChanges(fileChanges);
 		return { action: 'updateDate', updated: true };
 	},
 
@@ -118,14 +123,18 @@ export const actions: Actions = {
 	delete: async ({ locals, params }) => {
 		requireAdmin(locals);
 		let deleted: boolean;
+		let presentationFiles: string[];
 		try {
-			// Participants, bottles and throttle rows go with it (ON DELETE CASCADE).
+			// Participants, bottles and throttle rows go with it (ON DELETE CASCADE);
+			// the uploaded files on disk don't, so they are collected first.
+			presentationFiles = listPresentationFiles(db, params.id);
 			deleted = deleteTasting(db, params.id);
 		} catch (err) {
 			logger.error({ err }, 'delete tasting failed');
 			return fail(500, { action: 'delete', userMessage: UNEXPECTED_ERROR_MESSAGE });
 		}
 		if (!deleted) return fail(404, { action: 'delete', userMessage: TASTING_NOT_FOUND });
+		await applyFileChanges(presentationFiles.map((file) => ({ delete: file })));
 		redirect(303, '/admin/tastings');
 	}
 };

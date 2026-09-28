@@ -11,6 +11,8 @@ export default defineConfig({
 			AUTH_SECRET: 'e2e-test-secret-please-do-not-deploy-anywhere',
 			// Host-side SQLite file (admin bootstrap, whitelist) lives here.
 			DB_PATH: './e2e.db',
+			// Presentation uploads of the run, wiped with the DB (playwright.reset-e2e.ts).
+			MEDIA_PATH: './e2e-media',
 			// Tokens are stored hashed, so the plaintext magic-link URL is captured
 			// here instead of read back from the DB (see playwright.reset-e2e.ts).
 			MAGIC_LINK_DEBUG_PATH: './e2e-magic-link.log',

@@ -2,8 +2,20 @@ import { redirect, type Handle } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 import { auth } from '$lib/server/auth';
+import { exceedsBodyLimit } from '$lib/server/bodyLimit';
 import { evaluateGuard } from '$lib/server/guard';
 import { getSecurityHeaders } from '$lib/server/securityHeaders';
+
+// BODY_SIZE_LIMIT is raised for the presentation upload (Dockerfile) and would
+// otherwise apply to every route – including the anonymous Better Auth
+// endpoints. Runs first, before anything reads a body (see bodyLimit.ts).
+const bodyLimitHandle: Handle = ({ event, resolve }) => {
+	const { method, headers } = event.request;
+	if (exceedsBodyLimit(event.route.id, method, headers.get('content-length'))) {
+		return new Response('Payload Too Large', { status: 413 });
+	}
+	return resolve(event);
+};
 
 // Lets Better Auth own everything under /auth/* (sign-in, magic-link verify, …).
 // For all other paths svelteKitHandler just calls resolve() and the chain
@@ -22,7 +34,7 @@ const sessionHandle: Handle = async ({ event, resolve }) => {
 
 // Closed app: nothing is public except the login page, the health check, the
 // Better Auth endpoints, static assets and – by exact route ID – the tasting
-// participant link. The decision itself lives in evaluateGuard so it can be
+// participant link and its presentation downloads. The decision itself lives in evaluateGuard so it can be
 // unit-tested without a full request. event.route.id is already set here,
 // also for __data.json requests and action POSTs.
 const guardHandle: Handle = ({ event, resolve }) => {
@@ -49,4 +61,10 @@ const securityHeadersHandle: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
-export const handle = sequence(authHandle, sessionHandle, guardHandle, securityHeadersHandle);
+export const handle = sequence(
+	bodyLimitHandle,
+	authHandle,
+	sessionHandle,
+	guardHandle,
+	securityHeadersHandle
+);

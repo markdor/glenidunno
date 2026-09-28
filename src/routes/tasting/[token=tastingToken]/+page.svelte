@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import TastingBottleForm from '$lib/components/TastingBottleForm.svelte';
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import TastingOrderList from '$lib/components/TastingOrderList.svelte';
@@ -23,6 +25,14 @@
 			? Array.from({ length: view.tasting.bottlesPerParticipant }, (_, i) => i + 1)
 			: []
 	);
+
+	// Downloads run through this link's own token (see presentation/[bottleId]).
+	function presentationHref(bottleId: string) {
+		return resolve('/tasting/[token=tastingToken]/presentation/[bottleId]', {
+			token: page.params.token ?? '',
+			bottleId
+		});
+	}
 </script>
 
 <svelte:head>
@@ -66,7 +76,7 @@
 		<TastingManualNotice manual={view.manual} />
 		<section class="space-y-3">
 			<h2 class="text-lg font-semibold">Auflösung</h2>
-			<TastingReveal bottles={view.bottles} />
+			<TastingReveal bottles={view.bottles} {presentationHref} />
 		</section>
 	{/if}
 </div>

@@ -39,6 +39,7 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
 - Auth: Magic Link per Mail (nodemailer + Hetzner SMTP)
 - Session-Dauer: 30 Tage Cookie
 - SQLite-Datei liegt in einem Named Docker Volume unter `/data/glenidunno.db` (`DB_PATH`)
+- Hochgeladene Tasting-Präsentationen liegen im Named Docker Volume `glenidunno-media` unter `/media` (`MEDIA_PATH`, Default im `Dockerfile`)
 
 ---
 
@@ -96,7 +97,7 @@ Reine Begrüßungsseite, keine Arbeitsfläche. Aufbau von oben nach unten:
 
 - **Closed App – keine anonyme Nutzung.** Jeder nicht eingeloggte Request wird auf `/login` umgeleitet. Außer der `/login`-Route, `/health`, den Better-Auth-Endpoints unter `/auth/*`, den Tasting-Teilnehmer-Links (siehe unten) und statischen Assets ist nichts öffentlich erreichbar – auch `/api/*` nicht, das keine Sonderbehandlung hat.
   - Implementierung als globaler Auth-Guard in `hooks.server.ts`: Session prüfen, sonst `throw redirect(302, '/login')`.
-  - **Ausnahme Tasting-Link**: öffentlich ist genau die Route-ID `/tasting/[token=tastingToken]` – exakte Liste in `guard.ts` (`GuardContext.routeId` aus `event.route.id`), kein Präfix-Match auf den Pfad. Lehnt der Param-Matcher `src/params/tastingToken.ts` ein Token ab, gibt es keine Route (`route.id === null`), und die Anfrage bleibt geschützt (anonym → Login, eingeloggt → 404). Weitere öffentliche Routen nur über diese Liste, nie per Pfad-Präfix.
+  - **Ausnahme Tasting-Link**: öffentlich sind genau die Route-IDs `/tasting/[token=tastingToken]` und `/tasting/[token=tastingToken]/presentation/[bottleId]` (Präsentations-Download) – exakte Liste `PUBLIC_ROUTE_IDS` in `guard.ts` (`GuardContext.routeId` aus `event.route.id`), kein Präfix-Match auf den Pfad. Lehnt der Param-Matcher `src/params/tastingToken.ts` ein Token ab, gibt es keine Route (`route.id === null`), und die Anfrage bleibt geschützt (anonym → Login, eingeloggt → 404). Weitere öffentliche Routen nur über diese Liste, nie per Pfad-Präfix.
   - Die Login-Seite ist die de-facto-Startseite für nicht eingeloggte User; nach erfolgreichem Login geht es auf `/` (Startseite).
   - **Ausnahme `/health`**: rein technischer Liveness-Check (Docker-Healthcheck, siehe Compose-Konventionen) – öffentlich wie `/login`/`/auth/*`, kein Redirect. Response bleibt bewusst leer/status-only (kein Stacktrace, keine Versions-/Config-Details), da der Pfad ungeschützt erreichbar ist.
 - Im Header (nur sichtbar für eingeloggte User) steht der Username als Drop-Down-Trigger: "Logout" und – falls Admin – zusätzlich "Admin".
@@ -130,6 +131,7 @@ Reine Begrüßungsseite, keine Arbeitsfläche. Aufbau von oben nach unten:
   - Drizzle Kit schreibt `drizzle/meta/*.json` mit Leerzeichen-Einrückung – danach `npx prettier --write drizzle/meta`, sonst scheitert `npm run lint`
   - `schema.ts` importiert Konstanten relativ (`../../validation`), nicht über `$lib`: Drizzle Kit lädt die Datei außerhalb von Vite und kennt den Alias nicht
   - **CHECK-Constraints** (erstmals bei den Tasting-Tabellen) leiten ihre Grenzen aus den Konstanten in `validation.ts` ab und setzen sie per `sql.raw(String(K))` ein – als normale Template-Parameter landen sie als `?` in der Migration. Die generierte SQL-Datei auf die Grenzwerte prüfen; `schema.test.ts` sichert das ab.
+  - **Keinen CHECK nachträglich zu einer bestehenden Tabelle hinzufügen**: Drizzle Kit baut die Tabelle dafür neu (`__new_…` + `INSERT … SELECT`), und das generierte `INSERT … SELECT` liest neu hinzukommende Spalten aus der alten Tabelle – die Migration bricht ab (so geschehen bei `presentation_name`, dort deshalb kein CHECK). Neue Spalten ohne CHECK ergeben ein schlichtes `ALTER TABLE … ADD`. Committete Migrationen werden nie umgeschrieben, Änderungen kommen als neue Migration.
   - Migration-Files werden committed (reviewbar im PR)
   - Boot-Reihenfolge im Container: `migrate()` → Admin-Bootstrap → SvelteKit-Server
   - Drizzle pflegt eine `__drizzle_migrations`-Tabelle, bereits angewendete Migrationen werden übersprungen (idempotent)
@@ -173,6 +175,16 @@ Blindtastings: Der Admin legt unter `/admin/tastings` ein Tasting mit Datum und 
 - **Security-Header** (`securityHeaders.ts`, gesetzt in `hooks.server.ts` nach `resolve()`, damit auch `__data.json`, Actions und die 404 abgedeckt sind): Teilnehmer-Route `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex, nofollow`, `Cache-Control: no-store`; `/admin/tastings/*` `Cache-Control: no-store` (einmalige Link-Anzeige). **Kein** `Disallow: /tasting/` in `robots.txt` – Crawler sähen das `noindex` sonst nie.
 - Der Seitentitel der Teilnehmerseite bleibt neutral („Whisky-Tasting“): Namen und Synonyme gehören weder in `<title>` noch in Meta-Tags (Messenger-Previews).
 - **Score/Reihenfolge** (`tastingScore.ts`, Gewichte/Rauchgruppen als Konstanten, Startwerte): Punkte pro Faktor werden einzeln berechnet und der Score vor dem Sortieren auf eine Stelle gerundet – sonst kehrt Float-Rauschen den Tie-Breaker um.
+- **Präsentation pro Flasche** (optional, meist PowerPoint, höchstens 30 MB, `TASTING_PRESENTATION_MAX_BYTES`): Upload über die Speichern-Action (`multipart/form-data`), Ablage byte-genau in `MEDIA_PATH` (`tastingMedia.ts`).
+  - **Dateiname auf der Platte**: festes Schema `Tasting_<YYYY-MM-DD>_<Synonym>[.<endung>]` (`presentationFiles.ts`), z. B. `Tasting_2026-10-24_Nebel.pptx` – nie der Client-Name.
+    - Das Synonym ist Benutzereingabe: Außer Buchstaben (inkl. Umlaute), Ziffern, `-` und `_` wird alles zu `_` (kein Path Traversal, keine Punkte). Vor jedem Plattenzugriff prüft `tastingMedia.ts` den Namen gegen `PRESENTATION_FILE_RE`.
+    - Eindeutigkeit gegen alle Namen in der DB, ohne Beachtung der Groß-/Kleinschreibung (Windows-Dev-Rechner): zwei Tastings am selben Tag mit gleichem Synonym oder nach dem Bereinigen gleiche Synonyme bekommen `_2`, `_3`, ….
+    - Der Name bleibt aktuell: ein geändertes Synonym benennt die Datei beim Speichern um, eine Datumsänderung (`updateTastingDate`) alle Dateien des Tastings.
+    - Der Originalname steht in `tasting_bottle.presentation_name` und dient als Anzeige- und Download-Name.
+  - Die Datei **und ihr Name** zählen als Inhalt (der Name verrät oft den Whisky): vor der Auflösung sieht nur der Besitzer den Namen seiner eigenen Datei, herunterladen kann sie niemand, auch nicht der Admin. Nach der Auflösung verlinken Teilnehmer-Links (`/tasting/[token]/presentation/[bottleId]`, zweite exakte öffentliche Route-ID im Guard) und Admin-Seite (`/admin/tastings/[id]/presentation/[bottleId]`) die Datei; alles andere ist eine einheitliche 404.
+  - Download immer als `Content-Disposition: attachment` mit `application/octet-stream`, `nosniff` und CSP-Sandbox: eine hochgeladene HTML-/SVG-Datei darf nie auf dem App-Origin rendern.
+  - **Ablauf beim Speichern**: Der Upload landet zuerst in einer temporären Datei `.upload-<uuid>` (`stageUpload`), damit ein volles Laufwerk auffällt, bevor etwas gespeichert ist. Name, Phase, Slot und Synonym werden in der DB-Transaktion entschieden (`saveBottle` → `fileChanges`), erst danach verschiebt/löscht `applyFileChanges` die Dateien. Grund: Ein Re-Upload mit gleichem Synonym hat denselben Namen und würde die bisherige Datei sonst überschreiben, obwohl das Speichern noch abgelehnt werden kann (Synonym vergeben, Eingabe geschlossen). Bei Ablehnung wird nur die Temp-Datei gelöscht. Beim Löschen eines Tastings löscht die Route alle seine Dateien (`listPresentationFiles()` vor `deleteTasting()`, der Cascade entfernt nur Zeilen). Das Schreib-Limit greift vor dem Parsen des Bodys.
+  - **Request-Größe**: adapter-node lehnt Bodies über 512 KB ab, deshalb setzt der `Dockerfile` `BODY_SIZE_LIMIT=31M`. Das gilt für alle Routen – der `bodyLimitHandle` (erster Hook, `bodyLimit.ts`) hält per `Content-Length` alles außer dem POST auf die Teilnehmer-Route bei 512 KB, sonst nähmen z. B. die anonymen `/auth/*`-Endpoints 31 MB an. `vite dev`/`vite preview` haben gar kein Limit, Größenfehler zeigen sich also erst im Container.
 
 ---
 
@@ -188,6 +200,7 @@ SMTP_FROM=glenidunno@your-server.de
 
 # App
 DB_PATH=/data/glenidunno.db
+MEDIA_PATH=/media          # Präsentations-Uploads (Volume glenidunno-media), lokal ./media
 BASE_URL=https://glenidunno.markdor.net   # öffentliche Basis-URL der App, dient sowohl
                                           # Better Auth (Magic-Link-Erzeugung) als auch
                                           # SvelteKit (origin / CSRF) als einzige Quelle
@@ -208,7 +221,7 @@ ADMIN_USERNAME=            # Username des initialen Admin-Users (nur beim ersten
   - Fachliche Tasting-Konstanten, Typen und Anzeige-Helfer (Zeitzone, 18-/9-Uhr-Grenze, `TastingPhase`, `TastingBottle`, die View-Typen der Projektion, `formatBottleName()`) liegen in `src/lib/tasting.ts` – ebenfalls ohne Server-Importe, weil Teilnehmerseite und Param-Matcher im Browser laufen.
 - **Kein Monorepo** – eine SvelteKit-App im Repo-Root, keine npm Workspaces, kein Nx/Turborepo
 - **Kein Postgres** – SQLite ist für diesen Use Case ausreichend, einfacher zu backupen
-- **Named Docker Volume** für SQLite, kein Bind Mount
+- **Named Docker Volumes** für SQLite (`/data`) und die Präsentations-Uploads (`glenidunno-media`, `/media`), kein Bind Mount
 
 ---
 

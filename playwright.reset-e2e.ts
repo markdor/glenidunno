@@ -1,8 +1,9 @@
 import { rmSync } from 'node:fs';
 
 // Wipe any leftover E2E SQLite files so each run boots a clean DB (fresh
-// migrations + admin bootstrap), plus the magic-link capture file. The paths
-// match DB_PATH / MAGIC_LINK_DEBUG_PATH in playwright.config.ts.
+// migrations + admin bootstrap), plus the magic-link capture file and the
+// uploaded presentations. The paths match DB_PATH / MAGIC_LINK_DEBUG_PATH /
+// MEDIA_PATH in playwright.config.ts.
 //
 // Runs as the first part of the webServer command, not as Playwright
 // globalSetup: Playwright starts the webServer *before* globalSetup, so the
@@ -15,9 +16,11 @@ const E2E_DB_FILES = [
 	'./e2e.db-shm',
 	'./e2e.db-wal',
 	'./e2e.db-journal',
-	'./e2e-magic-link.log'
+	'./e2e-magic-link.log',
+	// Presentation uploads (MEDIA_PATH in playwright.config.ts).
+	'./e2e-media'
 ];
 
 for (const f of E2E_DB_FILES) {
-	rmSync(f, { force: true });
+	rmSync(f, { force: true, recursive: true });
 }

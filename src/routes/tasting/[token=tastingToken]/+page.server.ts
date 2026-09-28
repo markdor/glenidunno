@@ -14,16 +14,24 @@ import {
 import { db } from '$lib/server/db';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/server/errorMessages';
 import { logger } from '$lib/server/logger';
+import {
+	applyFileChanges,
+	checkPresentationUpload,
+	stageUpload,
+	type PendingUpload
+} from '$lib/server/tastingMedia';
 import { consumeTastingWriteLimit } from '$lib/server/tastingWriteThrottle';
 import {
 	findParticipantByToken,
 	getParticipantView,
 	saveBottle,
 	TastingValidationError,
+	type SaveBottleResult,
 	type TokenHolder
 } from '$lib/server/tastings';
 
-// The only anonymous route (see guard.ts). The token alone decides what is
+// The anonymous participant page (see guard.ts; its presentation downloads
+// live in presentation/[bottleId]/+server.ts). The token alone decides what is
 // shown: locals.user is never read here, and the participant always comes
 // from the token, never from form data. GET has no side effects – messengers
 // and mail scanners fetch links for previews.
@@ -40,7 +48,10 @@ export const load: PageServerLoad = ({ params }) => {
 	return { view: getParticipantView(db, holder) };
 };
 
-/** The only form fields the save action reads. */
+/**
+ * The only text fields the save action reads (besides slot, the
+ * `presentation` file and the `removePresentation` checkbox).
+ */
 const BOTTLE_FIELDS = [
 	'alias',
 	'distillery',
@@ -129,28 +140,39 @@ function parseBottle(raw: RawBottle): {
 export const actions: Actions = {
 	save: async ({ request, params }) => {
 		const holder = holderOr404(params.token);
-		const form = await request.formData();
-		const slot = Number(form.get('slot'));
 
+		// Before the (possibly 30 MB) body is parsed at all.
 		if (!consumeTastingWriteLimit(db, holder.id)) {
 			return fail(429, {
 				action: 'save',
-				slot,
 				userMessage: 'Zu viele Speichervorgänge. Warte ein paar Minuten und versuch es dann erneut.'
 			});
 		}
 
+		const form = await request.formData();
+		const slot = Number(form.get('slot'));
 		const values = Object.fromEntries(
 			BOTTLE_FIELDS.map((field) => [field, String(form.get(field) ?? '')])
 		) as RawBottle;
 		const { bottle, fieldErrors } = parseBottle(values);
-		if (!bottle) return fail(400, { action: 'save', slot, values, fieldErrors });
+		const { upload, error: uploadError } = checkPresentationUpload(form.get('presentation'));
+		if (uploadError) fieldErrors.presentation = uploadError;
+		if (!bottle || uploadError) return fail(400, { action: 'save', slot, values, fieldErrors });
 
-		let result: 'saved' | 'alias-taken';
+		// A new upload replaces the presentation, the checkbox removes it,
+		// otherwise it stays as it is.
+		let pending: PendingUpload | undefined;
+		let result: SaveBottleResult;
 		try {
-			// Phase, slot and alias uniqueness are checked in the upsert transaction.
-			result = saveBottle(db, holder, slot, bottle);
+			// The upload goes to a temporary file first (disk full shows up
+			// before anything is saved). Phase, slot, alias uniqueness and the
+			// file name (Tasting_<date>_<alias>) are settled in the upsert
+			// transaction, the file moves to that name only afterwards.
+			if (upload) pending = await stageUpload(upload);
+			const presentation = pending ?? (form.get('removePresentation') === 'on' ? null : undefined);
+			result = saveBottle(db, holder, slot, bottle, new Date(), presentation);
 		} catch (err: unknown) {
+			if (pending) await applyFileChanges([{ delete: pending.tempFile }]);
 			if (err instanceof TastingValidationError) {
 				// E.g. the page was left open past 18:00: the client reloads and
 				// shows the pouring order instead of the form.
@@ -161,9 +183,11 @@ export const actions: Actions = {
 			return fail(500, { action: 'save', slot, userMessage: UNEXPECTED_ERROR_MESSAGE });
 		}
 
-		if (result === 'alias-taken') {
+		if (result.status === 'alias-taken') {
+			if (pending) await applyFileChanges([{ delete: pending.tempFile }]);
 			return fail(409, { action: 'save', slot, values, fieldErrors: { alias: 'taken' } });
 		}
+		await applyFileChanges(result.fileChanges);
 		return { action: 'save', slot, saved: true };
 	}
 };

@@ -16,7 +16,11 @@ vi.mock('$lib/server/logger', () => ({
 	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
 }));
 
-vi.mock('$env/dynamic/private', () => ({ env: { BASE_URL: 'https://glenidunno.test' } }));
+// MEDIA_PATH points at a throwaway directory per test (see beforeEach).
+const mockEnv = vi.hoisted((): Record<string, string | undefined> => ({
+	BASE_URL: 'https://glenidunno.test'
+}));
+vi.mock('$env/dynamic/private', () => ({ env: mockEnv }));
 
 import { db } from '$lib/server/db';
 import {
@@ -26,6 +30,10 @@ import {
 	tastingWriteThrottle
 } from '$lib/server/db/schema';
 import { logger } from '$lib/server/logger';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { applyFileChanges, stageUpload } from '$lib/server/tastingMedia';
 import { consumeTastingWriteLimit } from '$lib/server/tastingWriteThrottle';
 import {
 	createTasting,
@@ -179,6 +187,19 @@ describe('admin tasting detail – projection per phase', () => {
 	});
 });
 
+// Saves Anna's bottle in `slot` with a presentation, like the save action does.
+async function uploadPresentation(slot: number, content: TastingBottle) {
+	const result = saveBottle(
+		db,
+		anna,
+		slot,
+		content,
+		new Date(),
+		await stageUpload(new File([new Uint8Array([1, 2, 3])], 'deck.pptx'))
+	);
+	if (result.status === 'saved') await applyFileChanges(result.fileChanges);
+}
+
 describe('updateDate', () => {
 	it('moves the tasting during entry', async () => {
 		expect(await act('updateDate', { tastingDate: '2026-11-07' })).toEqual({
@@ -186,6 +207,21 @@ describe('updateDate', () => {
 			updated: true
 		});
 		expect(db.select().from(tasting).get()?.tastingDate).toBe('2026-11-07');
+	});
+
+	it('renames the presentation files to the new date', async () => {
+		const mediaDir = await mkdtemp(join(tmpdir(), 'glenidunno-media-'));
+		mockEnv.MEDIA_PATH = mediaDir;
+		try {
+			await uploadPresentation(1, bottle);
+			expect(await readdir(mediaDir)).toEqual(['Tasting_2026-10-24_Nebel.pptx']);
+
+			await act('updateDate', { tastingDate: '2026-11-07' });
+
+			expect(await readdir(mediaDir)).toEqual(['Tasting_2026-11-07_Nebel.pptx']);
+		} finally {
+			await rm(mediaDir, { recursive: true, force: true });
+		}
 	});
 
 	it.each([
@@ -218,7 +254,7 @@ describe('updateDate', () => {
 
 	it('logs and returns 500 on an unexpected database error', async () => {
 		const err = new Error('disk full');
-		const spy = vi.spyOn(db, 'update').mockImplementationOnce(() => {
+		const spy = vi.spyOn(db, 'transaction').mockImplementationOnce(() => {
 			throw err;
 		});
 		expect(await act('updateDate', { tastingDate: '2026-11-07' })).toMatchObject({
@@ -340,17 +376,25 @@ describe('regenerate', () => {
 });
 
 describe('delete', () => {
-	it('deletes the tasting with all participants, bottles and throttle rows', async () => {
-		consumeTastingWriteLimit(db, anna.id);
+	it('deletes the tasting with all participants, bottles, throttle rows and files', async () => {
+		const mediaDir = await mkdtemp(join(tmpdir(), 'glenidunno-media-'));
+		mockEnv.MEDIA_PATH = mediaDir;
+		try {
+			consumeTastingWriteLimit(db, anna.id);
+			await uploadPresentation(1, bottle);
 
-		await expect(act('delete')).rejects.toMatchObject({
-			status: 303,
-			location: '/admin/tastings'
-		});
-		expect(db.select().from(tasting).all()).toEqual([]);
-		expect(db.select().from(tastingParticipant).all()).toEqual([]);
-		expect(db.select().from(tastingBottle).all()).toEqual([]);
-		expect(db.select().from(tastingWriteThrottle).all()).toEqual([]);
+			await expect(act('delete')).rejects.toMatchObject({
+				status: 303,
+				location: '/admin/tastings'
+			});
+			expect(db.select().from(tasting).all()).toEqual([]);
+			expect(db.select().from(tastingParticipant).all()).toEqual([]);
+			expect(db.select().from(tastingBottle).all()).toEqual([]);
+			expect(db.select().from(tastingWriteThrottle).all()).toEqual([]);
+			expect(await readdir(mediaDir)).toEqual([]);
+		} finally {
+			await rm(mediaDir, { recursive: true, force: true });
+		}
 	});
 
 	it('answers 404 if the tasting is already gone', async () => {

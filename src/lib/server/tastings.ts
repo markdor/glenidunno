@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, count, countDistinct, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, countDistinct, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type {
 	ManualPhaseChanges,
 	OrderEntry,
+	PresentationRef,
 	Progress,
 	RevealedBottle,
 	RevealedBottleWithBreakdown,
@@ -13,11 +14,21 @@ import type {
 import { isValidTastingDate } from '$lib/validation';
 import type * as Schema from './db/schema';
 import { tasting, tastingBottle, tastingParticipant } from './db/schema';
+import {
+	fileNameKey,
+	presentationBaseName,
+	presentationExtension,
+	uniquePresentationFileName,
+	type FileChange
+} from './presentationFiles';
 import { getBerlinToday, getTastingPhase } from './tastingPhase';
+import type { PendingUpload, StoredPresentation } from './tastingMedia';
 import { sortForPouring, type BottleScore } from './tastingScore';
 import { generateTastingToken, hashTastingToken } from './tastingToken';
 
 type Db = BetterSQLite3Database<typeof Schema>;
+/** The database or a transaction on it – both can run the same queries. */
+type Executor = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
 
 /**
  * A request that breaks a tasting rule (e.g. saving after 18:00). `message`
@@ -77,7 +88,10 @@ function toOrder(poured: ReadonlyArray<{ alias: string }>): OrderEntry[] {
 	return poured.map((b, i) => ({ position: i + 1, alias: b.alias }));
 }
 
-function toReveal(poured: ReadonlyArray<TastingBottle & BottleScore & { broughtBy: string }>) {
+type PouredBottle = TastingBottle &
+	BottleScore & { broughtBy: string; presentation: PresentationRef | null };
+
+function toReveal(poured: ReadonlyArray<PouredBottle>) {
 	return poured.map((b, i): RevealedBottleWithBreakdown => ({
 		position: i + 1,
 		alias: b.alias,
@@ -92,7 +106,8 @@ function toReveal(poured: ReadonlyArray<TastingBottle & BottleScore & { broughtB
 		value: b.value,
 		broughtBy: b.broughtBy,
 		score: b.score,
-		breakdown: b.breakdown
+		breakdown: b.breakdown,
+		presentation: b.presentation
 	}));
 }
 
@@ -109,7 +124,19 @@ function pouredBottles(db: Db, tastingId: string) {
 		.where(eq(tastingParticipant.tastingId, tastingId))
 		.orderBy(asc(tastingBottle.id))
 		.all();
-	return sortForPouring(rows.map(({ bottle, broughtBy }) => ({ ...toDomain(bottle), broughtBy })));
+	return sortForPouring(
+		rows.map(({ bottle, broughtBy }) => ({
+			...toDomain(bottle),
+			broughtBy,
+			presentation: presentationRef(bottle)
+		}))
+	);
+}
+
+function presentationRef(bottle: BottleRow): PresentationRef | null {
+	return bottle.presentationFile && bottle.presentationName
+		? { bottleId: bottle.id, name: bottle.presentationName }
+		: null;
 }
 
 // Participants in the order the admin entered them (created in one insert,
@@ -124,9 +151,34 @@ const phaseColumns = {
 };
 
 /** Current phase of a tasting, `null` if it doesn't exist. */
-function currentPhase(db: Db, id: string, now: Date): TastingPhase | null {
+function currentPhase(db: Executor, id: string, now: Date): TastingPhase | null {
 	const t = db.select(phaseColumns).from(tasting).where(eq(tasting.id, id)).get();
 	return t ? getTastingPhase(t.tastingDate, now, t) : null;
+}
+
+/**
+ * Keys (fileNameKey) of all presentation file names in use, except for the
+ * bottles the caller is about to rename. The database is the source of truth
+ * for which names are taken in MEDIA_PATH.
+ */
+function takenFileNames(
+	db: Executor,
+	except: (bottle: { id: string; participantId: string; slot: number }) => boolean
+): Set<string> {
+	return new Set(
+		db
+			.select({
+				id: tastingBottle.id,
+				participantId: tastingBottle.participantId,
+				slot: tastingBottle.slot,
+				file: tastingBottle.presentationFile
+			})
+			.from(tastingBottle)
+			.where(isNotNull(tastingBottle.presentationFile))
+			.all()
+			.filter((bottle) => !except(bottle))
+			.map((bottle) => fileNameKey(bottle.file!))
+	);
 }
 
 // ── Admin ───────────────────────────────────────────────────────────────────
@@ -312,24 +364,64 @@ export function getAdminTastingDetail(
 
 /**
  * Moves the tasting to another date – only while bottles can still be entered.
- * Returns false if the tasting doesn't exist.
+ * The presentation files carry the date in their name, so they are renamed
+ * along; the caller applies the returned file changes after the commit.
+ * Returns `null` if the tasting doesn't exist.
  */
 export function updateTastingDate(
 	db: Db,
 	id: string,
 	tastingDate: string,
 	now: Date = new Date()
-): boolean {
-	const phase = currentPhase(db, id, now);
-	if (!phase) return false;
-	if (phase !== 'entry') {
-		throw new TastingValidationError(
-			`date change rejected: tasting ${id} is past the entry phase`,
-			'Das Datum lässt sich nur ändern, solange die Eingabe offen ist.'
-		);
-	}
-	db.update(tasting).set({ tastingDate }).where(eq(tasting.id, id)).run();
-	return true;
+): FileChange[] | null {
+	return db.transaction((tx) => {
+		const current = tx
+			.select({ ...phaseColumns })
+			.from(tasting)
+			.where(eq(tasting.id, id))
+			.get();
+		if (!current) return null;
+		if (getTastingPhase(current.tastingDate, now, current) !== 'entry') {
+			throw new TastingValidationError(
+				`date change rejected: tasting ${id} is past the entry phase`,
+				'Das Datum lässt sich nur ändern, solange die Eingabe offen ist.'
+			);
+		}
+		tx.update(tasting).set({ tastingDate }).where(eq(tasting.id, id)).run();
+		// Same date: nothing to rename (and renaming within one name set could
+		// shuffle suffixes onto each other's files).
+		if (current.tastingDate === tastingDate) return [];
+
+		const bottles = tx
+			.select({
+				id: tastingBottle.id,
+				alias: tastingBottle.alias,
+				file: tastingBottle.presentationFile
+			})
+			.from(tastingBottle)
+			.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+			.where(and(eq(tastingParticipant.tastingId, id), isNotNull(tastingBottle.presentationFile)))
+			.all();
+		const renamed = new Set(bottles.map((b) => b.id));
+		const taken = takenFileNames(tx, (bottle) => renamed.has(bottle.id));
+
+		const changes: FileChange[] = [];
+		for (const bottle of bottles) {
+			const from = bottle.file!;
+			const to = uniquePresentationFileName(
+				presentationBaseName(tastingDate, bottle.alias),
+				presentationExtension(from),
+				taken
+			);
+			taken.add(fileNameKey(to));
+			tx.update(tastingBottle)
+				.set({ presentationFile: to })
+				.where(eq(tastingBottle.id, bottle.id))
+				.run();
+			changes.push({ move: from, to });
+		}
+		return changes;
+	});
 }
 
 /**
@@ -395,6 +487,67 @@ export function deleteTasting(db: Db, id: string): boolean {
 	return db.delete(tasting).where(eq(tasting.id, id)).run().changes > 0;
 }
 
+/**
+ * Stored presentation files of a tasting – the cascade removes only the rows,
+ * so the caller deletes these files after deleteTasting().
+ */
+export function listPresentationFiles(db: Db, tastingId: string): string[] {
+	return db
+		.select({ file: tastingBottle.presentationFile })
+		.from(tastingBottle)
+		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+		.where(eq(tastingParticipant.tastingId, tastingId))
+		.all()
+		.flatMap((row) => (row.file ? [row.file] : []));
+}
+
+/** Stored presentation of a bottle plus the tasting it belongs to. */
+function findPresentation(db: Db, bottleId: string) {
+	const row = db
+		.select({
+			tastingId: tastingParticipant.tastingId,
+			file: tastingBottle.presentationFile,
+			name: tastingBottle.presentationName
+		})
+		.from(tastingBottle)
+		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+		.where(eq(tastingBottle.id, bottleId))
+		.get();
+	return row?.file && row.name
+		? { tastingId: row.tastingId, file: row.file, name: row.name }
+		: null;
+}
+
+/**
+ * Presentation download through a participant link: only for bottles of the
+ * holder's tasting and only after the reveal – the file (and its name) is
+ * content. `null` for everything else, so the route answers a uniform 404.
+ */
+export function getPresentationForParticipant(
+	db: Db,
+	holder: TokenHolder,
+	bottleId: string,
+	now: Date = new Date()
+): StoredPresentation | null {
+	const found = findPresentation(db, bottleId);
+	if (!found || found.tastingId !== holder.tastingId) return null;
+	if (getTastingPhase(holder.tastingDate, now, holder) !== 'revealed') return null;
+	return { file: found.file, name: found.name };
+}
+
+/** Same for the admin: blind like everybody else, so only after the reveal. */
+export function getPresentationForAdmin(
+	db: Db,
+	tastingId: string,
+	bottleId: string,
+	now: Date = new Date()
+): StoredPresentation | null {
+	const found = findPresentation(db, bottleId);
+	if (!found || found.tastingId !== tastingId) return null;
+	if (currentPhase(db, tastingId, now) !== 'revealed') return null;
+	return { file: found.file, name: found.name };
+}
+
 // ── Participant link ────────────────────────────────────────────────────────
 
 export type TokenHolder = ManualPhaseChanges & {
@@ -430,7 +583,8 @@ export function findParticipantByToken(db: Db, token: string): TokenHolder | nul
 	);
 }
 
-export type OwnBottle = TastingBottle & { slot: number };
+/** The holder's own bottle during entry, incl. the name of an uploaded presentation. */
+export type OwnBottle = TastingBottle & { slot: number; presentationName: string | null };
 
 export type ParticipantView =
 	| {
@@ -474,7 +628,11 @@ export function getParticipantView(
 				.where(eq(tastingBottle.participantId, holder.id))
 				.orderBy(asc(tastingBottle.slot))
 				.all()
-				.map((row) => ({ slot: row.slot, ...toDomain(row) }));
+				.map((row) => ({
+					slot: row.slot,
+					...toDomain(row),
+					presentationName: row.presentationFile ? row.presentationName : null
+				}));
 			return {
 				phase,
 				tasting: { ...tastingInfo, bottlesPerParticipant: holder.bottlesPerParticipant },
@@ -511,8 +669,14 @@ function aliasKey(alias: string): string {
  * save can't overlap with the switch at 18:00. better-sqlite3 runs writes one
  * after another, so there is no race on the alias check either.
  *
- * Returns 'alias-taken' if another bottle of the tasting uses the alias;
- * throws TastingValidationError if the entry phase is over or the slot
+ * `presentation`: undefined keeps the current presentation, null removes it,
+ * a staged upload replaces it. The file is named after the scheme in
+ * presentationFiles.ts (tasting date + alias), so a changed alias renames a
+ * kept file as well. On success `fileChanges` lists the moves and deletions
+ * the caller applies to MEDIA_PATH after the commit.
+ *
+ * Returns status 'alias-taken' if another bottle of the tasting uses the
+ * alias; throws TastingValidationError if the entry phase is over or the slot
  * doesn't exist.
  */
 export function saveBottle(
@@ -520,9 +684,10 @@ export function saveBottle(
 	holder: Pick<TokenHolder, 'id' | 'tastingId'>,
 	slot: number,
 	bottle: TastingBottle,
-	now: Date = new Date()
-): 'saved' | 'alias-taken' {
-	return db.transaction((tx) => {
+	now: Date = new Date(),
+	presentation?: PendingUpload | null
+): SaveBottleResult {
+	return db.transaction((tx): SaveBottleResult => {
 		const t = tx
 			.select({ ...phaseColumns, bottlesPerParticipant: tasting.bottlesPerParticipant })
 			.from(tasting)
@@ -559,15 +724,81 @@ export function saveBottle(
 					!(other.participantId === holder.id && other.slot === slot) &&
 					aliasKey(other.alias) === wanted
 			);
-		if (taken) return 'alias-taken';
+		if (taken) return { status: 'alias-taken' };
+
+		const previousFile =
+			tx
+				.select({ file: tastingBottle.presentationFile })
+				.from(tastingBottle)
+				.where(and(eq(tastingBottle.participantId, holder.id), eq(tastingBottle.slot, slot)))
+				.get()?.file ?? null;
+		const { columns: presentationColumns, fileChanges } = planPresentationFile(
+			previousFile,
+			presentation,
+			// The file name the scheme gives this bottle now (date + alias).
+			(extension) =>
+				uniquePresentationFileName(
+					presentationBaseName(t.tastingDate, bottle.alias),
+					extension,
+					takenFileNames(tx, (other) => other.participantId === holder.id && other.slot === slot)
+				)
+		);
 
 		tx.insert(tastingBottle)
-			.values({ id: randomUUID(), participantId: holder.id, slot, ...bottle, updatedAt: now })
+			.values({
+				id: randomUUID(),
+				participantId: holder.id,
+				slot,
+				...bottle,
+				...presentationColumns,
+				updatedAt: now
+			})
 			.onConflictDoUpdate({
 				target: [tastingBottle.participantId, tastingBottle.slot],
-				set: { ...bottle, updatedAt: now }
+				set: { ...bottle, ...presentationColumns, updatedAt: now }
 			})
 			.run();
-		return 'saved';
+
+		return { status: 'saved', fileChanges };
 	});
+}
+
+export type SaveBottleResult =
+	{ status: 'saved'; fileChanges: FileChange[] } | { status: 'alias-taken' };
+
+// Case-insensitive, see fileNameKey.
+function sameFile(a: string, b: string): boolean {
+	return fileNameKey(a) === fileNameKey(b);
+}
+
+/**
+ * Columns and file steps for a bottle's presentation on save: remove it, put
+ * a staged upload under the scheme's name, or rename a kept file whose name
+ * no longer matches (alias changed). The upload is moved before the previous
+ * file is deleted – with an unchanged name the move simply replaces it.
+ */
+function planPresentationFile(
+	previousFile: string | null,
+	presentation: PendingUpload | null | undefined,
+	fileNameFor: (extension: string) => string
+): { columns: Partial<typeof tastingBottle.$inferInsert>; fileChanges: FileChange[] } {
+	if (presentation === null) {
+		return {
+			columns: { presentationFile: null, presentationName: null },
+			fileChanges: previousFile ? [{ delete: previousFile }] : []
+		};
+	}
+	if (presentation) {
+		const file = fileNameFor(presentation.extension);
+		const fileChanges: FileChange[] = [{ move: presentation.tempFile, to: file }];
+		if (previousFile && !sameFile(previousFile, file)) fileChanges.push({ delete: previousFile });
+		return {
+			columns: { presentationFile: file, presentationName: presentation.name },
+			fileChanges
+		};
+	}
+	if (!previousFile) return { columns: {}, fileChanges: [] };
+	const file = fileNameFor(presentationExtension(previousFile));
+	if (file === previousFile) return { columns: {}, fileChanges: [] };
+	return { columns: { presentationFile: file }, fileChanges: [{ move: previousFile, to: file }] };
 }

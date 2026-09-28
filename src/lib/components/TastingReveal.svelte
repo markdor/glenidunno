@@ -1,11 +1,15 @@
 <script lang="ts">
+	import type { ResolvedPathname } from '$app/types';
 	import { formatOneDecimal, type RevealedBottle, type ScoreBreakdown } from '$lib/tasting';
 
 	let {
 		bottles,
+		presentationHref,
 		showBreakdown = false
 	}: {
 		bottles: Array<RevealedBottle & { breakdown?: ScoreBreakdown }>;
+		/** Download URL of a bottle's presentation – differs for participant links and admin. */
+		presentationHref: (bottleId: string) => ResolvedPathname;
 		/** Admin view: the breakdown helps to tune the weights by gut feeling. */
 		showBreakdown?: boolean;
 	} = $props();
@@ -65,6 +69,20 @@
 							>
 								Auf Whiskybase ansehen
 							</a>
+						{/if}
+
+						{#if b.presentation}
+							<!-- Served as an attachment by a +server.ts route: `download` keeps the
+							     client router out of it. -->
+							<p class="text-sm">
+								<a
+									href={presentationHref(b.presentation.bottleId)}
+									download
+									class="inline-block py-1 font-medium break-all text-brand underline hover:text-brand-hover"
+								>
+									Präsentation: {b.presentation.name}
+								</a>
+							</p>
 						{/if}
 
 						{#if showBreakdown && b.breakdown}

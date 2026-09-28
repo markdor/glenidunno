@@ -39,9 +39,19 @@ beforeEach(() => {
 
 async function runSubmit(result: Record<string, unknown>) {
 	const update = vi.fn(async () => {});
-	const after = await captured.submit!({} as Parameters<SubmitFunction>[0]);
-	await (after as (opts: unknown) => Promise<void>)({ result, update });
+	const formElement = document.querySelector('form')!;
+	const after = await captured.submit!({ formElement } as unknown as Parameters<SubmitFunction>[0]);
+	await (after as (opts: unknown) => Promise<void>)({ result, update, formElement });
 	return update;
+}
+
+function chooseFile(file: File) {
+	const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+	const transfer = new DataTransfer();
+	transfer.items.add(file);
+	input.files = transfer.files;
+	input.dispatchEvent(new Event('change', { bubbles: true }));
+	return input;
 }
 
 describe('TastingBottleForm', () => {
@@ -146,5 +156,73 @@ describe('TastingBottleForm', () => {
 		await runSubmit({ type: 'failure', status: 429, data: { userMessage: 'Zu viele' } });
 
 		expect(invalidateAll).not.toHaveBeenCalled();
+	});
+
+	describe('presentation upload', () => {
+		test('offers an optional file field and sends the form as multipart', async () => {
+			render(TastingBottleForm, { slot: 1, bottle: null });
+
+			await expect.element(page.getByLabelText('Präsentation')).toHaveAttribute('type', 'file');
+			await expect
+				.element(page.getByRole('form', { name: 'Flasche 1' }))
+				.toHaveAttribute('enctype', 'multipart/form-data');
+			await expect.element(page.getByText(/höchstens 30 MB/)).toBeVisible();
+			expect(
+				page.getByRole('checkbox', { name: 'Präsentation entfernen' }).elements()
+			).toHaveLength(0);
+		});
+
+		test('shows an uploaded presentation and offers to remove it', async () => {
+			render(TastingBottleForm, {
+				slot: 1,
+				bottle: { ...saved, presentationName: 'Ardbeg.pptx' }
+			});
+
+			await expect.element(page.getByText('Hochgeladen: Ardbeg.pptx')).toBeVisible();
+			await expect
+				.element(page.getByRole('checkbox', { name: 'Präsentation entfernen' }))
+				.not.toBeChecked();
+		});
+
+		test('refuses a file above 30 MB already in the browser', async () => {
+			render(TastingBottleForm, { slot: 1, bottle: null });
+
+			const tooLarge = chooseFile(new File([new Uint8Array(30 * 1024 * 1024 + 1)], 'big.pptx'));
+			expect(tooLarge.validationMessage).toBe('Die Datei ist größer als 30 MB.');
+
+			const fine = chooseFile(new File([new Uint8Array(10)], 'small.pptx'));
+			expect(fine.validationMessage).toBe('');
+		});
+
+		test('shows the server-side refusal at the field', async () => {
+			render(TastingBottleForm, {
+				slot: 1,
+				bottle: null,
+				result: { values: {}, fieldErrors: { presentation: 'invalid' } }
+			});
+			await expect
+				.element(page.getByText('Höchstens 30 MB und ein Dateiname mit höchstens 255 Zeichen'))
+				.toBeVisible();
+		});
+
+		test('shows the upload in progress and clears the file once saved', async () => {
+			render(TastingBottleForm, { slot: 1, bottle: null });
+			const input = chooseFile(new File([new Uint8Array(10)], 'deck.pptx'));
+
+			const formElement = document.querySelector('form')!;
+			const after = await captured.submit!({
+				formElement
+			} as unknown as Parameters<SubmitFunction>[0]);
+			const button = page.getByRole('button', { name: 'Wird gespeichert …' });
+			await expect.element(button).toBeDisabled();
+
+			await (after as (opts: unknown) => Promise<void>)({
+				result: { type: 'success', status: 200, data: { saved: true } },
+				update: vi.fn(async () => {}),
+				formElement
+			});
+			await expect.element(page.getByRole('button', { name: 'Flasche 1 speichern' })).toBeEnabled();
+			expect(input.files).toHaveLength(0);
+		});
 	});
 });

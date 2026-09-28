@@ -181,7 +181,13 @@ export const tastingBottle = sqliteTable(
 		cask: integer('cask').notNull(),
 		abv: real('abv').notNull(),
 		value: integer('value').notNull(),
-		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
+		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+		// Optional presentation upload: the file name in MEDIA_PATH follows the
+		// scheme Tasting_<date>_<alias>[.ext] (presentationFiles.ts, never the
+		// client's file name); the original name is kept for display and as
+		// download name.
+		presentationFile: text('presentation_file'),
+		presentationName: text('presentation_name')
 	},
 	(t) => [
 		uniqueIndex('tasting_bottle_participant_slot_unique').on(t.participantId, t.slot),
@@ -202,6 +208,10 @@ export const tastingBottle = sqliteTable(
 		check('tasting_bottle_cask_range', inRange(t.cask, TASTING_SCALE.min, TASTING_SCALE.max)),
 		check('tasting_bottle_abv_range', inRange(t.abv, TASTING_ABV.min, TASTING_ABV.max)),
 		check('tasting_bottle_value_range', inRange(t.value, TASTING_SCALE.min, TASTING_SCALE.max))
+		// Deliberately no CHECK on presentation_name (length is validated in the
+		// save action): adding a CHECK to an existing table makes drizzle-kit
+		// rebuild the table, and its generated INSERT … SELECT reads the new
+		// columns from the old table, which breaks the migration.
 	]
 );
 

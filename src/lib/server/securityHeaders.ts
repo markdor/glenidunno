@@ -1,4 +1,4 @@
-import { PUBLIC_TASTING_ROUTE_ID, underPrefix } from './guard';
+import { PUBLIC_ROUTE_IDS, underPrefix } from './guard';
 
 const NO_STORE = { 'cache-control': 'no-store' } as const;
 
@@ -7,13 +7,13 @@ const NO_STORE = { 'cache-control': 'no-store' } as const;
  * resolve() so they also cover __data.json, action responses and the 404 of
  * an unknown token.
  *
- * - Participant link: no referrer (the URL carries the token), no indexing,
- *   and no caching – the content changes with the phase, a cached page would
- *   not show the pouring order at 18:00.
+ * - Participant link and its presentation downloads: no referrer (the URL
+ *   carries the token), no indexing, and no caching – the content changes
+ *   with the phase, a cached page would not show the pouring order at 18:00.
  * - /admin/tastings/*: no caching, since links are shown there exactly once.
  */
 export function getSecurityHeaders(routeId: string | null): Record<string, string> {
-	if (routeId === PUBLIC_TASTING_ROUTE_ID) {
+	if (routeId !== null && PUBLIC_ROUTE_IDS.has(routeId)) {
 		return {
 			'referrer-policy': 'no-referrer',
 			'x-robots-tag': 'noindex, nofollow',

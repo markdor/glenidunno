@@ -34,7 +34,8 @@ const revealedBottle = {
 	value: 3,
 	broughtBy: 'Anna',
 	score: 67,
-	breakdown: { smoke: 40, cask: 12, abv: 6, value: 6 }
+	breakdown: { smoke: 40, cask: 12, abv: 6, value: 6 },
+	presentation: { bottleId: 'b1', name: 'Ardbeg.pptx' }
 };
 
 function renderDetail(detail: Record<string, unknown>, form: unknown = null) {
@@ -72,11 +73,14 @@ describe('Tasting detail page', () => {
 		expect(page.getByLabelText('Datum').elements()).toHaveLength(0);
 	});
 
-	test('shows the reveal with the score breakdown', async () => {
+	test('shows the reveal with the score breakdown and the admin download link', async () => {
 		renderDetail({ phase: 'revealed', bottles: [revealedBottle] });
 
 		await expect.element(page.getByRole('heading', { name: 'Auflösung' })).toBeVisible();
 		await expect.element(page.getByText('Score-Aufschlüsselung')).toBeVisible();
+		await expect
+			.element(page.getByRole('link', { name: 'Präsentation: Ardbeg.pptx' }))
+			.toHaveAttribute('href', '/admin/tastings/t1/presentation/b1');
 	});
 
 	test('offers a new link per participant in every phase', async () => {

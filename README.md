@@ -48,6 +48,12 @@ jetzt freigeben“ statt 18 Uhr, „Jetzt auflösen“ statt 9 Uhr). Das lässt
 sich nicht rückgängig machen, und alle Links zeigen danach, wann der
 Admin das getan hat.
 
+Zu jeder Flasche kann optional eine Präsentation (meist PowerPoint,
+höchstens 30 MB) hochgeladen werden. Die Datei wird unverändert
+gespeichert, im Volume unter dem Namen
+`Tasting_<YYYY-MM-DD>_<Synonym>.<Endung>`, und erst mit der Auflösung
+verlinkt – vorher sieht niemand sie, auch nicht ihren Dateinamen.
+
 Blind für alle: Auch der Admin sieht vor 18 Uhr keine fremden Eingaben.
 Die Links zeigt die App dem Admin genau einmal (nach dem Anlegen bzw.
 „Link neu generieren“), gespeichert wird nur ein Hash. Wer einen Link
@@ -74,7 +80,9 @@ npm run dev
 ## Deployment
 
 Docker Compose auf Hetzner VPS, TLS via Traefik + Let's Encrypt.
-Persistente Daten (SQLite) liegen in einem named Docker Volume.
+Persistente Daten liegen in zwei named Docker Volumes: die SQLite-DB
+unter `/data` und die hochgeladenen Präsentationen unter `/media`
+(`glenidunno-media`, Pfad per `MEDIA_PATH`). Beide gehören ins Backup.
 
 ```bash
 docker compose up -d

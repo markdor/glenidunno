@@ -4,6 +4,8 @@ import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import type { TastingBottle } from '$lib/tasting';
 import * as schema from './db/schema';
+import { presentationExtension } from './presentationFiles';
+import type { PendingUpload } from './tastingMedia';
 import { hashTastingToken } from './tastingToken';
 import {
 	createTasting,
@@ -11,7 +13,10 @@ import {
 	findParticipantByToken,
 	getAdminTastingDetail,
 	getParticipantView,
+	getPresentationForAdmin,
+	getPresentationForParticipant,
 	getStartPageSummary,
+	listPresentationFiles,
 	listTastings,
 	openOrderEarly,
 	regenerateParticipantToken,
@@ -105,8 +110,10 @@ describe('findParticipantByToken', () => {
 describe('saveBottle', () => {
 	it('inserts and then updates the bottle in the holder’s slot', () => {
 		const { anna } = setup();
-		expect(saveBottle(db, anna, 1, bottle(), ENTRY)).toBe('saved');
-		expect(saveBottle(db, anna, 1, bottle({ distillery: 'Laphroaig' }), ENTRY)).toBe('saved');
+		expect(saveBottle(db, anna, 1, bottle(), ENTRY)).toMatchObject({ status: 'saved' });
+		expect(saveBottle(db, anna, 1, bottle({ distillery: 'Laphroaig' }), ENTRY)).toMatchObject({
+			status: 'saved'
+		});
 
 		const rows = db.select().from(schema.tastingBottle).all();
 		expect(rows).toHaveLength(1);
@@ -116,26 +123,34 @@ describe('saveBottle', () => {
 	it('rejects an alias used by someone else, ignoring case and umlaut case', () => {
 		const { anna, ben } = setup();
 		saveBottle(db, anna, 1, bottle({ alias: 'Ölfass' }), ENTRY);
-		expect(saveBottle(db, ben, 1, bottle({ alias: 'ÖLFASS' }), ENTRY)).toBe('alias-taken');
-		expect(saveBottle(db, ben, 1, bottle({ alias: 'ölfass' }), ENTRY)).toBe('alias-taken');
+		expect(saveBottle(db, ben, 1, bottle({ alias: 'ÖLFASS' }), ENTRY)).toEqual({
+			status: 'alias-taken'
+		});
+		expect(saveBottle(db, ben, 1, bottle({ alias: 'ölfass' }), ENTRY)).toEqual({
+			status: 'alias-taken'
+		});
 	});
 
 	it('rejects an alias the holder already uses in another slot', () => {
 		const { anna } = setup();
 		saveBottle(db, anna, 1, bottle({ alias: 'Nebel' }), ENTRY);
-		expect(saveBottle(db, anna, 2, bottle({ alias: 'nebel' }), ENTRY)).toBe('alias-taken');
+		expect(saveBottle(db, anna, 2, bottle({ alias: 'nebel' }), ENTRY)).toEqual({
+			status: 'alias-taken'
+		});
 	});
 
 	it('lets the holder keep the alias of the bottle being updated', () => {
 		const { anna } = setup();
 		saveBottle(db, anna, 1, bottle({ alias: 'Nebel' }), ENTRY);
-		expect(saveBottle(db, anna, 1, bottle({ alias: 'NEBEL' }), ENTRY)).toBe('saved');
+		expect(saveBottle(db, anna, 1, bottle({ alias: 'NEBEL' }), ENTRY)).toMatchObject({
+			status: 'saved'
+		});
 	});
 
 	it('refuses to save from 18:00 on the tasting day', () => {
 		const { anna } = setup();
 		const justBefore = new Date(ORDER.getTime() - 1000);
-		expect(saveBottle(db, anna, 1, bottle(), justBefore)).toBe('saved');
+		expect(saveBottle(db, anna, 1, bottle(), justBefore)).toMatchObject({ status: 'saved' });
 		expect(() => saveBottle(db, anna, 1, bottle({ distillery: 'Other' }), ORDER)).toThrow(
 			TastingValidationError
 		);
@@ -328,12 +343,12 @@ describe('validateTastingDate', () => {
 describe('updateTastingDate', () => {
 	it('moves the tasting during entry', () => {
 		const { id } = setup();
-		expect(updateTastingDate(db, id, '2026-11-07', ENTRY)).toBe(true);
+		expect(updateTastingDate(db, id, '2026-11-07', ENTRY)).toEqual([]);
 		expect(db.select().from(schema.tasting).get()?.tastingDate).toBe('2026-11-07');
 	});
 
-	it('returns false for an unknown tasting', () => {
-		expect(updateTastingDate(db, 'nope', '2026-11-07', ENTRY)).toBe(false);
+	it('returns null for an unknown tasting', () => {
+		expect(updateTastingDate(db, 'nope', '2026-11-07', ENTRY)).toBeNull();
 	});
 
 	it('refuses once the entry phase is over', () => {
@@ -447,5 +462,206 @@ describe('deleteTasting', () => {
 		expect(db.select().from(schema.tastingBottle).all()).toEqual([]);
 		expect(db.select().from(schema.tastingWriteThrottle).all()).toEqual([]);
 		expect(deleteTasting(db, id)).toBe(false);
+	});
+});
+
+describe('presentations', () => {
+	// A staged upload as tastingMedia.stageUpload() returns it.
+	function upload(name: string, tempFile = '.upload-1'): PendingUpload {
+		return { tempFile, name, extension: presentationExtension(name) };
+	}
+	const DECK = upload('Ardbeg-Uigeadail.pptx');
+	// bottle() uses the alias "Nebel", the tasting is on 24.10.2026.
+	const DECK_FILE = 'Tasting_2026-10-24_Nebel.pptx';
+
+	function bottleRow() {
+		return db.select().from(schema.tastingBottle).get()!;
+	}
+
+	function saved(fileChanges: unknown[]) {
+		return { status: 'saved', fileChanges };
+	}
+
+	it('names the file after tasting date and alias and keeps it in sync', () => {
+		const { anna } = setup();
+
+		// A new upload moves from its temporary file to the scheme's name.
+		expect(saveBottle(db, anna, 1, bottle(), ENTRY, DECK)).toEqual(
+			saved([{ move: '.upload-1', to: DECK_FILE }])
+		);
+		expect(bottleRow()).toMatchObject({ presentationFile: DECK_FILE, presentationName: DECK.name });
+
+		// Saving without touching alias or presentation changes nothing on disk.
+		expect(saveBottle(db, anna, 1, bottle({ distillery: 'Laphroaig' }), ENTRY)).toEqual(saved([]));
+
+		// A new alias renames the kept file.
+		const renamed = 'Tasting_2026-10-24_Blaue_Stunde.pptx';
+		expect(saveBottle(db, anna, 1, bottle({ alias: 'Blaue Stunde' }), ENTRY)).toEqual(
+			saved([{ move: DECK_FILE, to: renamed }])
+		);
+		expect(bottleRow()).toMatchObject({ presentationFile: renamed, presentationName: DECK.name });
+
+		// A re-upload under the same name simply replaces the file ...
+		expect(
+			saveBottle(
+				db,
+				anna,
+				1,
+				bottle({ alias: 'Blaue Stunde' }),
+				ENTRY,
+				upload('v2.pptx', '.upload-2')
+			)
+		).toEqual(saved([{ move: '.upload-2', to: renamed }]));
+
+		// ... one with another extension leaves the old file behind for deletion.
+		expect(
+			saveBottle(
+				db,
+				anna,
+				1,
+				bottle({ alias: 'Blaue Stunde' }),
+				ENTRY,
+				upload('v3.pdf', '.upload-3')
+			)
+		).toEqual(
+			saved([{ move: '.upload-3', to: 'Tasting_2026-10-24_Blaue_Stunde.pdf' }, { delete: renamed }])
+		);
+
+		// null removes it.
+		expect(saveBottle(db, anna, 1, bottle({ alias: 'Blaue Stunde' }), ENTRY, null)).toEqual(
+			saved([{ delete: 'Tasting_2026-10-24_Blaue_Stunde.pdf' }])
+		);
+		expect(bottleRow()).toMatchObject({ presentationFile: null, presentationName: null });
+		expect(saveBottle(db, anna, 1, bottle({ alias: 'Blaue Stunde' }), ENTRY, null)).toEqual(
+			saved([])
+		);
+	});
+
+	it('counts up when another tasting on the same day uses the same alias', () => {
+		const first = setup();
+		const second = setup();
+		saveBottle(db, first.anna, 1, bottle({ alias: 'Nebel' }), ENTRY, DECK);
+
+		expect(saveBottle(db, second.anna, 1, bottle({ alias: 'NEBEL' }), ENTRY, DECK)).toEqual(
+			saved([{ move: '.upload-1', to: 'Tasting_2026-10-24_NEBEL_2.pptx' }])
+		);
+	});
+
+	it('renames the files along with a new tasting date', () => {
+		const ctx = setup();
+		const sameDay = setup();
+		saveBottle(db, ctx.anna, 1, bottle({ alias: 'Nebel' }), ENTRY, DECK);
+		saveBottle(db, ctx.ben, 1, bottle({ alias: 'Blume' }), ENTRY, upload('b.pdf'));
+		saveBottle(db, ctx.cem, 1, bottle({ alias: 'Torf' }), ENTRY);
+		// Another tasting on the new date already uses "Nebel".
+		updateTastingDate(db, sameDay.id, '2026-11-07', ENTRY);
+		saveBottle(db, sameDay.anna, 1, bottle({ alias: 'Nebel' }), ENTRY, DECK);
+
+		const changes = updateTastingDate(db, ctx.id, '2026-11-07', ENTRY);
+
+		expect(changes).toEqual(
+			expect.arrayContaining([
+				{ move: 'Tasting_2026-10-24_Nebel.pptx', to: 'Tasting_2026-11-07_Nebel_2.pptx' },
+				{ move: 'Tasting_2026-10-24_Blume.pdf', to: 'Tasting_2026-11-07_Blume.pdf' }
+			])
+		);
+		expect(changes).toHaveLength(2);
+		expect(listPresentationFiles(db, ctx.id).sort()).toEqual([
+			'Tasting_2026-11-07_Blume.pdf',
+			'Tasting_2026-11-07_Nebel_2.pptx'
+		]);
+		// The same date again: nothing to rename.
+		expect(updateTastingDate(db, ctx.id, '2026-11-07', ENTRY)).toEqual([]);
+	});
+
+	it('leaves the presentation untouched when the alias is taken', () => {
+		const { anna, ben } = setup();
+		saveBottle(db, anna, 1, bottle({ alias: 'Nebel' }), ENTRY);
+		expect(saveBottle(db, ben, 1, bottle({ alias: 'Nebel' }), ENTRY, DECK)).toEqual({
+			status: 'alias-taken'
+		});
+		expect(
+			db
+				.select()
+				.from(schema.tastingBottle)
+				.all()
+				.map((b) => b.presentationFile)
+		).toEqual([null]);
+	});
+
+	it('shows the name only to its owner before the reveal and to everybody after it', () => {
+		const ctx = setup();
+		saveBottle(db, ctx.anna, 1, bottle(), ENTRY, DECK);
+
+		const own = getParticipantView(db, ctx.anna, ENTRY);
+		expect(own.phase === 'entry' && own.bottles[0].presentationName).toBe(DECK.name);
+		expect(JSON.stringify(getParticipantView(db, ctx.ben, ENTRY))).not.toContain('Uigeadail');
+		expect(JSON.stringify(getAdminTastingDetail(db, ctx.id, ENTRY))).not.toContain('Uigeadail');
+
+		for (const view of [
+			getParticipantView(db, ctx.ben, ORDER),
+			getAdminTastingDetail(db, ctx.id, ORDER)
+		]) {
+			expect(JSON.stringify(view)).not.toContain('Uigeadail');
+			expect(JSON.stringify(view)).not.toContain(DECK_FILE);
+		}
+
+		const revealed = getParticipantView(db, ctx.ben, REVEALED);
+		const bottleId = bottleRow().id;
+		expect(revealed.phase === 'revealed' && revealed.bottles[0].presentation).toEqual({
+			bottleId,
+			name: DECK.name
+		});
+		const admin = getAdminTastingDetail(db, ctx.id, REVEALED);
+		expect(admin?.phase === 'revealed' && admin.bottles[0].presentation).toEqual({
+			bottleId,
+			name: DECK.name
+		});
+		// The stored file name never leaves the server.
+		expect(JSON.stringify(revealed)).not.toContain(DECK_FILE);
+	});
+
+	it('hands out the file only after the reveal and only within the tasting', () => {
+		const ctx = setup();
+		const other = setup('2026-11-14');
+		saveBottle(db, ctx.anna, 1, bottle(), ENTRY, DECK);
+		const bottleId = bottleRow().id;
+
+		for (const now of [ENTRY, ORDER]) {
+			// Not even the owner: the name counts as content, the download is for the reveal.
+			expect(getPresentationForParticipant(db, ctx.anna, bottleId, now)).toBeNull();
+			expect(getPresentationForParticipant(db, ctx.ben, bottleId, now)).toBeNull();
+			expect(getPresentationForAdmin(db, ctx.id, bottleId, now)).toBeNull();
+		}
+
+		const stored = { file: DECK_FILE, name: DECK.name };
+		expect(getPresentationForParticipant(db, ctx.ben, bottleId, REVEALED)).toEqual(stored);
+		expect(getPresentationForAdmin(db, ctx.id, bottleId, REVEALED)).toEqual(stored);
+
+		// Other tastings, unknown bottles and bottles without presentation: null.
+		expect(getPresentationForParticipant(db, other.anna, bottleId, REVEALED)).toBeNull();
+		expect(getPresentationForAdmin(db, other.id, bottleId, REVEALED)).toBeNull();
+		expect(getPresentationForParticipant(db, ctx.ben, 'nope', REVEALED)).toBeNull();
+		saveBottle(db, ctx.ben, 1, bottle({ alias: 'Blume' }), ENTRY);
+		const withoutDeck = db
+			.select()
+			.from(schema.tastingBottle)
+			.all()
+			.find((b) => b.alias === 'Blume')!;
+		expect(getPresentationForParticipant(db, ctx.anna, withoutDeck.id, REVEALED)).toBeNull();
+	});
+
+	it('lists the stored files of a tasting for the cleanup after deleting it', () => {
+		const ctx = setup();
+		const other = setup('2026-11-14');
+		saveBottle(db, ctx.anna, 1, bottle(), ENTRY, DECK);
+		saveBottle(db, ctx.ben, 1, bottle({ alias: 'Blume' }), ENTRY, upload('Neu.pdf'));
+		saveBottle(db, ctx.cem, 1, bottle({ alias: 'Torf' }), ENTRY);
+		saveBottle(db, other.anna, 1, bottle({ alias: 'Fremd' }), ENTRY, upload('x'));
+
+		expect(listPresentationFiles(db, ctx.id).sort()).toEqual([
+			'Tasting_2026-10-24_Blume.pdf',
+			DECK_FILE
+		]);
 	});
 });

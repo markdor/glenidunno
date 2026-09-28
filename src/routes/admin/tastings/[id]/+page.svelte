@@ -33,6 +33,13 @@
 		}
 	});
 
+	function presentationHref(bottleId: string) {
+		return resolve('/admin/tastings/[id]/presentation/[bottleId]', {
+			id: detail.tasting.id,
+			bottleId
+		});
+	}
+
 	// cancel(), not preventDefault() in onsubmit: enhance ignores
 	// defaultPrevented and would send the request anyway.
 	function confirmFirst(question: string): SubmitFunction {
@@ -117,7 +124,7 @@
 	{:else}
 		<section class="space-y-3">
 			<h2 class="text-lg font-semibold">Auflösung</h2>
-			<TastingReveal bottles={detail.bottles} showBreakdown />
+			<TastingReveal bottles={detail.bottles} {presentationHref} showBreakdown />
 		</section>
 	{/if}
 

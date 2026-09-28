@@ -51,6 +51,15 @@ export const TASTING_SCALE = { min: 0, max: 5 } as const;
 export const TASTING_ABV = { min: 35, max: 75, step: 0.1 } as const;
 
 /**
+ * Optional presentation per bottle (usually PowerPoint), stored byte for byte.
+ * The upload request may be slightly larger (form fields, multipart framing):
+ * see UPLOAD_BODY_LIMIT_BYTES in $lib/server/bodyLimit.ts and BODY_SIZE_LIMIT
+ * in the Dockerfile.
+ */
+export const TASTING_PRESENTATION_MAX_BYTES = 30 * 1024 * 1024;
+export const TASTING_PRESENTATION_NAME_LENGTH = { max: 255 } as const;
+
+/**
  * Format of a participant token: 24 random bytes as base64url (192 bit).
  * Used by the param matcher (src/params/tastingToken.ts), which also runs in
  * the browser.

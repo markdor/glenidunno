@@ -29,6 +29,15 @@ describe('evaluateGuard', () => {
 				evaluateGuard(`/tasting/${'a'.repeat(32)}`, anonymous('/tasting/[token=tastingToken]'))
 			).toEqual({ action: 'resolve' });
 		});
+
+		it('lets anonymous visitors download presentations through their link', () => {
+			expect(
+				evaluateGuard(
+					`/tasting/${'a'.repeat(32)}/presentation/some-id`,
+					anonymous('/tasting/[token=tastingToken]/presentation/[bottleId]')
+				)
+			).toEqual({ action: 'resolve' });
+		});
 	});
 
 	describe('prefix matching does not leak (fail-open) to sibling paths', () => {
@@ -61,15 +70,17 @@ describe('evaluateGuard', () => {
 			}
 		);
 
-		it.each(['/admin/tastings', '/admin/tastings/new', '/admin/tastings/[id]'])(
-			'keeps the admin route %s protected',
-			(routeId) => {
-				expect(evaluateGuard(routeId, anonymous(routeId))).toEqual({
-					action: 'redirect',
-					location: '/login'
-				});
-			}
-		);
+		it.each([
+			'/admin/tastings',
+			'/admin/tastings/new',
+			'/admin/tastings/[id]',
+			'/admin/tastings/[id]/presentation/[bottleId]'
+		])('keeps the admin route %s protected', (routeId) => {
+			expect(evaluateGuard(routeId, anonymous(routeId))).toEqual({
+				action: 'redirect',
+				location: '/login'
+			});
+		});
 	});
 
 	describe('protected routes', () => {

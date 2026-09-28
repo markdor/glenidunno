@@ -10,6 +10,8 @@
 		TASTING_BOTTLER_LENGTH,
 		TASTING_BOTTLING_LENGTH,
 		TASTING_DISTILLERY_LENGTH,
+		TASTING_PRESENTATION_MAX_BYTES,
+		TASTING_PRESENTATION_NAME_LENGTH,
 		TASTING_SCALE,
 		TASTING_WHISKYBASE_URL_LENGTH
 	} from '$lib/validation';
@@ -25,7 +27,16 @@
 		slot,
 		bottle,
 		result = null
-	}: { slot: number; bottle: TastingBottle | null; result?: SaveResult } = $props();
+	}: {
+		slot: number;
+		bottle: (TastingBottle & { presentationName?: string | null }) | null;
+		result?: SaveResult;
+	} = $props();
+
+	const MAX_PRESENTATION_MB = TASTING_PRESENTATION_MAX_BYTES / (1024 * 1024);
+
+	// Uploads of up to 30 MB take a while on a phone: show that something happens.
+	let saving = $state(false);
 
 	type Scale = 'smoke' | 'cask' | 'value';
 
@@ -65,8 +76,22 @@
 	const invalidText: Record<string, string> = {
 		age: `Ganze Jahre von ${TASTING_AGE.min} bis ${TASTING_AGE.max}`,
 		abv: `${TASTING_ABV.min} bis ${TASTING_ABV.max} %, höchstens eine Nachkommastelle`,
-		whiskybaseUrl: 'Nur https-Links auf whiskybase.com'
+		whiskybaseUrl: 'Nur https-Links auf whiskybase.com',
+		presentation: `Höchstens ${MAX_PRESENTATION_MB} MB und ein Dateiname mit höchstens ${TASTING_PRESENTATION_NAME_LENGTH.max} Zeichen`
 	};
+
+	// Checked in the browser before a large file travels to the server, which
+	// checks again (and would refuse the request as too large anyway).
+	function checkPresentationSize(event: Event & { currentTarget: HTMLInputElement }) {
+		const input = event.currentTarget;
+		const file = input.files?.[0];
+		input.setCustomValidity(
+			file && file.size > TASTING_PRESENTATION_MAX_BYTES
+				? `Die Datei ist größer als ${MAX_PRESENTATION_MB} MB.`
+				: ''
+		);
+		input.reportValidity();
+	}
 
 	function fieldError(field: string): string | null {
 		const code = result?.fieldErrors?.[field];
@@ -75,10 +100,15 @@
 	}
 
 	const submit: SubmitFunction = () => {
-		return async ({ result: actionResult, update }) => {
+		saving = true;
+		return async ({ result: actionResult, update, formElement }) => {
+			saving = false;
 			// reset: false – a reset would restore the stale server-rendered values.
 			await update({ reset: false });
 			if (actionResult.type === 'success') {
+				// The upload is saved – don't send the same file again next time.
+				const fileInput = formElement.querySelector<HTMLInputElement>('input[type="file"]');
+				if (fileInput) fileInput.value = '';
 				toast.show('success', `Flasche ${slot} gespeichert.`);
 			} else if (actionResult.type === 'failure' && actionResult.data?.reload) {
 				// The entry phase ended while the page was open: the error toast
@@ -96,6 +126,7 @@
 <form
 	method="POST"
 	action="?/save"
+	enctype="multipart/form-data"
 	use:enhance={submit}
 	aria-labelledby={id('title')}
 	class="space-y-4 rounded-xl border border-slate-200 bg-white p-4"
@@ -264,10 +295,38 @@
 		</div>
 	{/each}
 
+	<div class="space-y-1">
+		<label for={id('presentation')} class="block text-sm font-medium text-slate-700">
+			Präsentation
+		</label>
+		<input
+			id={id('presentation')}
+			name="presentation"
+			type="file"
+			onchange={checkPresentationSize}
+			aria-describedby={id('presentation-hint')}
+			class="block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700"
+		/>
+		<p id={id('presentation-hint')} class="text-xs text-slate-500">
+			Optional, z. B. PowerPoint, höchstens {MAX_PRESENTATION_MB} MB. Alle sehen sie erst bei der Auflösung.
+		</p>
+		{#if bottle?.presentationName}
+			<p class="text-sm break-all text-slate-700">Hochgeladen: {bottle.presentationName}</p>
+			<label class="flex items-center gap-2 py-1 text-sm text-slate-700">
+				<input name="removePresentation" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
+				Präsentation entfernen
+			</label>
+		{/if}
+		{#if fieldError('presentation')}
+			<p class="text-xs text-red-600">{fieldError('presentation')}</p>
+		{/if}
+	</div>
+
 	<button
 		type="submit"
-		class="w-full rounded-lg bg-brand px-4 py-3 text-base font-medium text-white hover:bg-brand-hover sm:w-auto"
+		disabled={saving}
+		class="w-full rounded-lg bg-brand px-4 py-3 text-base font-medium text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
 	>
-		Flasche {slot} speichern
+		{saving ? 'Wird gespeichert …' : `Flasche ${slot} speichern`}
 	</button>
 </form>

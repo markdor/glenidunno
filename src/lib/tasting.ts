@@ -61,8 +61,20 @@ export type Progress = { entered: number; total: number };
 /** Position in the pouring order – everything the `order` phase may show. */
 export type OrderEntry = { position: number; alias: string };
 
-/** A bottle after the reveal: all fields plus bringer and score. */
-export type RevealedBottle = TastingBottle & { position: number; broughtBy: string; score: number };
+/**
+ * An uploaded presentation: the bottle id addresses the download route, the
+ * original file name is shown. The name counts as content (it may reveal
+ * the whisky), so it only leaves the server with the reveal.
+ */
+export type PresentationRef = { bottleId: string; name: string };
+
+/** A bottle after the reveal: all fields plus bringer, score and presentation. */
+export type RevealedBottle = TastingBottle & {
+	position: number;
+	broughtBy: string;
+	score: number;
+	presentation: PresentationRef | null;
+};
 
 /** Points each factor contributes to the score (they add up to it). */
 export type ScoreBreakdown = { smoke: number; cask: number; abv: number; value: number };

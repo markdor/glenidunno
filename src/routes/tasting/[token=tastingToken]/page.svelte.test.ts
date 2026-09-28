@@ -1,6 +1,11 @@
-import { describe, test, expect, beforeEach } from 'vitest';
+import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
+
+// The page builds download links from the token of its own URL.
+const TOKEN = 'a'.repeat(32);
+vi.mock('$app/state', () => ({ page: { params: { token: 'a'.repeat(32) } } }));
+
 import Page from './+page.svelte';
 import { toast } from '$lib/components/toastStore.svelte';
 
@@ -138,6 +143,35 @@ describe('Tasting link page', () => {
 			await expect.element(page.getByText(notice)).toBeVisible();
 		}
 	);
+
+	test('links presentations through the own token after the reveal', async () => {
+		renderView({
+			phase: 'revealed',
+			tasting,
+			bottles: [
+				{
+					position: 1,
+					alias: 'Nebel',
+					distillery: 'Ardbeg',
+					bottler: null,
+					bottling: null,
+					age: null,
+					whiskybaseUrl: null,
+					smoke: 5,
+					cask: 2,
+					abv: 46,
+					value: 3,
+					broughtBy: 'Anna',
+					score: 67,
+					presentation: { bottleId: 'b1', name: 'Ardbeg.pptx' }
+				}
+			]
+		});
+
+		await expect
+			.element(page.getByRole('link', { name: 'Präsentation: Ardbeg.pptx' }))
+			.toHaveAttribute('href', `/tasting/${TOKEN}/presentation/b1`);
+	});
 
 	test('reports a general save failure as a toast', async () => {
 		renderView(

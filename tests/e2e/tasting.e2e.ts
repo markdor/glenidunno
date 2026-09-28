@@ -6,6 +6,12 @@ import { test, expect } from '@playwright/test';
 
 const ALIASES = ['Nebelhorn', 'Blütenmeer'];
 const DISTILLERIES = ['Ardbeg', 'Glenkinchie'];
+// Uploaded with the first bottle and downloaded after the reveal.
+const PRESENTATION = {
+	name: 'Vortrag Flasche 1.pptx',
+	mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+	buffer: Buffer.from('PK\u0003\u0004 not really a deck, stored byte for byte')
+};
 
 // A week ahead is in the future in any time zone.
 function dateInDays(days: number): string {
@@ -51,11 +57,13 @@ test.describe('Tasting – Ablauf', () => {
 				await card.getByLabel('Synonym *').fill(alias);
 				await card.getByLabel('Distillery *').fill(DISTILLERIES[i]);
 				await card.getByLabel('Alkohol in % *').fill('46');
+				if (slot === 1) await card.getByLabel('Präsentation').setInputFiles(PRESENTATION);
 				await card.getByRole('button', { name: `Flasche ${slot} speichern` }).click();
 				await expect(
 					p.getByRole('status').filter({ hasText: `Flasche ${slot} gespeichert.` })
 				).toBeVisible();
 			}
+			await expect(p.getByText(`Hochgeladen: ${PRESENTATION.name}`)).toBeVisible();
 		});
 
 		await test.step('Admin sieht den Fortschritt, aber keine Inhalte', async () => {
@@ -75,7 +83,7 @@ test.describe('Tasting – Ablauf', () => {
 			const html = await htmlResponse.text();
 			const data = await (await page.request.get(`${detailHref}/__data.json`)).text();
 			expect(html).toContain('2 von 2 Flaschen');
-			for (const secret of [...ALIASES, ...DISTILLERIES]) {
+			for (const secret of [...ALIASES, ...DISTILLERIES, PRESENTATION.name]) {
 				expect(html).not.toContain(secret);
 				expect(data).not.toContain(secret);
 			}
@@ -108,6 +116,21 @@ test.describe('Tasting – Ablauf', () => {
 			await expect(p.getByRole('heading', { name: 'Auflösung' })).toBeVisible();
 			await expect(p.getByText(/vorzeitig aufgelöst\.$/)).toBeVisible();
 			for (const name of DISTILLERIES) await expect(p.getByText(name)).toBeVisible();
+		});
+
+		await test.step('Präsentation: nach der Auflösung verlinkt und 1:1 herunterladbar', async () => {
+			const linkName = `Präsentation: ${PRESENTATION.name}`;
+			for (const [viewer, label] of [
+				[p, 'Teilnehmer-Link'],
+				[page, 'Admin-Seite']
+			] as const) {
+				const href = await viewer.getByRole('link', { name: linkName }).getAttribute('href');
+				const download = await viewer.request.get(href!);
+				expect(download.status(), label).toBe(200);
+				expect(download.headers()['content-disposition'], label).toMatch(/^attachment;/);
+				expect(download.headers()['x-content-type-options'], label).toBe('nosniff');
+				expect(Buffer.compare(await download.body(), PRESENTATION.buffer), label).toBe(0);
+			}
 		});
 
 		await participant.close();

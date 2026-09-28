@@ -16,6 +16,15 @@ vi.mock('$lib/server/logger', () => ({
 	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
 }));
 
+// Uploads land in a throwaway directory, never in the repo's ./media.
+const mockEnv = vi.hoisted((): Record<string, string | undefined> => ({}));
+vi.mock('$env/dynamic/private', () => ({ env: mockEnv }));
+
+import { existsSync } from 'node:fs';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { TASTING_PRESENTATION_MAX_BYTES } from '$lib/validation';
 import { db } from '$lib/server/db';
 import { tasting, tastingBottle, tastingWriteThrottle } from '$lib/server/db/schema';
 import { logger } from '$lib/server/logger';
@@ -53,7 +62,7 @@ function loadFor(token: string) {
 	} as unknown as LoadEvent) as { view: ParticipantView };
 }
 
-function save(token: string, fields: Record<string, string>) {
+function save(token: string, fields: Record<string, string | File>) {
 	const fd = new FormData();
 	for (const [k, v] of Object.entries(fields)) fd.append(k, v);
 	const request = new Request(`http://localhost/tasting/${token}?/save`, {
@@ -81,7 +90,11 @@ const validBottle = {
 	value: '4'
 };
 
-beforeEach(() => {
+let mediaDir: string;
+
+beforeEach(async () => {
+	mediaDir = await mkdtemp(join(tmpdir(), 'glenidunno-media-'));
+	mockEnv.MEDIA_PATH = mediaDir;
 	vi.setSystemTime(ENTRY);
 	db.delete(tasting).run();
 	const created = createTasting(db, {
@@ -95,9 +108,10 @@ beforeEach(() => {
 	annaId = created.tokens[0].participantId;
 });
 
-afterEach(() => {
+afterEach(async () => {
 	vi.useRealTimers();
 	vi.clearAllMocks();
+	await rm(mediaDir, { recursive: true, force: true });
 });
 
 describe('tasting link load', () => {
@@ -333,5 +347,149 @@ describe('tasting link save', () => {
 		});
 		expect(logger.error).toHaveBeenCalledWith({ err }, 'tasting save failed');
 		spy.mockRestore();
+	});
+});
+
+describe('tasting link save with a presentation', () => {
+	const deckBytes = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 1, 2, 3]);
+	const deck = (name = 'Ardbeg.pptx', bytes: Uint8Array<ArrayBuffer> = deckBytes) =>
+		new File([bytes], name);
+	const storedFiles = () => readdir(mediaDir);
+	const bottleRow = () => db.select().from(tastingBottle).get()!;
+	const content = async (file: string) => new Uint8Array(await readFile(join(mediaDir, file)));
+	// validBottle uses the alias "Nebel", the tasting is on 24.10.2026.
+	const DECK_FILE = 'Tasting_2026-10-24_Nebel.pptx';
+
+	it('stores the upload byte for byte as Tasting_<date>_<alias>', async () => {
+		expect(await save(annaToken, { ...validBottle, presentation: deck() })).toMatchObject({
+			saved: true
+		});
+
+		expect(bottleRow()).toMatchObject({
+			presentationFile: DECK_FILE,
+			presentationName: 'Ardbeg.pptx'
+		});
+		expect(await storedFiles()).toEqual([DECK_FILE]);
+		expect(await content(DECK_FILE)).toEqual(deckBytes);
+		// The owner sees the name of the uploaded file during entry.
+		expect(loadFor(annaToken).view).toMatchObject({
+			bottles: [{ presentationName: 'Ardbeg.pptx' }]
+		});
+	});
+
+	it('keeps the presentation when saving without a new file', async () => {
+		await save(annaToken, { ...validBottle, presentation: deck() });
+		const file = bottleRow().presentationFile;
+
+		// An untouched file input arrives as an empty, nameless file.
+		await save(annaToken, {
+			...validBottle,
+			distillery: 'Other',
+			presentation: deck('', new Uint8Array())
+		});
+
+		expect(bottleRow()).toMatchObject({ distillery: 'Other', presentationFile: file });
+		expect(await storedFiles()).toEqual([file]);
+	});
+
+	it('replaces the presentation and deletes the old file', async () => {
+		await save(annaToken, { ...validBottle, presentation: deck() });
+		await save(annaToken, { ...validBottle, presentation: deck('Neu.pdf') });
+
+		expect(bottleRow()).toMatchObject({
+			presentationFile: 'Tasting_2026-10-24_Nebel.pdf',
+			presentationName: 'Neu.pdf'
+		});
+		expect(await storedFiles()).toEqual(['Tasting_2026-10-24_Nebel.pdf']);
+	});
+
+	it('overwrites the file on a re-upload under the same alias', async () => {
+		await save(annaToken, { ...validBottle, presentation: deck() });
+		const second = new Uint8Array([7, 7, 7]);
+		await save(annaToken, { ...validBottle, presentation: deck('v2.pptx', second) });
+
+		expect(await storedFiles()).toEqual([DECK_FILE]);
+		expect(await content(DECK_FILE)).toEqual(second);
+	});
+
+	it('renames the file when the alias changes', async () => {
+		await save(annaToken, { ...validBottle, presentation: deck() });
+		await save(annaToken, { ...validBottle, alias: 'Blaue Stunde' });
+
+		const renamed = 'Tasting_2026-10-24_Blaue_Stunde.pptx';
+		expect(bottleRow().presentationFile).toBe(renamed);
+		expect(await storedFiles()).toEqual([renamed]);
+		expect(await content(renamed)).toEqual(deckBytes);
+	});
+
+	it('keeps the previous file intact when a re-upload is refused', async () => {
+		await save(annaToken, { ...validBottle, presentation: deck() });
+		await save(benToken, { ...validBottle, alias: 'Blume' });
+
+		// Refused (alias taken) – the staged upload is discarded, the old file stays.
+		expect(
+			await save(annaToken, {
+				...validBottle,
+				alias: 'Blume',
+				presentation: deck('v2.pptx', new Uint8Array([9]))
+			})
+		).toMatchObject({ status: 409 });
+
+		expect(await storedFiles()).toEqual([DECK_FILE]);
+		expect(await content(DECK_FILE)).toEqual(deckBytes);
+	});
+
+	it('removes the presentation on request', async () => {
+		await save(annaToken, { ...validBottle, presentation: deck() });
+		await save(annaToken, { ...validBottle, removePresentation: 'on' });
+
+		expect(bottleRow()).toMatchObject({ presentationFile: null, presentationName: null });
+		expect(await storedFiles()).toEqual([]);
+	});
+
+	it('rejects a file above 30 MB without storing anything', async () => {
+		const tooLarge = deck('big.pptx', new Uint8Array(TASTING_PRESENTATION_MAX_BYTES + 1));
+		expect(await save(annaToken, { ...validBottle, presentation: tooLarge })).toMatchObject({
+			status: 400,
+			data: { fieldErrors: { presentation: 'invalid' } }
+		});
+		expect(db.select().from(tastingBottle).all()).toEqual([]);
+		expect(existsSync(mediaDir) ? await storedFiles() : []).toEqual([]);
+	});
+
+	it('discards the uploaded file when the alias is taken', async () => {
+		await save(benToken, { ...validBottle, alias: 'Nebel' });
+		expect(
+			await save(annaToken, { ...validBottle, alias: 'nebel', presentation: deck() })
+		).toMatchObject({ status: 409 });
+		expect(await storedFiles()).toEqual([]);
+	});
+
+	it('discards the uploaded file when the entry is closed', async () => {
+		vi.setSystemTime(ORDER);
+		expect(await save(annaToken, { ...validBottle, presentation: deck() })).toMatchObject({
+			status: 422
+		});
+		expect(await storedFiles()).toEqual([]);
+	});
+
+	it('does not even read the body once the write limit is used up', async () => {
+		for (let i = 0; i < TASTING_WRITE_LIMIT.max; i++) await save(annaToken, validBottle);
+		expect(await save(annaToken, { ...validBottle, presentation: deck() })).toMatchObject({
+			status: 429
+		});
+		expect(await storedFiles()).toEqual([]);
+	});
+
+	it('reveals a link to the presentation with the other bottle data', async () => {
+		await save(annaToken, { ...validBottle, presentation: deck() });
+
+		vi.setSystemTime(ORDER);
+		expect(JSON.stringify(loadFor(benToken))).not.toContain('Ardbeg.pptx');
+
+		vi.setSystemTime(REVEALED);
+		expect(loadFor(benToken).view).toMatchObject({
+			bottles: [{ presentation: { bottleId: bottleRow().id, name: 'Ardbeg.pptx' } }]
+		});
 	});
 });
