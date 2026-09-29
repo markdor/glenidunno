@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { Info } from '@lucide/svelte';
-	import { ABV_FLOOR, ABV_SPAN, SCORE_WEIGHTS, SMOKE_GROUP_UPPER_BOUNDS } from '$lib/tasting';
+	import {
+		ABV_FLOOR,
+		ABV_KINK,
+		ABV_SPAN,
+		SCORE_WEIGHTS,
+		SMOKE_GROUP_UPPER_BOUNDS
+	} from '$lib/tasting';
 	import { TASTING_SCALE } from '$lib/validation';
 
 	const abvCeiling = ABV_FLOOR + ABV_SPAN;
@@ -44,9 +50,11 @@
 				<p class="font-medium text-slate-700">2. Score innerhalb der Gruppe</p>
 				<p class="mt-1 text-slate-600">
 					Rauch, Fass und Wertigkeit werden dafür auf einen Anteil zwischen 0 und 1 umgerechnet
-					(eigener Wert ÷ {TASTING_SCALE.max}), Alkohol linear zwischen {ABV_FLOOR} % vol. (0) und
-					{abvCeiling} % vol. (1) – Werte außerhalb dieser Spanne werden gekappt. Jeder Faktor geht unterschiedlich
-					stark in den Score ein:
+					(eigener Wert ÷ {TASTING_SCALE.max}). Alkohol läuft ebenfalls auf einen Anteil zwischen 0
+					und 1 hinaus, aber in zwei Abschnitten: zwischen {ABV_FLOOR} % vol. (0) und {ABV_KINK} % vol.
+					gemächlich, ab {ABV_KINK} % vol. doppelt so schnell bis {abvCeiling} % vol. (1) – Werte außerhalb
+					dieser Spanne werden gekappt. In der Formel unten steht „Alkohol" für diesen umgerechneten Anteil,
+					nicht für den Rohwert in % vol. Jeder Anteil geht unterschiedlich stark in den Score ein:
 				</p>
 				<dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-slate-600">
 					<dt>Rauch</dt>

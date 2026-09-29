@@ -24,15 +24,23 @@ const islay = bottle('Islay Cask Strength', 5, 2, 58, 3);
 describe('scoreBottle', () => {
 	it.each([
 		{ b: speysider, expected: 10 },
-		{ b: sherryBomb, expected: 50.8 },
-		{ b: islay, expected: 72.4 }
+		{ b: sherryBomb, expected: 49 },
+		{ b: islay, expected: 71 }
 	])('scores $b.distillery with $expected', ({ b, expected }) => {
 		// toBe, not toBeCloseTo: the score must be rounded, free of float noise.
 		expect(scoreBottle(b).score).toBe(expected);
 	});
 
 	it('breaks the score down into the points of each factor', () => {
-		expect(scoreBottle(islay).breakdown).toEqual({ smoke: 40, cask: 12, abv: 14.4, value: 6 });
+		expect(scoreBottle(islay).breakdown).toEqual({ smoke: 40, cask: 12, abv: 13, value: 6 });
+	});
+
+	it('makes the alcohol factor climb twice as fast above the 50 % vol kink', () => {
+		const at45 = scoreBottle(bottle('45', 0, 0, 45, 0)).breakdown.abv;
+		const at50 = scoreBottle(bottle('50', 0, 0, 50, 0)).breakdown.abv;
+		const at55 = scoreBottle(bottle('55', 0, 0, 55, 0)).breakdown.abv;
+		expect(at50 - at45).toBe(2.5);
+		expect(at55 - at50).toBe(5);
 	});
 
 	it('clamps the alcohol factor below 40 % and above 65 %', () => {
@@ -47,8 +55,8 @@ describe('scoreBottle', () => {
 	});
 
 	it('rounds to one decimal place', () => {
-		// abv 46.3 → 0.252 normalized → 5.04 points
-		expect(scoreBottle(bottle('decimal', 0, 0, 46.3, 0)).score).toBe(5.0);
+		// abv 44.62 → 0.1155 normalized → 2.31 points
+		expect(scoreBottle(bottle('decimal', 0, 0, 44.62, 0)).score).toBe(2.3);
 	});
 });
 
@@ -77,13 +85,13 @@ describe('sortForPouring', () => {
 	it('attaches the score to every bottle', () => {
 		expect(sortForPouring([sherryBomb])[0]).toMatchObject({
 			distillery: 'Sherry-Bombe',
-			score: 50.8
+			score: 49
 		});
 	});
 
 	it('pours a smoky but otherwise weak bottle after the unsmoked ones', () => {
 		const smokyWeak = bottle('Smoky weak', 4, 0, 40, 0); // score 32
-		const strong = bottle('Strong unsmoked', 1, 5, 60, 5); // score 64
+		const strong = bottle('Strong unsmoked', 1, 5, 60, 5); // score 63
 		expect(names(sortForPouring([smokyWeak, strong]))).toEqual(['Strong unsmoked', 'Smoky weak']);
 	});
 
@@ -111,9 +119,9 @@ describe('sortForPouring', () => {
 
 		it('then the one with less alcohol, unaffected by float noise', () => {
 			// Both score 2.1. Computed as 100 * (0.2*A + 0.1*W) without rounding,
-			// the first one comes out as 2.0800000000000014 and the second as
-			// 2.080000000000002 – the float noise would reverse the abv tie-breaker.
-			const moreAlcohol = bottle('More alcohol', 0, 0, 42.6, 0);
+			// the first one comes out as 2.0500000000000007 and the second as
+			// 2.050000000000001 – the float noise would reverse the abv tie-breaker.
+			const moreAlcohol = bottle('More alcohol', 0, 0, 44.1, 0);
 			const lessAlcohol = bottle('Less alcohol', 0, 0, 40.1, 1);
 			expect(names(sortForPouring([moreAlcohol, lessAlcohol]))).toEqual([
 				'Less alcohol',

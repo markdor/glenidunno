@@ -95,6 +95,22 @@ export const ABV_FLOOR = 40;
 export const ABV_SPAN = 25;
 
 /**
+ * Above this ABV the normalized factor climbs twice as fast per % vol as
+ * below it – strength stops being a mild differentiator and starts
+ * dominating the factor. Both segments still meet at 0 at {@link ABV_FLOOR}
+ * and 1 at `ABV_FLOOR + ABV_SPAN`, just with a kink at this point instead of
+ * one straight line.
+ */
+export const ABV_KINK = 50;
+
+const ABV_LOW_SPAN = ABV_KINK - ABV_FLOOR;
+const ABV_HIGH_SPAN = ABV_FLOOR + ABV_SPAN - ABV_KINK;
+// Slope below the kink; the slope above it is fixed at double this value, so
+// the two segments' contributions add up to exactly 1 at the ceiling.
+const ABV_LOW_SLOPE = 1 / (ABV_LOW_SPAN + 2 * ABV_HIGH_SPAN);
+const ABV_KINK_FRACTION = ABV_LOW_SLOPE * ABV_LOW_SPAN;
+
+/**
  * Smoke groups are poured in ascending order before the score is compared:
  * group 1 = smoke 0–1, group 2 = 2–3, group 3 = 4–5 (upper bounds below).
  */
@@ -109,17 +125,28 @@ export type ScoreInput = Pick<TastingBottle, 'smoke' | 'cask' | 'abv' | 'value'>
 export type NormalizedScoreFactors = { smoke: number; cask: number; abv: number; value: number };
 
 /**
+ * ABV normalized to 0–1, in two linear segments that meet at {@link ABV_KINK}:
+ * a gentler climb from {@link ABV_FLOOR}, then twice the slope up to
+ * `ABV_FLOOR + ABV_SPAN` (clamped outside that range).
+ */
+function normalizeAbv(abv: number): number {
+	if (abv <= ABV_FLOOR) return 0;
+	if (abv >= ABV_FLOOR + ABV_SPAN) return 1;
+	if (abv <= ABV_KINK) return (abv - ABV_FLOOR) * ABV_LOW_SLOPE;
+	return ABV_KINK_FRACTION + (abv - ABV_KINK) * 2 * ABV_LOW_SLOPE;
+}
+
+/**
  * Normalizes each scoring factor to 0–1: smoke/cask/value as a fraction of the
- * 0–{@link TASTING_SCALE.max} scale, ABV linearly between {@link ABV_FLOOR} and
- * `ABV_FLOOR + ABV_SPAN` (clamped). Shared by the score computation
- * (tastingScore.ts) and the score-development chart, which plots these same
- * fractions per bottle on one common axis.
+ * 0–{@link TASTING_SCALE.max} scale, ABV via {@link normalizeAbv}. Shared by
+ * the score computation (tastingScore.ts) and the score-development chart,
+ * which plots these same fractions per bottle on one common axis.
  */
 export function normalizeScoreFactors(bottle: ScoreInput): NormalizedScoreFactors {
 	return {
 		smoke: bottle.smoke / TASTING_SCALE.max,
 		cask: bottle.cask / TASTING_SCALE.max,
-		abv: Math.min(1, Math.max(0, (bottle.abv - ABV_FLOOR) / ABV_SPAN)),
+		abv: normalizeAbv(bottle.abv),
 		value: bottle.value / TASTING_SCALE.max
 	};
 }
