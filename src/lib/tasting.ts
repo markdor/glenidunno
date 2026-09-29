@@ -3,6 +3,8 @@
 // participant page and the admin pages render dates and bottle names in the
 // browser as well.
 
+import { TASTING_SCALE } from '$lib/validation';
+
 /**
  * Time zone all tasting phases are computed in. The container runs in UTC
  * (no TZ is set), so the server converts `now` to Berlin local time instead of
@@ -100,6 +102,27 @@ export const SMOKE_GROUP_UPPER_BOUNDS = [1, 3, 5] as const;
 
 /** With `false` only the score (and the tie-breakers) decide the order. */
 export const SMOKE_GROUPS_ENABLED = true;
+
+export type ScoreInput = Pick<TastingBottle, 'smoke' | 'cask' | 'abv' | 'value'>;
+
+/** Each factor scaled to 0–1: the fraction that feeds into the weighted score. */
+export type NormalizedScoreFactors = { smoke: number; cask: number; abv: number; value: number };
+
+/**
+ * Normalizes each scoring factor to 0–1: smoke/cask/value as a fraction of the
+ * 0–{@link TASTING_SCALE.max} scale, ABV linearly between {@link ABV_FLOOR} and
+ * `ABV_FLOOR + ABV_SPAN` (clamped). Shared by the score computation
+ * (tastingScore.ts) and the score-development chart, which plots these same
+ * fractions per bottle on one common axis.
+ */
+export function normalizeScoreFactors(bottle: ScoreInput): NormalizedScoreFactors {
+	return {
+		smoke: bottle.smoke / TASTING_SCALE.max,
+		cask: bottle.cask / TASTING_SCALE.max,
+		abv: Math.min(1, Math.max(0, (bottle.abv - ABV_FLOOR) / ABV_SPAN)),
+		value: bottle.value / TASTING_SCALE.max
+	};
+}
 
 /** Admin-only: the reveal plus the score breakdown. */
 export type RevealedBottleWithBreakdown = RevealedBottle & { breakdown: ScoreBreakdown };

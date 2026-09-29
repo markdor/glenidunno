@@ -6,6 +6,7 @@
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import TastingOrderList from '$lib/components/TastingOrderList.svelte';
 	import TastingReveal from '$lib/components/TastingReveal.svelte';
+	import TastingScoreChart from '$lib/components/TastingScoreChart.svelte';
 	import TastingScoreExplainer from '$lib/components/TastingScoreExplainer.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import { formatTastingDate, TASTING_ORDER_HOUR, TASTING_REVEAL_HOUR } from '$lib/tasting';
@@ -81,6 +82,7 @@
 			<h2 class="text-lg font-semibold">Auflösung</h2>
 			<TastingReveal bottles={view.bottles} {presentationHref} />
 		</section>
+		<TastingScoreChart bottles={view.bottles} />
 		<TastingScoreExplainer />
 	{/if}
 </div>
