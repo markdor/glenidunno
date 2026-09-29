@@ -43,10 +43,10 @@
 			<div>
 				<p class="font-medium text-slate-700">2. Score innerhalb der Gruppe</p>
 				<p class="mt-1 text-slate-600">
-					Rauch, Fass und Wertigkeit fließen mit dem eigenen Wert auf der Skala 0–{TASTING_SCALE.max}
-					ein (Wert ÷ {TASTING_SCALE.max}), Alkohol linear zwischen {ABV_FLOOR} % vol. (0) und
-					{abvCeiling} % vol. (1) – Werte außerhalb dieser Spanne werden gekappt. Jeder Faktor zählt unterschiedlich
-					stark:
+					Rauch, Fass und Wertigkeit werden dafür auf einen Anteil zwischen 0 und 1 umgerechnet
+					(eigener Wert ÷ {TASTING_SCALE.max}), Alkohol linear zwischen {ABV_FLOOR} % vol. (0) und
+					{abvCeiling} % vol. (1) – Werte außerhalb dieser Spanne werden gekappt. Jeder Faktor geht unterschiedlich
+					stark in den Score ein:
 				</p>
 				<dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-slate-600">
 					<dt>Rauch</dt>

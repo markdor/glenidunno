@@ -92,7 +92,7 @@ export const SCORE_WEIGHTS = { smoke: 0.4, cask: 0.3, abv: 0.2, value: 0.1 } as 
 
 /** ABV at or below the floor counts as 0, at or above floor + span as 1. */
 export const ABV_FLOOR = 40;
-export const ABV_SPAN = 20;
+export const ABV_SPAN = 25;
 
 /**
  * Smoke groups are poured in ascending order before the score is compared:

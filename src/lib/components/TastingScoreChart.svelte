@@ -11,14 +11,20 @@
 
 	// Categorical palette (dataviz skill, adjacent-pairlist order – this chart's
 	// four lines never need to be told apart from a non-neighbor, so the
-	// adjacent check, not the stricter all-pairs one, applies): worst adjacent
-	// CVD ΔE 9.1, normal-vision ΔE 22.9, validated against a white surface.
-	// Two of the four (aqua, yellow) sit below 3:1 contrast on white, which is
-	// why every line also carries a direct end-label – the required relief.
+	// adjacent check, not the stricter all-pairs one, applies), chosen to read
+	// as gray/braun/rot per factor: worst adjacent CVD ΔE 7.9 (cask↔abv, floor
+	// band – legal only with the mandatory end-labels below as secondary
+	// encoding), normal-vision ΔE 22.3, validated against a white surface. A
+	// literal neutral gray for "Rauch" fails the chroma floor outright (every
+	// real gray reads as chroma ~0, well under the 0.10 minimum), so it leans
+	// into a dark blue-gray instead – the closest gray-reading hue that still
+	// clears it. Gold alone sits below 3:1 contrast on white, same as before,
+	// which is why every line also carries a direct end-label – the required
+	// relief.
 	const SERIES = [
-		{ key: 'smoke', label: 'Rauch', color: '#2a78d6' },
-		{ key: 'cask', label: 'Fass', color: '#eb6834' },
-		{ key: 'abv', label: 'Alkohol', color: '#1baf7a' },
+		{ key: 'smoke', label: 'Rauch', color: '#4f6fb0' },
+		{ key: 'cask', label: 'Fass', color: '#7d3e12' },
+		{ key: 'abv', label: 'Alkohol', color: '#ec1337' },
 		{ key: 'value', label: 'Wertigkeit', color: '#eda100' }
 	] as const;
 
