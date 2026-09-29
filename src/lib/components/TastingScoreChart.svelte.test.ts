@@ -26,6 +26,34 @@ describe('TastingScoreChart', () => {
 		}
 	});
 
+	test('draws a filled, smoothed area per factor and a guide line per bottle', async () => {
+		// Three bottles with a steady, non-reversing trend per factor: the
+		// middle point exercises the monotone spline's interior-tangent branch
+		// (a two-point chart only ever hits the straight endpoint case).
+		const threeBottles = [
+			{ position: 1, alias: 'Blume', smoke: 0, cask: 0, abv: 40, value: 0 },
+			{ position: 2, alias: 'Nebel', smoke: 2, cask: 2, abv: 50, value: 2 },
+			{ position: 3, alias: 'Rauch', smoke: 5, cask: 5, abv: 60, value: 5 }
+		];
+		render(TastingScoreChart, { bottles: threeBottles });
+
+		const areas = document.querySelectorAll('path[fill-opacity]');
+		expect(areas).toHaveLength(4);
+		for (const area of areas) {
+			const d = area.getAttribute('d');
+			expect(d).toMatch(/^M.*C.*C.*Z$/);
+			expect(d).not.toMatch(/NaN/);
+		}
+
+		const lines = document.querySelectorAll('path[fill="none"]');
+		expect(lines).toHaveLength(4);
+
+		const verticalGuides = Array.from(document.querySelectorAll('svg > line')).filter(
+			(el) => el.getAttribute('x1') === el.getAttribute('x2')
+		);
+		expect(verticalGuides).toHaveLength(threeBottles.length);
+	});
+
 	test('shows the raw values of a bottle on hover and hides them again', async () => {
 		render(TastingScoreChart, { bottles });
 

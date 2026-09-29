@@ -60,10 +60,71 @@
 		return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 	}
 
+	type Point = { x: number; y: number };
+
+	/**
+	 * Monotone cubic (Fritsch–Carlson) tangents: the standard way to smooth a
+	 * line without overshoot past the surrounding data points – a plain
+	 * Catmull-Rom spline would bulge above/below the actual values, especially
+	 * around a plateau, and misrepresent the data.
+	 */
+	function monotoneTangents(xs: number[], ys: number[]): number[] {
+		const n = xs.length;
+		const m = new Array<number>(n).fill(0);
+		if (n < 2) return m;
+		const d: number[] = [];
+		for (let k = 0; k < n - 1; k++) {
+			d.push((ys[k + 1] - ys[k]) / (xs[k + 1] - xs[k]));
+		}
+		m[0] = d[0];
+		m[n - 1] = d[n - 2];
+		for (let k = 1; k < n - 1; k++) {
+			if (d[k - 1] === 0 || d[k] === 0 || d[k - 1] < 0 !== d[k] < 0) {
+				m[k] = 0;
+			} else {
+				const w1 = 2 * (xs[k + 1] - xs[k]) + (xs[k] - xs[k - 1]);
+				const w2 = xs[k + 1] - xs[k] + 2 * (xs[k] - xs[k - 1]);
+				m[k] = (w1 + w2) / (w1 / d[k - 1] + w2 / d[k]);
+			}
+		}
+		return m;
+	}
+
+	function smoothLinePath(coords: Point[]): string {
+		if (coords.length === 0) return '';
+		if (coords.length === 1) return `M${coords[0].x},${coords[0].y}`;
+		const xs = coords.map((c) => c.x);
+		const ys = coords.map((c) => c.y);
+		const m = monotoneTangents(xs, ys);
+		let d = `M${xs[0]},${ys[0]}`;
+		for (let k = 0; k < xs.length - 1; k++) {
+			const dx = xs[k + 1] - xs[k];
+			const c1x = xs[k] + dx / 3;
+			const c1y = ys[k] + (m[k] * dx) / 3;
+			const c2x = xs[k + 1] - dx / 3;
+			const c2y = ys[k + 1] - (m[k + 1] * dx) / 3;
+			d += ` C${c1x},${c1y} ${c2x},${c2y} ${xs[k + 1]},${ys[k + 1]}`;
+		}
+		return d;
+	}
+
+	/** The same smoothed curve, closed down to the 0 % baseline for the fill. */
+	function smoothAreaPath(coords: Point[], baselineY: number): string {
+		if (coords.length < 2) return '';
+		const first = coords[0];
+		const last = coords[coords.length - 1];
+		return `${smoothLinePath(coords)} L${last.x},${baselineY} L${first.x},${baselineY} Z`;
+	}
+
 	const seriesLines = $derived(
 		SERIES.map((s) => {
 			const coords = points.map((p, i) => ({ x: xAt(i), y: yAt(p.factors[s.key]) }));
-			return { ...s, coords, polyline: coords.map((c) => `${c.x},${c.y}`).join(' ') };
+			return {
+				...s,
+				coords,
+				linePath: smoothLinePath(coords),
+				areaPath: smoothAreaPath(coords, yAt(0))
+			};
 		})
 	);
 
@@ -144,9 +205,23 @@
 					</text>
 				{/each}
 
+				{#each points as p, i (p.position)}
+					<line
+						x1={xAt(i)}
+						x2={xAt(i)}
+						y1={PAD_TOP}
+						y2={PAD_TOP + PLOT_HEIGHT}
+						class="stroke-slate-200"
+						stroke-width="1"
+					/>
+				{/each}
+
 				{#each seriesLines as s (s.key)}
-					<polyline
-						points={s.polyline}
+					{#if s.areaPath}
+						<path d={s.areaPath} fill={s.color} fill-opacity="0.12" stroke="none" />
+					{/if}
+					<path
+						d={s.linePath}
 						fill="none"
 						stroke={s.color}
 						stroke-width="2"
