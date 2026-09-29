@@ -6,6 +6,7 @@
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import TastingOrderList from '$lib/components/TastingOrderList.svelte';
 	import TastingReveal from '$lib/components/TastingReveal.svelte';
+	import TastingScoreExplainer from '$lib/components/TastingScoreExplainer.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import { formatTastingDate, TASTING_ORDER_HOUR, TASTING_REVEAL_HOUR } from '$lib/tasting';
 
@@ -54,7 +55,8 @@
 		<p class="rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900">
 			Schreib das Synonym auf deine verhüllte Flasche. Die Reihenfolge erscheint am
 			{formatTastingDate(view.tasting.tastingDate)} ab {TASTING_ORDER_HOUR} Uhr, die Auflösung am Tag
-			danach ab {TASTING_REVEAL_HOUR} Uhr.
+			danach ab {TASTING_REVEAL_HOUR} Uhr. Bis dahin kann niemand außer dir deine Flaschen sehen – auch
+			nicht der Admin.
 		</p>
 		{#each slots as slot (slot)}
 			<TastingBottleForm
@@ -66,17 +68,19 @@
 	{:else if view.phase === 'order'}
 		<TastingManualNotice manual={view.manual} />
 		<section class="space-y-3">
-			<h2 class="text-lg font-semibold">Ausschankreihenfolge</h2>
+			<h2 class="text-lg font-semibold">Tastingreihenfolge</h2>
 			<p class="text-sm text-slate-500">
 				Die Auflösung erscheint am Tag danach ab {TASTING_REVEAL_HOUR} Uhr.
 			</p>
 			<TastingOrderList order={view.order} />
 		</section>
+		<TastingScoreExplainer />
 	{:else}
 		<TastingManualNotice manual={view.manual} />
 		<section class="space-y-3">
 			<h2 class="text-lg font-semibold">Auflösung</h2>
 			<TastingReveal bottles={view.bottles} {presentationHref} />
 		</section>
+		<TastingScoreExplainer />
 	{/if}
 </div>

@@ -40,7 +40,7 @@ Tasting-Datum (Berliner Zeit):
 | Zeitraum | Alle Links und der Admin sehen |
 |---|---|
 | bis 18 Uhr am Tasting-Tag | nur die eigenen Flaschen (der Admin nur den Eingabefortschritt) |
-| ab 18 Uhr am Tasting-Tag | nur die Ausschankreihenfolge der Synonyme |
+| ab 18 Uhr am Tasting-Tag | nur die Tastingreihenfolge der Synonyme |
 | ab 9 Uhr am Folgetag | die komplette Auflösung |
 
 Der Admin kann beide Schritte per Knopfdruck vorziehen („Reihenfolge

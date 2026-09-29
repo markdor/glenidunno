@@ -79,6 +79,28 @@ export type RevealedBottle = TastingBottle & {
 /** Points each factor contributes to the score (they add up to it). */
 export type ScoreBreakdown = { smoke: number; cask: number; abv: number; value: number };
 
+// ── Scoring ──────────────────────────────────────────────────────────────
+// Starting values, to be revisited after the first tasting with real bottles.
+// Shared source of truth for the actual computation (tastingScore.ts, server-only)
+// and the TastingScoreExplainer tile, which renders these same numbers for
+// participants – so it can't import from $lib/server.
+
+/** Weights of the normalized factors. They sum to 1, so the score spans 0–100. */
+export const SCORE_WEIGHTS = { smoke: 0.4, cask: 0.3, abv: 0.2, value: 0.1 } as const;
+
+/** ABV at or below the floor counts as 0, at or above floor + span as 1. */
+export const ABV_FLOOR = 40;
+export const ABV_SPAN = 20;
+
+/**
+ * Smoke groups are poured in ascending order before the score is compared:
+ * group 1 = smoke 0–1, group 2 = 2–3, group 3 = 4–5 (upper bounds below).
+ */
+export const SMOKE_GROUP_UPPER_BOUNDS = [1, 3, 5] as const;
+
+/** With `false` only the score (and the tie-breakers) decide the order. */
+export const SMOKE_GROUPS_ENABLED = true;
+
 /** Admin-only: the reveal plus the score breakdown. */
 export type RevealedBottleWithBreakdown = RevealedBottle & { breakdown: ScoreBreakdown };
 

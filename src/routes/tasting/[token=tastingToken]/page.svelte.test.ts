@@ -90,7 +90,7 @@ describe('Tasting link page', () => {
 			]
 		});
 
-		await expect.element(page.getByRole('heading', { name: 'Ausschankreihenfolge' })).toBeVisible();
+		await expect.element(page.getByRole('heading', { name: 'Tastingreihenfolge' })).toBeVisible();
 		await expect.element(page.getByRole('listitem').nth(1)).toHaveTextContent(/2.*Nebel/);
 		expect(page.getByRole('form').elements()).toHaveLength(0);
 	});
@@ -121,6 +121,9 @@ describe('Tasting link page', () => {
 		await expect.element(page.getByRole('heading', { name: 'Auflösung' })).toBeVisible();
 		await expect.element(page.getByText('10 Jahre')).toBeVisible();
 		expect(page.getByText('Score-Aufschlüsselung').elements()).toHaveLength(0);
+		await expect
+			.element(page.getByRole('heading', { name: 'Wie kommt die Reihenfolge zustande?' }))
+			.toBeVisible();
 	});
 
 	test.each([

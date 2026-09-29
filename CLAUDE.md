@@ -157,7 +157,7 @@ Reine Begrüßungsseite, keine Arbeitsfläche. Aufbau von oben nach unten:
 
 ## Whisky-Tasting
 
-Blindtastings: Der Admin legt unter `/admin/tastings` ein Tasting mit Datum und Teilnehmern an, jeder Teilnehmer trägt seine Flaschen ohne Login über einen persönlichen Token-Link (`/tasting/[token=tastingToken]`) ein, die App berechnet die Ausschankreihenfolge.
+Blindtastings: Der Admin legt unter `/admin/tastings` ein Tasting mit Datum und Teilnehmern an, jeder Teilnehmer trägt seine Flaschen ohne Login über einen persönlichen Token-Link (`/tasting/[token=tastingToken]`) ein, die App berechnet die Tastingreihenfolge.
 
 - **Phasen aus dem Datum** (kein Status-Feld), berechnet vom Server in `Europe/Berlin` (`tastingPhase.ts`, `Intl.DateTimeFormat` – der Container läuft in UTC):
   - `entry` bis 18:00 am Tasting-Tag, `order` ab 18:00, `revealed` ab 9:00 am Folgetag. Zeitzone und Uhrzeiten sind Konstanten in `src/lib/tasting.ts`, nicht pro Tasting einstellbar.
@@ -174,7 +174,7 @@ Blindtastings: Der Admin legt unter `/admin/tastings` ein Tasting mit Datum und 
 - **Speichern** prüft Phase `entry`, Slot und Synonym-Eindeutigkeit in derselben Transaktion wie den Upsert (kein TOCTOU um 18:00). Der Synonym-Vergleich läuft in JS (`toLocaleLowerCase('de-DE')`), weil SQLites `lower()` nur ASCII faltet. Ist die Eingabe geschlossen, antwortet die Action mit `reload: true`, und die Seite lädt per `invalidateAll()` die Reihenfolge nach.
 - **Security-Header** (`securityHeaders.ts`, gesetzt in `hooks.server.ts` nach `resolve()`, damit auch `__data.json`, Actions und die 404 abgedeckt sind): Teilnehmer-Route `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex, nofollow`, `Cache-Control: no-store`; `/admin/tastings/*` `Cache-Control: no-store` (einmalige Link-Anzeige). **Kein** `Disallow: /tasting/` in `robots.txt` – Crawler sähen das `noindex` sonst nie.
 - Der Seitentitel der Teilnehmerseite bleibt neutral („Whisky-Tasting“): Namen und Synonyme gehören weder in `<title>` noch in Meta-Tags (Messenger-Previews).
-- **Score/Reihenfolge** (`tastingScore.ts`, Gewichte/Rauchgruppen als Konstanten, Startwerte): Punkte pro Faktor werden einzeln berechnet und der Score vor dem Sortieren auf eine Stelle gerundet – sonst kehrt Float-Rauschen den Tie-Breaker um.
+- **Score/Reihenfolge** (`tastingScore.ts`, Berechnung; Gewichte/ABV-Spanne/Rauchgruppen als Konstanten in `tasting.ts`, Startwerte): Punkte pro Faktor werden einzeln berechnet und der Score vor dem Sortieren auf eine Stelle gerundet – sonst kehrt Float-Rauschen den Tie-Breaker um. Die Konstanten liegen bewusst im client-sicheren `tasting.ts` statt bei der Berechnung in `$lib/server`, weil die Kachel `TastingScoreExplainer.svelte` (Teilnehmerseite, Phase `order`) dieselben Zahlen anzeigt und keinen Server-Import machen darf.
 - **Präsentation pro Flasche** (optional, meist PowerPoint, höchstens 30 MB, `TASTING_PRESENTATION_MAX_BYTES`): Upload über die Speichern-Action (`multipart/form-data`), Ablage byte-genau in `MEDIA_PATH` (`tastingMedia.ts`).
   - **Dateiname auf der Platte**: festes Schema `Tasting_<YYYY-MM-DD>_<Synonym>[.<endung>]` (`presentationFiles.ts`), z. B. `Tasting_2026-10-24_Nebel.pptx` – nie der Client-Name.
     - Das Synonym ist Benutzereingabe: Außer Buchstaben (inkl. Umlaute), Ziffern, `-` und `_` wird alles zu `_` (kein Path Traversal, keine Punkte). Vor jedem Plattenzugriff prüft `tastingMedia.ts` den Namen gegen `PRESENTATION_FILE_RE`.

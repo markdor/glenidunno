@@ -95,7 +95,7 @@ test.describe('Tasting – Ablauf', () => {
 			await expect(page.getByRole('heading', { name: 'Reihenfolge', exact: true })).toBeVisible();
 
 			await p.reload();
-			await expect(p.getByRole('heading', { name: 'Ausschankreihenfolge' })).toBeVisible();
+			await expect(p.getByRole('heading', { name: 'Tastingreihenfolge' })).toBeVisible();
 			await expect(
 				p.getByText(
 					/^Der Admin hat die Reihenfolge am .+ um \d\d:\d\d Uhr vorzeitig freigegeben\.$/

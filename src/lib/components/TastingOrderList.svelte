@@ -7,7 +7,7 @@
 {#if order.length === 0}
 	<p class="text-sm text-slate-500">Es wurden keine Flaschen eingetragen.</p>
 {:else}
-	<ol class="space-y-2" aria-label="Ausschankreihenfolge">
+	<ol class="space-y-2" aria-label="Tastingreihenfolge">
 		{#each order as entry (entry.position)}
 			<li class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
 				<span
