@@ -13,6 +13,10 @@
 **/*.db-wal
 **/*.db-journal
 
+# Local presentation uploads (dev/e2e MEDIA_PATH)
+media
+e2e-media
+
 # Secrets and local env, but keep the examples for reference
 **/.env
 **/.env.*

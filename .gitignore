@@ -150,6 +150,10 @@ vite.config.ts.timestamp-*
 *.db-wal
 *.db-journal
 
+# Uploaded presentations (MEDIA_PATH) of dev and host-side e2e runs
+/media/
+/e2e-media/
+
 # SvelteKit build output and adapter/deploy artifacts
 /build
 .vercel

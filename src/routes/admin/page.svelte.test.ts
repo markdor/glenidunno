@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import Page from './+page.svelte';
+import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 import { toast } from '$lib/components/toastStore.svelte';
 
 beforeEach(() => {
@@ -173,20 +174,23 @@ describe('Admin page', () => {
 		});
 
 		test('sends no request when the confirm dialog is dismissed', async () => {
-			const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
 			render(Page, { data: makeData(), form: null });
+			render(ConfirmDialog);
 
 			await page.getByRole('button', { name: 'Löschen' }).click();
+			const dialog = page.getByRole('dialog');
+			await expect.element(dialog.getByText(/kid/)).toBeVisible();
+			await dialog.getByRole('button', { name: 'Abbrechen' }).click();
 
-			expect(confirm).toHaveBeenCalledWith(expect.stringContaining('kid'));
 			expect(deleteRequests).toHaveLength(0);
 		});
 
 		test('sends the delete request once confirmed', async () => {
-			vi.spyOn(window, 'confirm').mockReturnValue(true);
 			render(Page, { data: makeData(), form: null });
+			render(ConfirmDialog);
 
 			await page.getByRole('button', { name: 'Löschen' }).click();
+			await page.getByRole('dialog').getByRole('button', { name: 'Löschen' }).click();
 
 			await expect.poll(() => deleteRequests).toHaveLength(1);
 		});

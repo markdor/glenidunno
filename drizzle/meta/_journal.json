@@ -8,6 +8,27 @@
 			"when": 1790506422594,
 			"tag": "0000_initial_schema",
 			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "6",
+			"when": 1790573508163,
+			"tag": "0001_tastings",
+			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "6",
+			"when": 1790586416959,
+			"tag": "0002_tasting_manual_phase",
+			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "6",
+			"when": 1790597079855,
+			"tag": "0003_tasting_presentation",
+			"breakpoints": true
 		}
 	]
 }

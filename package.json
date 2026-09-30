@@ -25,7 +25,10 @@
 		"docker:build": "docker build -t glenidunno:local .",
 		"docker:dev": "docker compose up --build",
 		"docker:test": "playwright test --config=playwright.docker.config.ts",
-		"db:generate": "drizzle-kit generate"
+		"db:generate": "drizzle-kit generate",
+		"db:seed": "node scripts/seed-test-tasting.ts",
+		"db:reset": "node scripts/reset-local-dev.ts",
+		"dev:init": "npm run db:reset && npm run db:seed && npm run dev"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",

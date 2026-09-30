@@ -14,6 +14,8 @@ services:
     env_file: .env
     volumes:
       - glenidunno-data:/data
+      # Presentation uploads, stored 1:1 (MEDIA_PATH, see Dockerfile).
+      - glenidunno-media:/media
     healthcheck:
       test:
         [
@@ -28,3 +30,4 @@ services:
 
 volumes:
   glenidunno-data:
+  glenidunno-media:

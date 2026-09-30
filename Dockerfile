@@ -30,6 +30,16 @@ COPY --from=builder /app/drizzle ./drizzle
 ENV NODE_ENV=production
 ENV PORT=3000
 
+# Presentation uploads (up to 30 MB per bottle) are stored byte for byte in
+# this directory – mounted as the named volume glenidunno-media in compose.
+ENV MEDIA_PATH=/media
+
+# adapter-node refuses request bodies above 512K by default. The upload needs
+# 30 MB plus form fields and multipart framing (UPLOAD_BODY_LIMIT_BYTES in
+# src/lib/server/bodyLimit.ts, keep in sync); every other route is held at
+# 512K by the bodyLimit hook in hooks.server.ts.
+ENV BODY_SIZE_LIMIT=31M
+
 EXPOSE 3000
 
 # @sveltejs/adapter-node reads the public origin from $ORIGIN. We expose it

@@ -12,7 +12,9 @@ services:
       - MAGIC_LINK_DEBUG_PATH=/e2e-docker/magic-link.log
     volumes:
       - glenidunno-data-e2e:/data
+      - glenidunno-media-e2e:/media
       - ./.e2e-docker:/e2e-docker
 
 volumes:
   glenidunno-data-e2e:
+  glenidunno-media-e2e:
