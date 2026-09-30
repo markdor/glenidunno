@@ -7,7 +7,6 @@ import type {
 	PresentationRef,
 	Progress,
 	RevealedBottle,
-	RevealedBottleWithBreakdown,
 	TastingBottle,
 	TastingPhase
 } from '$lib/tasting';
@@ -92,7 +91,7 @@ type PouredBottle = TastingBottle &
 	BottleScore & { broughtBy: string; presentation: PresentationRef | null };
 
 function toReveal(poured: ReadonlyArray<PouredBottle>) {
-	return poured.map((b, i): RevealedBottleWithBreakdown => ({
+	return poured.map((b, i): RevealedBottle => ({
 		position: i + 1,
 		alias: b.alias,
 		distillery: b.distillery,
@@ -106,13 +105,8 @@ function toReveal(poured: ReadonlyArray<PouredBottle>) {
 		value: b.value,
 		broughtBy: b.broughtBy,
 		score: b.score,
-		breakdown: b.breakdown,
 		presentation: b.presentation
 	}));
-}
-
-function withoutBreakdown(bottles: RevealedBottleWithBreakdown[]): RevealedBottle[] {
-	return bottles.map(({ breakdown: _breakdown, ...bottle }) => bottle);
 }
 
 /** All bottles of a tasting with their participant, in pouring order. */
@@ -301,18 +295,15 @@ export type AdminParticipant = { id: string; name: string; progress: Progress };
 
 export type AdminTastingDetail = {
 	tasting: { id: string; name: string; tastingDate: string; bottlesPerParticipant: number };
+	phase: TastingPhase;
 	participants: AdminParticipant[];
 	manual: ManualPhaseChanges;
-} & (
-	| { phase: 'entry' }
-	| { phase: 'order'; order: OrderEntry[] }
-	| { phase: 'revealed'; bottles: RevealedBottleWithBreakdown[] }
-);
+};
 
 /**
- * The admin tastes along, so they never see more content than the
- * participants – only management data on top (names, progress) and, after the
- * reveal, the score breakdown. `null` if the tasting doesn't exist.
+ * Management data only, in every phase: no bottles, no order, no reveal. The
+ * admin tastes along and sees the content through their own participant link
+ * like everybody else. `null` if the tasting doesn't exist.
  */
 export function getAdminTastingDetail(
 	db: Db,
@@ -340,26 +331,17 @@ export function getAdminTastingDetail(
 			progress: { entered: p.entered, total: t.bottlesPerParticipant }
 		}));
 
-	const base = {
+	return {
 		tasting: {
 			id: t.id,
 			name: t.name,
 			tastingDate: t.tastingDate,
 			bottlesPerParticipant: t.bottlesPerParticipant
 		},
+		phase: getTastingPhase(t.tastingDate, now, t),
 		participants,
 		manual: { orderOpenedAt: t.orderOpenedAt, revealedAt: t.revealedAt }
 	};
-
-	const phase = getTastingPhase(t.tastingDate, now, t);
-	switch (phase) {
-		case 'entry':
-			return { ...base, phase };
-		case 'order':
-			return { ...base, phase, order: toOrder(pouredBottles(db, id)) };
-		case 'revealed':
-			return { ...base, phase, bottles: toReveal(pouredBottles(db, id)) };
-	}
 }
 
 /**
@@ -444,12 +426,18 @@ export function openOrderEarly(db: Db, id: string, now: Date = new Date()): bool
 
 /**
  * "9-Uhr-Button": reveals everything on all links right away, overruling the
- * 9:00 rule – also straight from the entry phase. Returns false if the
- * tasting doesn't exist.
+ * 9:00 rule. Only once the order is out (by the clock or the 18-Uhr-Button) –
+ * the steps can't be skipped. Returns false if the tasting doesn't exist.
  */
 export function revealEarly(db: Db, id: string, now: Date = new Date()): boolean {
 	const phase = currentPhase(db, id, now);
 	if (!phase) return false;
+	if (phase === 'entry') {
+		throw new TastingValidationError(
+			`reveal rejected: tasting ${id} is still in the entry phase`,
+			'Gib zuerst die Reihenfolge frei.'
+		);
+	}
 	if (phase === 'revealed') {
 		throw new TastingValidationError(
 			`reveal rejected: tasting ${id} is already revealed`,
@@ -535,19 +523,6 @@ export function getPresentationForParticipant(
 	return { file: found.file, name: found.name };
 }
 
-/** Same for the admin: blind like everybody else, so only after the reveal. */
-export function getPresentationForAdmin(
-	db: Db,
-	tastingId: string,
-	bottleId: string,
-	now: Date = new Date()
-): StoredPresentation | null {
-	const found = findPresentation(db, bottleId);
-	if (!found || found.tastingId !== tastingId) return null;
-	if (currentPhase(db, tastingId, now) !== 'revealed') return null;
-	return { file: found.file, name: found.name };
-}
-
 // ── Participant link ────────────────────────────────────────────────────────
 
 export type TokenHolder = ManualPhaseChanges & {
@@ -608,8 +583,7 @@ export type ParticipantView =
 
 /**
  * What a participant link shows. Before 18:00 only the holder's own bottles
- * are even queried; afterwards the order, and after the reveal everything
- * except the admin-only score breakdown.
+ * are even queried; afterwards the order, and after the reveal everything.
  */
 export function getParticipantView(
 	db: Db,
@@ -652,7 +626,7 @@ export function getParticipantView(
 				phase,
 				tasting: tastingInfo,
 				manual,
-				bottles: withoutBreakdown(toReveal(pouredBottles(db, holder.tastingId)))
+				bottles: toReveal(pouredBottles(db, holder.tastingId))
 			};
 	}
 }

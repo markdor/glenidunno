@@ -21,7 +21,6 @@ const nas = {
 	value: 2,
 	broughtBy: 'Ben',
 	score: 12,
-	breakdown: { smoke: 0, cask: 6, abv: 3, value: 4 },
 	presentation: null
 };
 
@@ -76,18 +75,6 @@ describe('TastingReveal', () => {
 		await expect.element(links).toHaveTextContent('Präsentation: Caol Ila.pptx');
 		await expect.element(links).toHaveAttribute('href', presentationHref('b2'));
 		await expect.element(links).toHaveAttribute('download');
-	});
-
-	test('hides the score breakdown unless asked for', async () => {
-		render(TastingReveal, { presentationHref, bottles: [nas] });
-		expect(page.getByText('Score-Aufschlüsselung').elements()).toHaveLength(0);
-	});
-
-	test('offers a collapsible score breakdown in the admin view', async () => {
-		render(TastingReveal, { presentationHref, bottles: [nas], showBreakdown: true });
-		await page.getByText('Score-Aufschlüsselung').click();
-		await expect.element(page.getByText('Wertigkeit', { exact: true })).toBeVisible();
-		await expect.element(page.getByText('6,0')).toBeVisible();
 	});
 
 	test('says so when nobody entered a bottle', async () => {

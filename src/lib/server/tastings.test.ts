@@ -13,7 +13,6 @@ import {
 	findParticipantByToken,
 	getAdminTastingDetail,
 	getParticipantView,
-	getPresentationForAdmin,
 	getPresentationForParticipant,
 	getStartPageSummary,
 	listPresentationFiles,
@@ -261,33 +260,19 @@ describe('getAdminTastingDetail', () => {
 		}
 	});
 
-	it('shows the same order as the participants from 18:00', () => {
+	it.each([
+		{ phase: 'order', now: ORDER },
+		{ phase: 'revealed', now: REVEALED }
+	])('shows no bottle content in phase $phase either', ({ phase, now }) => {
 		const ctx = setup();
 		fill(ctx);
-		const detail = getAdminTastingDetail(db, ctx.id, ORDER)!;
-		const participantView = getParticipantView(db, ctx.ben, ORDER);
-		// Same values except the name → the display name breaks the tie.
-		const expected = [
-			{ position: 1, alias: 'Nebel' },
-			{ position: 2, alias: 'Torf' }
-		];
-		expect(detail.phase === 'order' && detail.order).toEqual(expected);
-		expect(participantView.phase === 'order' && participantView.order).toEqual(expected);
+		const detail = getAdminTastingDetail(db, ctx.id, now)!;
+		expect(detail.phase).toBe(phase);
+		expect(Object.keys(detail).sort()).toEqual(['manual', 'participants', 'phase', 'tasting']);
 		const serialized = JSON.stringify(detail);
-		expect(serialized).not.toContain('Ardbeg');
-		expect(serialized).not.toContain('whiskybase');
-	});
-
-	it('adds the score breakdown after the reveal', () => {
-		const ctx = setup();
-		fill(ctx);
-		const detail = getAdminTastingDetail(db, ctx.id, REVEALED)!;
-		expect(detail.phase).toBe('revealed');
-		if (detail.phase !== 'revealed') return;
-		expect(detail.bottles[0]).toMatchObject({
-			broughtBy: 'Anna',
-			breakdown: { smoke: 40, cask: expect.any(Number), abv: expect.any(Number), value: 8 }
-		});
+		for (const secret of ['Nebel', 'Torf', 'Ardbeg', 'Lagavulin', 'whiskybase']) {
+			expect(serialized).not.toContain(secret);
+		}
 	});
 });
 
@@ -398,21 +383,43 @@ describe('openOrderEarly and revealEarly (admin buttons)', () => {
 		expect(() => openOrderEarly(db, ctx.id, PRESSED)).toThrow(TastingValidationError);
 	});
 
-	it('reveals ahead of 9:00, also straight from the entry phase', () => {
+	it('reveals ahead of 9:00 once the order is out', () => {
 		const ctx = setup();
 		saveBottle(db, ctx.anna, 1, bottle(), ENTRY);
+		const REVEAL_PRESSED = new Date('2026-10-22T16:05:00Z');
 
-		expect(revealEarly(db, ctx.id, PRESSED)).toBe(true);
+		openOrderEarly(db, ctx.id, PRESSED);
+		expect(revealEarly(db, ctx.id, REVEAL_PRESSED)).toBe(true);
 
-		const view = getParticipantView(db, findParticipantByToken(db, ctx.tokens[2].token)!, PRESSED);
-		expect(view).toMatchObject({
+		const holder = findParticipantByToken(db, ctx.tokens[2].token)!;
+		expect(getParticipantView(db, holder, REVEAL_PRESSED)).toMatchObject({
 			phase: 'revealed',
-			manual: { orderOpenedAt: null, revealedAt: PRESSED },
+			manual: { orderOpenedAt: PRESSED, revealedAt: REVEAL_PRESSED },
 			bottles: [{ alias: 'Nebel', distillery: 'Ardbeg', broughtBy: 'Anna' }]
 		});
 		// Revealed tastings no longer count as upcoming.
-		expect(getStartPageSummary(db, PRESSED).upcomingCount).toBe(0);
-		expect(listTastings(db, PRESSED)[0].phase).toBe('revealed');
+		expect(getStartPageSummary(db, REVEAL_PRESSED).upcomingCount).toBe(0);
+		expect(listTastings(db, REVEAL_PRESSED)[0].phase).toBe('revealed');
+	});
+
+	it('also reveals when the order came out by the clock at 18:00', () => {
+		const ctx = setup();
+		expect(revealEarly(db, ctx.id, ORDER)).toBe(true);
+		expect(getAdminTastingDetail(db, ctx.id, ORDER)).toMatchObject({
+			phase: 'revealed',
+			manual: { orderOpenedAt: null, revealedAt: ORDER }
+		});
+	});
+
+	it('refuses to skip the order and reveal straight from the entry phase', () => {
+		const ctx = setup();
+		expect(() => revealEarly(db, ctx.id, PRESSED)).toThrow(
+			expect.objectContaining({ userMessage: 'Gib zuerst die Reihenfolge frei.' })
+		);
+		expect(getAdminTastingDetail(db, ctx.id, PRESSED)).toMatchObject({
+			phase: 'entry',
+			manual: { revealedAt: null }
+		});
 	});
 
 	it('refuses to reveal twice or after 9:00 on the next day', () => {
@@ -589,31 +596,29 @@ describe('presentations', () => {
 		).toEqual([null]);
 	});
 
-	it('shows the name only to its owner before the reveal and to everybody after it', () => {
+	it('shows the name only to its owner before the reveal and to every link after it', () => {
 		const ctx = setup();
 		saveBottle(db, ctx.anna, 1, bottle(), ENTRY, DECK);
 
 		const own = getParticipantView(db, ctx.anna, ENTRY);
 		expect(own.phase === 'entry' && own.bottles[0].presentationName).toBe(DECK.name);
 		expect(JSON.stringify(getParticipantView(db, ctx.ben, ENTRY))).not.toContain('Uigeadail');
-		expect(JSON.stringify(getAdminTastingDetail(db, ctx.id, ENTRY))).not.toContain('Uigeadail');
 
-		for (const view of [
-			getParticipantView(db, ctx.ben, ORDER),
-			getAdminTastingDetail(db, ctx.id, ORDER)
-		]) {
-			expect(JSON.stringify(view)).not.toContain('Uigeadail');
-			expect(JSON.stringify(view)).not.toContain(DECK_FILE);
+		const participantOrder = JSON.stringify(getParticipantView(db, ctx.ben, ORDER));
+		expect(participantOrder).not.toContain('Uigeadail');
+		expect(participantOrder).not.toContain(DECK_FILE);
+
+		// The admin page carries no content at all, not even after the reveal.
+		for (const now of [ENTRY, ORDER, REVEALED]) {
+			const admin = JSON.stringify(getAdminTastingDetail(db, ctx.id, now));
+			expect(admin).not.toContain('Uigeadail');
+			expect(admin).not.toContain(DECK.name);
+			expect(admin).not.toContain(DECK_FILE);
 		}
 
 		const revealed = getParticipantView(db, ctx.ben, REVEALED);
 		const bottleId = bottleRow().id;
 		expect(revealed.phase === 'revealed' && revealed.bottles[0].presentation).toEqual({
-			bottleId,
-			name: DECK.name
-		});
-		const admin = getAdminTastingDetail(db, ctx.id, REVEALED);
-		expect(admin?.phase === 'revealed' && admin.bottles[0].presentation).toEqual({
 			bottleId,
 			name: DECK.name
 		});
@@ -631,16 +636,13 @@ describe('presentations', () => {
 			// Not even the owner: the name counts as content, the download is for the reveal.
 			expect(getPresentationForParticipant(db, ctx.anna, bottleId, now)).toBeNull();
 			expect(getPresentationForParticipant(db, ctx.ben, bottleId, now)).toBeNull();
-			expect(getPresentationForAdmin(db, ctx.id, bottleId, now)).toBeNull();
 		}
 
 		const stored = { file: DECK_FILE, name: DECK.name };
 		expect(getPresentationForParticipant(db, ctx.ben, bottleId, REVEALED)).toEqual(stored);
-		expect(getPresentationForAdmin(db, ctx.id, bottleId, REVEALED)).toEqual(stored);
 
 		// Other tastings, unknown bottles and bottles without presentation: null.
 		expect(getPresentationForParticipant(db, other.anna, bottleId, REVEALED)).toBeNull();
-		expect(getPresentationForAdmin(db, other.id, bottleId, REVEALED)).toBeNull();
 		expect(getPresentationForParticipant(db, ctx.ben, 'nope', REVEALED)).toBeNull();
 		saveBottle(db, ctx.ben, 1, bottle({ alias: 'Blume' }), ENTRY);
 		const withoutDeck = db

@@ -70,17 +70,15 @@ describe('evaluateGuard', () => {
 			}
 		);
 
-		it.each([
-			'/admin/tastings',
-			'/admin/tastings/new',
-			'/admin/tastings/[id]',
-			'/admin/tastings/[id]/presentation/[bottleId]'
-		])('keeps the admin route %s protected', (routeId) => {
-			expect(evaluateGuard(routeId, anonymous(routeId))).toEqual({
-				action: 'redirect',
-				location: '/login'
-			});
-		});
+		it.each(['/admin/tastings', '/admin/tastings/new', '/admin/tastings/[id]'])(
+			'keeps the admin route %s protected',
+			(routeId) => {
+				expect(evaluateGuard(routeId, anonymous(routeId))).toEqual({
+					action: 'redirect',
+					location: '/login'
+				});
+			}
+		);
 	});
 
 	describe('protected routes', () => {

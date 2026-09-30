@@ -37,6 +37,12 @@
 	// when many bottles would otherwise force it; the wrapper scrolls instead.
 	const STEP_MIN = 88;
 	const MIN_LABEL_GAP = 16;
+	// clientWidth rounds to an integer while the container's true (fractional)
+	// width can be a hair narrower; drawing the SVG at exactly that integer
+	// then overflows by a sub-pixel and shows an (otherwise hover-only,
+	// normally hidden) horizontal scrollbar. This margin keeps the fill-mode
+	// width just inside the measured value instead.
+	const CONTAINER_SAFETY_MARGIN = 8;
 
 	// Measured width of the chart's card slot. Until the ResizeObserver behind
 	// bind:clientWidth reports a real value (SSR, first paint) this stays 0 and
@@ -50,7 +56,7 @@
 	// Fills the available width when there's room (containerWidth > natural);
 	// otherwise keeps the natural, STEP_MIN-spaced width and lets the wrapper
 	// scroll horizontally.
-	const width = $derived(Math.max(naturalWidth, containerWidth));
+	const width = $derived(Math.max(naturalWidth, containerWidth - CONTAINER_SAFETY_MARGIN));
 	const plotWidth = $derived(width - PAD_LEFT - LABEL_RESERVE);
 	const step = $derived(points.length > 1 ? plotWidth / (points.length - 1) : plotWidth);
 	const height = PAD_TOP + PLOT_HEIGHT + PAD_BOTTOM;

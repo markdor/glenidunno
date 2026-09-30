@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 
 const ALIASES = ['Nebelhorn', 'Blütenmeer'];
 const DISTILLERIES = ['Ardbeg', 'Glenkinchie'];
-// Uploaded with the first bottle and downloaded after the reveal.
+// Uploaded with the first bottle and downloaded through the link after the reveal.
 const PRESENTATION = {
 	name: 'Vortrag Flasche 1.pptx',
 	mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -66,17 +66,10 @@ test.describe('Tasting – Ablauf', () => {
 			await expect(p.getByText(`Hochgeladen: ${PRESENTATION.name}`)).toBeVisible();
 		});
 
-		await test.step('Admin sieht den Fortschritt, aber keine Inhalte', async () => {
-			await page.goto(detailHref!);
-			await expect(
-				page.getByRole('listitem').filter({ hasText: 'Anna' }).getByText('2 von 2 Flaschen')
-			).toBeVisible();
-			await expect(
-				page.getByRole('listitem').filter({ hasText: 'Ben' }).getByText('0 von 2 Flaschen')
-			).toBeVisible();
-
-			// The serialized load result must not contain the content either: once
-			// embedded in the server-rendered HTML, once as __data.json.
+		// The admin page carries management data only, in every phase: the
+		// serialized load result must not contain any content either – once
+		// embedded in the server-rendered HTML, once as __data.json.
+		async function expectNoContentOnAdminPage() {
 			const htmlResponse = await page.request.get(detailHref!);
 			// Links are shown once on these pages, so nothing may be cached.
 			expect(htmlResponse.headers()['cache-control']).toBe('no-store');
@@ -87,12 +80,35 @@ test.describe('Tasting – Ablauf', () => {
 				expect(html).not.toContain(secret);
 				expect(data).not.toContain(secret);
 			}
+		}
+
+		const openOrderButton = page.getByRole('button', { name: 'Reihenfolge jetzt freigeben' });
+		const revealButton = page.getByRole('button', { name: 'Jetzt auflösen' });
+
+		async function pressPhaseButton(button: typeof openOrderButton, confirmLabel: string) {
+			await button.click();
+			await page.getByRole('dialog').getByRole('button', { name: confirmLabel }).click();
+		}
+
+		await test.step('Admin sieht den Fortschritt, aber keine Inhalte', async () => {
+			await page.goto(detailHref!);
+			await expect(
+				page.getByRole('listitem').filter({ hasText: 'Anna' }).getByText('2 von 2 Flaschen')
+			).toBeVisible();
+			await expect(
+				page.getByRole('listitem').filter({ hasText: 'Ben' }).getByText('0 von 2 Flaschen')
+			).toBeVisible();
+			await expectNoContentOnAdminPage();
+			// The reveal can't skip the order.
+			await expect(openOrderButton).toBeEnabled();
+			await expect(revealButton).toBeDisabled();
 		});
 
 		await test.step('18-Uhr-Button: alle Links zeigen nur die Reihenfolge samt Hinweis', async () => {
-			page.once('dialog', (dialog) => dialog.accept());
-			await page.getByRole('button', { name: 'Reihenfolge jetzt freigeben' }).click();
-			await expect(page.getByRole('heading', { name: 'Reihenfolge', exact: true })).toBeVisible();
+			await pressPhaseButton(openOrderButton, 'Freigeben');
+			await expect(openOrderButton).toBeDisabled();
+			await expect(revealButton).toBeEnabled();
+			await expectNoContentOnAdminPage();
 
 			await p.reload();
 			await expect(p.getByRole('heading', { name: 'Tastingreihenfolge' })).toBeVisible();
@@ -108,9 +124,10 @@ test.describe('Tasting – Ablauf', () => {
 		});
 
 		await test.step('9-Uhr-Button: alle Links zeigen die Auflösung samt Hinweis', async () => {
-			page.once('dialog', (dialog) => dialog.accept());
-			await page.getByRole('button', { name: 'Jetzt auflösen' }).click();
-			await expect(page.getByRole('heading', { name: 'Auflösung' })).toBeVisible();
+			await pressPhaseButton(revealButton, 'Auflösen');
+			await expect(revealButton).toBeDisabled();
+			await expect(openOrderButton).toBeDisabled();
+			await expectNoContentOnAdminPage();
 
 			await p.reload();
 			await expect(p.getByRole('heading', { name: 'Auflösung' })).toBeVisible();
@@ -119,18 +136,14 @@ test.describe('Tasting – Ablauf', () => {
 		});
 
 		await test.step('Präsentation: nach der Auflösung verlinkt und 1:1 herunterladbar', async () => {
-			const linkName = `Präsentation: ${PRESENTATION.name}`;
-			for (const [viewer, label] of [
-				[p, 'Teilnehmer-Link'],
-				[page, 'Admin-Seite']
-			] as const) {
-				const href = await viewer.getByRole('link', { name: linkName }).getAttribute('href');
-				const download = await viewer.request.get(href!);
-				expect(download.status(), label).toBe(200);
-				expect(download.headers()['content-disposition'], label).toMatch(/^attachment;/);
-				expect(download.headers()['x-content-type-options'], label).toBe('nosniff');
-				expect(Buffer.compare(await download.body(), PRESENTATION.buffer), label).toBe(0);
-			}
+			const href = await p
+				.getByRole('link', { name: `Präsentation: ${PRESENTATION.name}` })
+				.getAttribute('href');
+			const download = await p.request.get(href!);
+			expect(download.status()).toBe(200);
+			expect(download.headers()['content-disposition']).toMatch(/^attachment;/);
+			expect(download.headers()['x-content-type-options']).toBe('nosniff');
+			expect(Buffer.compare(await download.body(), PRESENTATION.buffer)).toBe(0);
 		});
 
 		await participant.close();

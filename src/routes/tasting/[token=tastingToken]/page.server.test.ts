@@ -168,13 +168,16 @@ describe('tasting link load', () => {
 
 	it('follows the admin’s 9-Uhr button at once', async () => {
 		await save(annaToken, validBottle);
-		const pressed = new Date('2026-10-21T15:32:00Z');
+		const orderPressed = new Date('2026-10-21T15:32:00Z');
+		vi.setSystemTime(orderPressed);
+		openOrderEarly(db, tastingId);
+		const pressed = new Date('2026-10-21T15:40:00Z');
 		vi.setSystemTime(pressed);
 		revealEarly(db, tastingId);
 
 		expect(loadFor(benToken).view).toMatchObject({
 			phase: 'revealed',
-			manual: { orderOpenedAt: null, revealedAt: pressed },
+			manual: { orderOpenedAt: orderPressed, revealedAt: pressed },
 			bottles: [{ alias: 'Nebel', distillery: 'Ardbeg', broughtBy: 'Anna' }]
 		});
 	});

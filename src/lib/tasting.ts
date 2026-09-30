@@ -151,9 +151,6 @@ export function normalizeScoreFactors(bottle: ScoreInput): NormalizedScoreFactor
 	};
 }
 
-/** Admin-only: the reveal plus the score breakdown. */
-export type RevealedBottleWithBreakdown = RevealedBottle & { breakdown: ScoreBreakdown };
-
 /** Display name from the name fields, e.g. "Caol Ila 12 Jahre Distillers Edition (Signatory)". */
 export function formatBottleName(
 	bottle: Pick<TastingBottle, 'distillery' | 'age' | 'bottling' | 'bottler'>

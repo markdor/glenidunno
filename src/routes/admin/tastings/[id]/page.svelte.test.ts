@@ -21,24 +21,6 @@ const base = {
 	manual: { orderOpenedAt: null, revealedAt: null }
 };
 
-const revealedBottle = {
-	position: 1,
-	alias: 'Nebel',
-	distillery: 'Ardbeg',
-	bottler: null,
-	bottling: null,
-	age: null,
-	whiskybaseUrl: null,
-	smoke: 5,
-	cask: 2,
-	abv: 46,
-	value: 3,
-	broughtBy: 'Anna',
-	score: 67,
-	breakdown: { smoke: 40, cask: 12, abv: 6, value: 6 },
-	presentation: { bottleId: 'b1', name: 'Ardbeg.pptx' }
-};
-
 function renderDetail(detail: Record<string, unknown>, form: unknown = null) {
 	return render(Page, {
 		data: { user, today: '2026-10-20', detail: { ...base, ...detail } },
@@ -57,35 +39,29 @@ describe('Tasting detail page', () => {
 		await expect.element(page.getByRole('heading', { name: 'Herbst-Tasting' })).toBeVisible();
 		await expect.element(page.getByText('1 von 2 Flaschen')).toBeVisible();
 		await expect.element(page.getByText('2 von 2 Flaschen')).toBeVisible();
-		await expect
-			.element(
-				page.getByText('Die Inhalte siehst du wie alle anderen erst am Tasting-Tag ab 18 Uhr.')
-			)
-			.toBeVisible();
 		await expect.element(page.getByLabelText('Datum')).toHaveValue('2026-10-24');
 		await expect.element(page.getByLabelText('Datum')).toHaveAttribute('min', '2026-10-20');
 	});
 
-	test('shows the pouring order from 18:00 and no date form', async () => {
-		renderDetail({ phase: 'order', order: [{ position: 1, alias: 'Nebel' }] });
+	test.each(['entry', 'order', 'revealed'])(
+		'points to the own participant link for the content in phase %s',
+		async (phase) => {
+			renderDetail({ phase });
+			await expect
+				.element(page.getByText(/Reihenfolge und Auflösung siehst du wie alle anderen/))
+				.toBeVisible();
+			expect(page.getByRole('heading', { name: 'Reihenfolge' }).elements()).toHaveLength(0);
+			expect(page.getByRole('heading', { name: 'Auflösung' }).elements()).toHaveLength(0);
+		}
+	);
 
-		await expect.element(page.getByRole('heading', { name: 'Reihenfolge' })).toBeVisible();
-		await expect.element(page.getByText('Nebel')).toBeVisible();
+	test('offers no date form once the entry is closed', async () => {
+		renderDetail({ phase: 'order' });
 		expect(page.getByLabelText('Datum').elements()).toHaveLength(0);
 	});
 
-	test('shows the reveal with the score breakdown and the admin download link', async () => {
-		renderDetail({ phase: 'revealed', bottles: [revealedBottle] });
-
-		await expect.element(page.getByRole('heading', { name: 'Auflösung' })).toBeVisible();
-		await expect.element(page.getByText('Score-Aufschlüsselung')).toBeVisible();
-		await expect
-			.element(page.getByRole('link', { name: 'Präsentation: Ardbeg.pptx' }))
-			.toHaveAttribute('href', '/admin/tastings/t1/presentation/b1');
-	});
-
 	test('offers a new link per participant in every phase', async () => {
-		renderDetail({ phase: 'order', order: [] });
+		renderDetail({ phase: 'order' });
 		expect(page.getByRole('button', { name: 'Link neu generieren' }).elements()).toHaveLength(2);
 	});
 
@@ -122,32 +98,26 @@ describe('Tasting detail page', () => {
 	});
 
 	describe('18-Uhr and 9-Uhr buttons', () => {
-		test('offers both buttons during entry', async () => {
-			renderDetail({ phase: 'entry' });
-			await expect
-				.element(page.getByRole('button', { name: 'Reihenfolge jetzt freigeben' }))
-				.toBeVisible();
-			await expect.element(page.getByRole('button', { name: 'Jetzt auflösen' })).toBeVisible();
-		});
-
-		test('offers only the reveal once the order is shown', async () => {
-			renderDetail({ phase: 'order', order: [] });
-			expect(
-				page.getByRole('button', { name: 'Reihenfolge jetzt freigeben' }).elements()
-			).toHaveLength(0);
-			await expect.element(page.getByRole('button', { name: 'Jetzt auflösen' })).toBeVisible();
-		});
-
-		test('offers no button after the reveal', async () => {
-			renderDetail({ phase: 'revealed', bottles: [] });
-			expect(page.getByRole('button', { name: 'Jetzt auflösen' }).elements()).toHaveLength(0);
-			expect(page.getByRole('heading', { name: 'Vorzeitig freigeben' }).elements()).toHaveLength(0);
+		// One step after the other: only the button for the next phase is active.
+		test.each([
+			{ phase: 'entry', openOrder: true, reveal: false },
+			{ phase: 'order', openOrder: false, reveal: true },
+			{ phase: 'revealed', openOrder: false, reveal: false }
+		])('shows both buttons in phase $phase, only the next step enabled', async (c) => {
+			renderDetail({ phase: c.phase });
+			const openOrder = page.getByRole('button', { name: 'Reihenfolge jetzt freigeben' });
+			const reveal = page.getByRole('button', { name: 'Jetzt auflösen' });
+			await expect.element(openOrder).toBeVisible();
+			await expect.element(reveal).toBeVisible();
+			if (c.openOrder) await expect.element(openOrder).toBeEnabled();
+			else await expect.element(openOrder).toBeDisabled();
+			if (c.reveal) await expect.element(reveal).toBeEnabled();
+			else await expect.element(reveal).toBeDisabled();
 		});
 
 		test('shows when the admin pressed a button', async () => {
 			renderDetail({
 				phase: 'order',
-				order: [],
 				manual: { orderOpenedAt: new Date('2026-10-24T15:32:00Z'), revealedAt: null }
 			});
 			await expect
@@ -159,7 +129,7 @@ describe('Tasting detail page', () => {
 			{ action: 'openOrder', message: 'Reihenfolge freigegeben.' },
 			{ action: 'reveal', message: 'Tasting aufgelöst.' }
 		])('confirms $action with a toast', async ({ action, message }) => {
-			renderDetail({ phase: 'order', order: [] }, { action, phaseChanged: true });
+			renderDetail({ phase: 'order' }, { action, phaseChanged: true });
 			expect(toast.toasts.some((t) => t.variant === 'success' && t.message === message)).toBe(true);
 		});
 	});
@@ -185,11 +155,11 @@ describe('Tasting detail page', () => {
 		});
 
 		test.each([
-			{ button: 'Tasting löschen', question: 'Herbst-Tasting' },
-			{ button: 'Reihenfolge jetzt freigeben', question: 'Reihenfolge jetzt' },
-			{ button: 'Jetzt auflösen', question: 'komplett auflösen' }
-		])('sends nothing when "$button" is not confirmed', async ({ button, question }) => {
-			renderDetail({ phase: 'entry' });
+			{ button: 'Tasting löschen', question: 'Herbst-Tasting', phase: 'entry' },
+			{ button: 'Reihenfolge jetzt freigeben', question: 'Reihenfolge jetzt', phase: 'entry' },
+			{ button: 'Jetzt auflösen', question: 'komplett auflösen', phase: 'order' }
+		])('sends nothing when "$button" is not confirmed', async ({ button, question, phase }) => {
+			renderDetail({ phase });
 			render(ConfirmDialog);
 
 			await page.getByRole('button', { name: button }).click();
@@ -201,18 +171,26 @@ describe('Tasting detail page', () => {
 		});
 
 		test.each([
-			{ button: 'Tasting löschen', confirmLabel: 'Löschen', action: '?/delete' },
-			{ button: 'Reihenfolge jetzt freigeben', confirmLabel: 'Freigeben', action: '?/openOrder' },
-			{ button: 'Jetzt auflösen', confirmLabel: 'Auflösen', action: '?/reveal' }
-		])('sends $action once "$button" is confirmed', async ({ button, confirmLabel, action }) => {
-			renderDetail({ phase: 'entry' });
-			render(ConfirmDialog);
+			{ button: 'Tasting löschen', confirmLabel: 'Löschen', action: '?/delete', phase: 'entry' },
+			{
+				button: 'Reihenfolge jetzt freigeben',
+				confirmLabel: 'Freigeben',
+				action: '?/openOrder',
+				phase: 'entry'
+			},
+			{ button: 'Jetzt auflösen', confirmLabel: 'Auflösen', action: '?/reveal', phase: 'order' }
+		])(
+			'sends $action once "$button" is confirmed',
+			async ({ button, confirmLabel, action, phase }) => {
+				renderDetail({ phase });
+				render(ConfirmDialog);
 
-			await page.getByRole('button', { name: button }).click();
-			await page.getByRole('dialog').getByRole('button', { name: confirmLabel }).click();
+				await page.getByRole('button', { name: button }).click();
+				await page.getByRole('dialog').getByRole('button', { name: confirmLabel }).click();
 
-			await expect.poll(() => actionRequests).toHaveLength(1);
-			expect(actionRequests[0]).toContain(action);
-		});
+				await expect.poll(() => actionRequests).toHaveLength(1);
+				expect(actionRequests[0]).toContain(action);
+			}
+		);
 	});
 });

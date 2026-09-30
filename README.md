@@ -37,16 +37,20 @@ einzige anonym erreichbare Route, und ein Link gibt nur Zugriff auf die
 eigenen Eingaben in diesem einen Tasting. Die Phase ergibt sich aus dem
 Tasting-Datum (Berliner Zeit):
 
-| Zeitraum | Alle Links und der Admin sehen |
+| Zeitraum | Alle Links sehen |
 |---|---|
-| bis 18 Uhr am Tasting-Tag | nur die eigenen Flaschen (der Admin nur den Eingabefortschritt) |
+| bis 18 Uhr am Tasting-Tag | nur die eigenen Flaschen |
 | ab 18 Uhr am Tasting-Tag | nur die Tastingreihenfolge der Synonyme |
 | ab 9 Uhr am Folgetag | die komplette Auflösung |
 
-Der Admin kann beide Schritte per Knopfdruck vorziehen („Reihenfolge
-jetzt freigeben“ statt 18 Uhr, „Jetzt auflösen“ statt 9 Uhr). Das lässt
-sich nicht rückgängig machen, und alle Links zeigen danach, wann der
-Admin das getan hat.
+Die Admin-Seite eines Tastings zeigt in keiner Phase Inhalte, nur
+Teilnehmer, Eingabefortschritt und Verwaltung. Der Admin verkostet mit
+und sieht Reihenfolge und Auflösung über seinen eigenen Link.
+
+Der Admin kann beide Schritte nacheinander per Knopfdruck vorziehen:
+erst „Reihenfolge jetzt freigeben“ statt 18 Uhr, danach „Jetzt
+auflösen“ statt 9 Uhr. Das lässt sich nicht rückgängig machen, und alle
+Links zeigen danach, wann der Admin das getan hat.
 
 Zu jeder Flasche kann optional eine Präsentation (meist PowerPoint,
 höchstens 30 MB) hochgeladen werden. Die Datei wird unverändert

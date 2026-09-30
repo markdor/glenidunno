@@ -40,7 +40,7 @@ function changePhase(action: 'openOrder' | 'reveal', change: () => boolean) {
 export const load: PageServerLoad = ({ locals, params }) => {
 	requireAdmin(locals);
 	const now = new Date();
-	// Phase-dependent projection: during entry only names and progress.
+	// Management data only, never bottle content – in every phase.
 	const detail = getAdminTastingDetail(db, params.id, now);
 	if (!detail) error(404, 'Not found');
 	return { detail, today: getBerlinToday(now) };

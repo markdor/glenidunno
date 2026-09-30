@@ -6,8 +6,6 @@
 	import SubHeader from '$lib/components/SubHeader.svelte';
 	import TastingLinkList from '$lib/components/TastingLinkList.svelte';
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
-	import TastingOrderList from '$lib/components/TastingOrderList.svelte';
-	import TastingReveal from '$lib/components/TastingReveal.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import { formatTastingDate, TASTING_PHASE_LABEL } from '$lib/tasting';
 
@@ -32,13 +30,6 @@
 			untrack(() => toast.show('success', message));
 		}
 	});
-
-	function presentationHref(bottleId: string) {
-		return resolve('/admin/tastings/[id]/presentation/[bottleId]', {
-			id: detail.tasting.id,
-			bottleId
-		});
-	}
 
 	// The dialog can't gate use:enhance's cancel() (that must run
 	// synchronously), so the button just re-submits its form once confirmed.
@@ -65,7 +56,7 @@
 	});
 
 	const secondaryButton =
-		'rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50';
+		'rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent';
 </script>
 
 <svelte:head>
@@ -89,11 +80,12 @@
 
 	<TastingManualNotice manual={detail.manual} />
 
-	{#if detail.phase === 'entry'}
-		<p class="rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-			Die Inhalte siehst du wie alle anderen erst am Tasting-Tag ab 18 Uhr.
-		</p>
+	<p class="rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+		Hier verwaltest du nur das Tasting. Reihenfolge und Auflösung siehst du wie alle anderen über
+		deinen eigenen Teilnehmer-Link.
+	</p>
 
+	{#if detail.phase === 'entry'}
 		<section class="space-y-3">
 			<h2 class="text-lg font-semibold">Datum ändern</h2>
 			<form
@@ -122,60 +114,48 @@
 				{/if}
 			</form>
 		</section>
-	{:else if detail.phase === 'order'}
-		<section class="space-y-3">
-			<h2 class="text-lg font-semibold">Reihenfolge</h2>
-			<TastingOrderList order={detail.order} />
-		</section>
-	{:else}
-		<section class="space-y-3">
-			<h2 class="text-lg font-semibold">Auflösung</h2>
-			<TastingReveal bottles={detail.bottles} {presentationHref} showBreakdown />
-		</section>
 	{/if}
 
-	{#if detail.phase !== 'revealed'}
-		<section class="space-y-3">
-			<h2 class="text-lg font-semibold">Vorzeitig freigeben</h2>
-			<p class="text-sm text-slate-500">
-				Überstimmt die Uhrzeit sofort für alle Links: die Reihenfolge statt um 18 Uhr am
-				Tasting-Tag, die Auflösung statt um 9 Uhr am Folgetag. Alle Links zeigen danach, wann du das
-				getan hast. Lässt sich nicht rückgängig machen.
-			</p>
-			<div class="flex flex-wrap gap-2">
-				{#if detail.phase === 'entry'}
-					<form method="POST" action="?/openOrder" use:enhance>
-						<button
-							type="button"
-							onclick={(e) =>
-								confirmSubmit(
-									e,
-									'Reihenfolge jetzt für alle Links freigeben? Danach kann niemand mehr Flaschen eintragen oder ändern.',
-									{ confirmLabel: 'Freigeben' }
-								)}
-							class={secondaryButton}
-						>
-							Reihenfolge jetzt freigeben
-						</button>
-					</form>
-				{/if}
-				<form method="POST" action="?/reveal" use:enhance>
-					<button
-						type="button"
-						onclick={(e) =>
-							confirmSubmit(
-								e,
-								'Tasting jetzt für alle Links komplett auflösen? Alle sehen dann Namen, Werte und Mitbringer.',
-								{ confirmLabel: 'Auflösen' }
-							)}
-						class={secondaryButton}
-					>
-						Jetzt auflösen
-					</button>
-				</form>
-			</div>
-		</section>
-	{/if}
+	<section class="space-y-3">
+		<h2 class="text-lg font-semibold">Vorzeitig freigeben</h2>
+		<p class="text-sm text-slate-500">
+			Überstimmt die Uhrzeit sofort für alle Links: erst die Reihenfolge statt um 18 Uhr am
+			Tasting-Tag, danach die Auflösung statt um 9 Uhr am Folgetag. Alle Links zeigen danach, wann
+			du das getan hast. Lässt sich nicht rückgängig machen.
+		</p>
+		<div class="flex flex-wrap gap-2">
+			<form method="POST" action="?/openOrder" use:enhance>
+				<button
+					type="button"
+					disabled={detail.phase !== 'entry'}
+					onclick={(e) =>
+						confirmSubmit(
+							e,
+							'Reihenfolge jetzt für alle Links freigeben? Danach kann niemand mehr Flaschen eintragen oder ändern.',
+							{ confirmLabel: 'Freigeben' }
+						)}
+					class={secondaryButton}
+				>
+					Reihenfolge jetzt freigeben
+				</button>
+			</form>
+			<form method="POST" action="?/reveal" use:enhance>
+				<button
+					type="button"
+					disabled={detail.phase !== 'order'}
+					onclick={(e) =>
+						confirmSubmit(
+							e,
+							'Tasting jetzt für alle Links komplett auflösen? Alle sehen dann Namen, Werte und Mitbringer.',
+							{ confirmLabel: 'Auflösen' }
+						)}
+					class={secondaryButton}
+				>
+					Jetzt auflösen
+				</button>
+			</form>
+		</div>
+	</section>
 
 	<section class="space-y-3">
 		<h2 class="text-lg font-semibold">Teilnehmer ({detail.participants.length})</h2>

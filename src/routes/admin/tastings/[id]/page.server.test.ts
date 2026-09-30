@@ -158,31 +158,23 @@ describe('admin tasting detail – projection per phase', () => {
 		expect(serialized(result)).not.toContain('tokenHash');
 	});
 
-	it('shows only position and alias from 18:00', () => {
-		vi.setSystemTime(ORDER);
+	// The admin sees the content through their own participant link, never here.
+	it.each([
+		{ phase: 'order', now: ORDER },
+		{ phase: 'revealed', now: REVEALED }
+	])('still shows no bottle content in phase $phase', ({ phase, now }) => {
+		vi.setSystemTime(now);
 		const result = loadAs(ADMIN);
-		expect(result.detail).toMatchObject({
-			phase: 'order',
-			order: [
-				{ position: 1, alias: 'Blume' },
-				{ position: 2, alias: 'Nebel' }
-			]
-		});
-		for (const hidden of ['Ardbeg', 'Glenkinchie', 'whiskybase', 'score', 'broughtBy']) {
+		expect(result.detail.phase).toBe(phase);
+		expect(Object.keys(result.detail).sort()).toEqual([
+			'manual',
+			'participants',
+			'phase',
+			'tasting'
+		]);
+		for (const hidden of ['Nebel', 'Blume', 'Ardbeg', 'Glenkinchie', 'whiskybase', 'score']) {
 			expect(serialized(result)).not.toContain(hidden);
 		}
-	});
-
-	it('reveals all bottles with the score breakdown after 9:00 on the next day', () => {
-		vi.setSystemTime(REVEALED);
-		const result = loadAs(ADMIN);
-		expect(result.detail).toMatchObject({
-			phase: 'revealed',
-			bottles: [
-				{ position: 1, alias: 'Blume', broughtBy: 'Anna', breakdown: expect.any(Object) },
-				{ position: 2, alias: 'Nebel', distillery: 'Ardbeg', score: expect.any(Number) }
-			]
-		});
 		for (const t of tokens) expect(serialized(result)).not.toContain(t.token);
 	});
 });
@@ -273,20 +265,25 @@ describe('openOrder and reveal (18-Uhr and 9-Uhr buttons)', () => {
 		const result = loadAs(ADMIN);
 		expect(result.detail).toMatchObject({
 			phase: 'order',
-			manual: { orderOpenedAt: expect.any(Date), revealedAt: null },
-			order: [
-				{ position: 1, alias: 'Blume' },
-				{ position: 2, alias: 'Nebel' }
-			]
+			manual: { orderOpenedAt: expect.any(Date), revealedAt: null }
 		});
 	});
 
-	it('reveals ahead of time, also straight from the entry phase', async () => {
+	it('reveals ahead of time once the order is out', async () => {
+		await act('openOrder');
 		expect(await act('reveal')).toEqual({ action: 'reveal', phaseChanged: true });
 		expect(loadAs(ADMIN).detail).toMatchObject({
 			phase: 'revealed',
-			manual: { revealedAt: expect.any(Date) }
+			manual: { orderOpenedAt: expect.any(Date), revealedAt: expect.any(Date) }
 		});
+	});
+
+	it('refuses to reveal while the entry is still open', async () => {
+		expect(await act('reveal')).toMatchObject({
+			status: 422,
+			data: { action: 'reveal', userMessage: 'Gib zuerst die Reihenfolge frei.' }
+		});
+		expect(loadAs(ADMIN).detail).toMatchObject({ phase: 'entry', manual: { revealedAt: null } });
 	});
 
 	it('refuses a button whose phase is already reached', async () => {
@@ -309,6 +306,7 @@ describe('openOrder and reveal (18-Uhr and 9-Uhr buttons)', () => {
 	});
 
 	it('logs and returns 500 on an unexpected database error', async () => {
+		vi.setSystemTime(ORDER);
 		const err = new Error('disk full');
 		const spy = vi.spyOn(db, 'update').mockImplementationOnce(() => {
 			throw err;

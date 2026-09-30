@@ -1,17 +1,14 @@
 <script lang="ts">
 	import type { ResolvedPathname } from '$app/types';
-	import { formatOneDecimal, type RevealedBottle, type ScoreBreakdown } from '$lib/tasting';
+	import { formatOneDecimal, type RevealedBottle } from '$lib/tasting';
 
 	let {
 		bottles,
-		presentationHref,
-		showBreakdown = false
+		presentationHref
 	}: {
-		bottles: Array<RevealedBottle & { breakdown?: ScoreBreakdown }>;
-		/** Download URL of a bottle's presentation – differs for participant links and admin. */
+		bottles: RevealedBottle[];
+		/** Download URL of a bottle's presentation – runs through the link's own token. */
 		presentationHref: (bottleId: string) => ResolvedPathname;
-		/** Admin view: the breakdown helps to tune the weights by gut feeling. */
-		showBreakdown?: boolean;
 	} = $props();
 </script>
 
@@ -83,24 +80,6 @@
 									Präsentation: {b.presentation.name}
 								</a>
 							</p>
-						{/if}
-
-						{#if showBreakdown && b.breakdown}
-							<details class="text-sm">
-								<summary class="cursor-pointer py-1 font-medium text-slate-700">
-									Score-Aufschlüsselung
-								</summary>
-								<dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-									<dt class="text-slate-500">Rauch</dt>
-									<dd>{formatOneDecimal(b.breakdown.smoke)}</dd>
-									<dt class="text-slate-500">Fass</dt>
-									<dd>{formatOneDecimal(b.breakdown.cask)}</dd>
-									<dt class="text-slate-500">Alkohol</dt>
-									<dd>{formatOneDecimal(b.breakdown.abv)}</dd>
-									<dt class="text-slate-500">Wertigkeit</dt>
-									<dd>{formatOneDecimal(b.breakdown.value)}</dd>
-								</dl>
-							</details>
 						{/if}
 					</div>
 				</div>
