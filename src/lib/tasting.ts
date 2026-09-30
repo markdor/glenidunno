@@ -64,6 +64,14 @@ export type Progress = { entered: number; total: number };
 export type OrderEntry = { position: number; alias: string };
 
 /**
+ * The normalized score factors (0–1) as anonymous curves for the `order`
+ * phase's chart, one value per bottle in pouring order: no factor names, and
+ * sorted by their values, so not even a curve's index tells which factor it
+ * is – that only comes with the reveal.
+ */
+export type OrderCurves = number[][];
+
+/**
  * An uploaded presentation: the bottle id addresses the download route, the
  * original file name is shown. The name counts as content (it may reveal
  * the whisky), so it only leaves the server with the reveal.

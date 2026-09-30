@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import TastingBottleForm from '$lib/components/TastingBottleForm.svelte';
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
+	import TastingOrderChart from '$lib/components/TastingOrderChart.svelte';
 	import TastingOrderList from '$lib/components/TastingOrderList.svelte';
 	import TastingReveal from '$lib/components/TastingReveal.svelte';
 	import TastingScoreChart from '$lib/components/TastingScoreChart.svelte';
@@ -75,6 +76,7 @@
 			</p>
 			<TastingOrderList order={view.order} />
 		</section>
+		<TastingOrderChart order={view.order} curves={view.curves} />
 		<TastingScoreExplainer />
 	{:else}
 		<TastingManualNotice manual={view.manual} />

@@ -195,7 +195,7 @@ describe('getParticipantView', () => {
 		expect(serialized).not.toContain('Ben');
 	});
 
-	it('shows only position and alias from 18:00', () => {
+	it('shows only position, alias and the anonymous factor curves from 18:00', () => {
 		const ctx = setup();
 		fill(ctx);
 		const view = getParticipantView(db, ctx.anna, ORDER);
@@ -206,7 +206,32 @@ describe('getParticipantView', () => {
 			order: [
 				{ position: 1, alias: 'Blume' },
 				{ position: 2, alias: 'Nebel' }
+			],
+			// Blume, then Nebel – sorted by value, not in the factor order
+			// smoke, cask, abv, value.
+			curves: [
+				[0, 1],
+				[expect.closeTo(0.075), expect.closeTo(0.46)],
+				[0.2, 0.6],
+				[0.8, 0.8]
 			]
+		});
+	});
+
+	it('sends no factor names along with the curves', () => {
+		const ctx = setup();
+		fill(ctx);
+		const serialized = JSON.stringify(getParticipantView(db, ctx.anna, ORDER));
+		for (const hidden of ['smoke', 'cask', 'abv', 'value', 'score', 'Ardbeg', 'Anna', 'Ben']) {
+			expect(serialized).not.toContain(hidden);
+		}
+	});
+
+	it('sends empty curves when nobody entered a bottle', () => {
+		const ctx = setup();
+		expect(getParticipantView(db, ctx.anna, ORDER)).toMatchObject({
+			order: [],
+			curves: [[], [], [], []]
 		});
 	});
 
