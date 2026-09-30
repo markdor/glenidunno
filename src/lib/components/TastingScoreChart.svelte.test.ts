@@ -21,7 +21,7 @@ describe('TastingScoreChart', () => {
 		for (const alias of ['Blume', 'Nebel']) {
 			expect(page.getByText(alias, { exact: true }).elements().length).toBeGreaterThan(0);
 		}
-		for (const label of ['Rauch', 'Fass', 'Alkohol', 'Wertigkeit']) {
+		for (const label of ['Rauch', 'Fass', 'Alkohol', 'Kaliber']) {
 			expect(page.getByText(label, { exact: true }).elements().length).toBeGreaterThan(0);
 		}
 	});
@@ -62,7 +62,7 @@ describe('TastingScoreChart', () => {
 		const target = page.getByRole('button', { name: /^Flasche Nebel:/ });
 		await target.hover();
 		await expect
-			.element(page.getByText('· Rauch 5 · Fass 5 · 60,0 % · Wertigkeit 5', { exact: false }))
+			.element(page.getByText('· Rauch 5 · Fass 5 · 60,0 % · Kaliber 5', { exact: false }))
 			.toBeVisible();
 
 		await page.getByRole('img').hover({ position: { x: 5, y: 5 } });
@@ -77,7 +77,7 @@ describe('TastingScoreChart', () => {
 			.element()
 			.focus();
 		await expect
-			.element(page.getByText('· Rauch 0 · Fass 1 · 40,0 % · Wertigkeit 2', { exact: false }))
+			.element(page.getByText('· Rauch 0 · Fass 1 · 40,0 % · Kaliber 2', { exact: false }))
 			.toBeVisible();
 
 		(document.activeElement as HTMLElement | null)?.blur();

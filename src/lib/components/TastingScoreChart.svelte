@@ -25,7 +25,7 @@
 		{ key: 'smoke', label: 'Rauch', color: '#4f6fb0' },
 		{ key: 'cask', label: 'Fass', color: '#7d3e12' },
 		{ key: 'abv', label: 'Alkohol', color: '#ec1337' },
-		{ key: 'value', label: 'Wertigkeit', color: '#eda100' }
+		{ key: 'value', label: 'Kaliber', color: '#eda100' }
 	] as const;
 
 	const PAD_LEFT = 38;
@@ -195,7 +195,7 @@
 				{height}
 				viewBox={`0 0 ${width} ${height}`}
 				role="img"
-				aria-label="Entwicklung von Rauch, Fass, Alkohol und Wertigkeit über die Ausschankreihenfolge"
+				aria-label="Entwicklung von Rauch, Fass, Alkohol und Kaliber über die Ausschankreihenfolge"
 			>
 				{#each [0, 0.5, 1] as fraction (fraction)}
 					<line
@@ -286,7 +286,7 @@
 						fill="transparent"
 						role="button"
 						tabindex="0"
-						aria-label={`Flasche ${p.alias}: Rauch ${p.smoke}, Fass ${p.cask}, Alkohol ${formatOneDecimal(p.abv)} %, Wertigkeit ${p.value}`}
+						aria-label={`Flasche ${p.alias}: Rauch ${p.smoke}, Fass ${p.cask}, Alkohol ${formatOneDecimal(p.abv)} %, Kaliber ${p.value}`}
 						onpointerenter={() => activate(i)}
 						onpointerdown={() => activate(i)}
 						onpointerleave={() => deactivate(i)}
@@ -300,7 +300,7 @@
 		<p class="min-h-5 text-xs text-slate-600" aria-live="polite">
 			{#if active}
 				<span class="font-medium text-slate-900">{active.alias}</span>
-				· Rauch {active.smoke} · Fass {active.cask} · {formatOneDecimal(active.abv)} % · Wertigkeit
+				· Rauch {active.smoke} · Fass {active.cask} · {formatOneDecimal(active.abv)} % · Kaliber
 				{active.value}
 			{:else}
 				Tippe oder fahre mit der Maus über eine Flasche für die genauen Werte.

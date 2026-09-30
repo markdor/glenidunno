@@ -51,7 +51,7 @@
 							<dd class="break-words">{b.broughtBy}</dd>
 							<dt class="text-slate-500">Werte</dt>
 							<dd>
-								Rauch {b.smoke} · Fass {b.cask} · {formatOneDecimal(b.abv)} % · Wertigkeit {b.value}
+								Rauch {b.smoke} · Fass {b.cask} · {formatOneDecimal(b.abv)} % · Kaliber {b.value}
 							</dd>
 						</dl>
 

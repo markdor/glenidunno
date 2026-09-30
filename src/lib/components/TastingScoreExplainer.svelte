@@ -26,7 +26,7 @@
 	</h2>
 	<p class="text-sm text-slate-700">
 		Die Flaschen werden zuerst nach Rauchintensität in drei Gruppen sortiert (leicht → torfig),
-		innerhalb einer Gruppe entscheidet ein Score aus Rauch, Fass, Alkohol und Wertigkeit.
+		innerhalb einer Gruppe entscheidet ein Score aus Rauch, Fass, Alkohol und Kaliber.
 	</p>
 
 	<details class="text-sm">
@@ -49,7 +49,7 @@
 			<div>
 				<p class="font-medium text-slate-700">2. Score innerhalb der Gruppe</p>
 				<p class="mt-1 text-slate-600">
-					Rauch, Fass und Wertigkeit werden dafür auf einen Anteil zwischen 0 und 1 umgerechnet
+					Rauch, Fass und Kaliber werden dafür auf einen Anteil zwischen 0 und 1 umgerechnet
 					(eigener Wert ÷ {TASTING_SCALE.max}). Alkohol läuft ebenfalls auf einen Anteil zwischen 0
 					und 1 hinaus, aber in zwei Abschnitten: zwischen {ABV_FLOOR} % vol. (0) und {ABV_KINK} % vol.
 					gemächlich, ab {ABV_KINK} % vol. doppelt so schnell bis {abvCeiling} % vol. (1) – Werte außerhalb
@@ -63,14 +63,14 @@
 					<dd>{SCORE_WEIGHTS.cask * 100} %</dd>
 					<dt>Alkohol</dt>
 					<dd>{SCORE_WEIGHTS.abv * 100} %</dd>
-					<dt>Wertigkeit</dt>
+					<dt>Kaliber</dt>
 					<dd>{SCORE_WEIGHTS.value * 100} %</dd>
 				</dl>
 				<p
 					class="mt-2 rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs break-words text-slate-700"
 				>
 					Score = 100 × ({SCORE_WEIGHTS.smoke} × Rauch + {SCORE_WEIGHTS.cask} × Fass + {SCORE_WEIGHTS.abv}
-					× Alkohol + {SCORE_WEIGHTS.value} × Wertigkeit)
+					× Alkohol + {SCORE_WEIGHTS.value} × Kaliber)
 				</p>
 			</div>
 

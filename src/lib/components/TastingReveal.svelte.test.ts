@@ -49,7 +49,7 @@ describe('TastingReveal', () => {
 		await expect.element(page.getByText('12 Jahre')).toBeVisible();
 		await expect.element(page.getByText('Signatory')).toBeVisible();
 		await expect.element(page.getByText('Anna')).toBeVisible();
-		await expect.element(page.getByText('Rauch 0 · Fass 1 · 54,2 % · Wertigkeit 2')).toBeVisible();
+		await expect.element(page.getByText('Rauch 0 · Fass 1 · 54,2 % · Kaliber 2')).toBeVisible();
 		await expect.element(page.getByText('61,5')).toBeVisible();
 	});
 

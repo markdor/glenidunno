@@ -19,9 +19,7 @@ describe('TastingScoreExplainer', () => {
 		await expect.element(page.getByText('Rauch 4–5')).toBeVisible();
 		await expect
 			.element(
-				page.getByText(
-					'Score = 100 × (0.4 × Rauch + 0.3 × Fass + 0.2 × Alkohol + 0.1 × Wertigkeit)'
-				)
+				page.getByText('Score = 100 × (0.4 × Rauch + 0.3 × Fass + 0.2 × Alkohol + 0.1 × Kaliber)')
 			)
 			.toBeVisible();
 		await expect

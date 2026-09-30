@@ -47,7 +47,7 @@
 			label: 'Fass',
 			hint: "0 = kaum Holz- oder Fasseinfluss, 5 = Sherry-Bombe wie Aberlour A'bunadh"
 		},
-		{ field: 'value', label: 'Wertigkeit', hint: '0 = Alltagsflasche, 5 = Highlight des Abends' }
+		{ field: 'value', label: 'Kaliber', hint: '0 = Alltagsflasche, 5 = Highlight des Abends' }
 	];
 
 	// Text fields stay uncontrolled: after a save elsewhere on the page the data

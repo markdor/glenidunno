@@ -94,7 +94,7 @@ describe('TastingBottleForm', () => {
 
 	test('shows the current slider value', async () => {
 		render(TastingBottleForm, { slot: 1, bottle: saved });
-		const slider = page.getByRole('slider', { name: 'Wertigkeit *' });
+		const slider = page.getByRole('slider', { name: 'Kaliber *' });
 		const output = page.getByRole('status').filter({ hasText: /^\d$/ });
 		await expect.element(slider).toHaveValue('4');
 
