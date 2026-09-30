@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
+	import { confirmDialog } from '$lib/components/confirmDialogStore.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 
 	let { data, form } = $props();
@@ -31,6 +32,19 @@
 			month: '2-digit',
 			year: 'numeric'
 		});
+	}
+
+	// The dialog can't gate use:enhance's cancel() (that must run
+	// synchronously), so the button just re-submits its form once confirmed.
+	// currentTarget is read before the await: the browser clears it once the
+	// event has finished dispatching, i.e. before an async handler resumes.
+	async function confirmDelete(event: MouseEvent, username: string) {
+		const formEl = (event.currentTarget as HTMLElement).closest('form');
+		const ok = await confirmDialog.ask(`Benutzer „${username}" wirklich löschen?`, {
+			variant: 'danger',
+			confirmLabel: 'Löschen'
+		});
+		if (ok) formEl?.requestSubmit();
 	}
 </script>
 
@@ -197,18 +211,11 @@
 									Bearbeiten
 								</button>
 								{#if u.id !== data.user?.id}
-									<!-- cancel(), not preventDefault() in onsubmit: enhance ignores
-									     defaultPrevented and would send the request anyway. -->
-									<form
-										method="POST"
-										action="?/delete"
-										use:enhance={({ cancel }) => {
-											if (!confirm(`Benutzer „${u.username}" wirklich löschen?`)) cancel();
-										}}
-									>
+									<form method="POST" action="?/delete" use:enhance>
 										<input type="hidden" name="id" value={u.id} />
 										<button
-											type="submit"
+											type="button"
+											onclick={(e) => confirmDelete(e, u.username)}
 											class="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
 										>
 											Löschen

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import type { SubmitFunction } from '@sveltejs/kit';
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
+	import { confirmDialog, type ConfirmVariant } from '$lib/components/confirmDialogStore.svelte';
 	import SubHeader from '$lib/components/SubHeader.svelte';
 	import TastingLinkList from '$lib/components/TastingLinkList.svelte';
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
@@ -40,12 +40,18 @@
 		});
 	}
 
-	// cancel(), not preventDefault() in onsubmit: enhance ignores
-	// defaultPrevented and would send the request anyway.
-	function confirmFirst(question: string): SubmitFunction {
-		return ({ cancel }) => {
-			if (!confirm(question)) cancel();
-		};
+	// The dialog can't gate use:enhance's cancel() (that must run
+	// synchronously), so the button just re-submits its form once confirmed.
+	// currentTarget is read before the await: the browser clears it once the
+	// event has finished dispatching, i.e. before an async handler resumes.
+	async function confirmSubmit(
+		event: MouseEvent,
+		question: string,
+		options?: { variant?: ConfirmVariant; confirmLabel?: string }
+	) {
+		const formEl = (event.currentTarget as HTMLElement).closest('form');
+		const ok = await confirmDialog.ask(question, options);
+		if (ok) formEl?.requestSubmit();
 	}
 
 	const errorText: Record<string, string> = {
@@ -138,24 +144,34 @@
 			</p>
 			<div class="flex flex-wrap gap-2">
 				{#if detail.phase === 'entry'}
-					<form
-						method="POST"
-						action="?/openOrder"
-						use:enhance={confirmFirst(
-							'Reihenfolge jetzt für alle Links freigeben? Danach kann niemand mehr Flaschen eintragen oder ändern.'
-						)}
-					>
-						<button type="submit" class={secondaryButton}>Reihenfolge jetzt freigeben</button>
+					<form method="POST" action="?/openOrder" use:enhance>
+						<button
+							type="button"
+							onclick={(e) =>
+								confirmSubmit(
+									e,
+									'Reihenfolge jetzt für alle Links freigeben? Danach kann niemand mehr Flaschen eintragen oder ändern.',
+									{ confirmLabel: 'Freigeben' }
+								)}
+							class={secondaryButton}
+						>
+							Reihenfolge jetzt freigeben
+						</button>
 					</form>
 				{/if}
-				<form
-					method="POST"
-					action="?/reveal"
-					use:enhance={confirmFirst(
-						'Tasting jetzt für alle Links komplett auflösen? Alle sehen dann Namen, Werte und Mitbringer.'
-					)}
-				>
-					<button type="submit" class={secondaryButton}>Jetzt auflösen</button>
+				<form method="POST" action="?/reveal" use:enhance>
+					<button
+						type="button"
+						onclick={(e) =>
+							confirmSubmit(
+								e,
+								'Tasting jetzt für alle Links komplett auflösen? Alle sehen dann Namen, Werte und Mitbringer.',
+								{ confirmLabel: 'Auflösen' }
+							)}
+						class={secondaryButton}
+					>
+						Jetzt auflösen
+					</button>
 				</form>
 			</div>
 		</section>
@@ -187,15 +203,15 @@
 	</section>
 
 	<section>
-		<form
-			method="POST"
-			action="?/delete"
-			use:enhance={confirmFirst(
-				`Tasting „${detail.tasting.name}“ wirklich löschen? Alle Eingaben gehen verloren.`
-			)}
-		>
+		<form method="POST" action="?/delete" use:enhance>
 			<button
-				type="submit"
+				type="button"
+				onclick={(e) =>
+					confirmSubmit(
+						e,
+						`Tasting „${detail.tasting.name}“ wirklich löschen? Alle Eingaben gehen verloren.`,
+						{ variant: 'danger', confirmLabel: 'Löschen' }
+					)}
 				class="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
 			>
 				Tasting löschen

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import './layout.css';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Header from '$lib/components/Header.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import Toast from '$lib/components/Toast.svelte';
@@ -17,3 +18,4 @@
 	<Footer />
 </div>
 <Toast />
+<ConfirmDialog />

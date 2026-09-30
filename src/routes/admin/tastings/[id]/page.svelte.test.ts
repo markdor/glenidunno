@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import Page from './+page.svelte';
+import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 import { toast } from '$lib/components/toastStore.svelte';
 
 const user = { id: 'admin-id', username: 'admin', isAdmin: true };
@@ -188,24 +189,27 @@ describe('Tasting detail page', () => {
 			{ button: 'Reihenfolge jetzt freigeben', question: 'Reihenfolge jetzt' },
 			{ button: 'Jetzt auflösen', question: 'komplett auflösen' }
 		])('sends nothing when "$button" is not confirmed', async ({ button, question }) => {
-			const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
 			renderDetail({ phase: 'entry' });
+			render(ConfirmDialog);
 
 			await page.getByRole('button', { name: button }).click();
+			const dialog = page.getByRole('dialog');
+			await expect.element(dialog.getByText(new RegExp(question))).toBeVisible();
+			await dialog.getByRole('button', { name: 'Abbrechen' }).click();
 
-			expect(confirm).toHaveBeenCalledWith(expect.stringContaining(question));
 			expect(actionRequests).toHaveLength(0);
 		});
 
 		test.each([
-			{ button: 'Tasting löschen', action: '?/delete' },
-			{ button: 'Reihenfolge jetzt freigeben', action: '?/openOrder' },
-			{ button: 'Jetzt auflösen', action: '?/reveal' }
-		])('sends $action once "$button" is confirmed', async ({ button, action }) => {
-			vi.spyOn(window, 'confirm').mockReturnValue(true);
+			{ button: 'Tasting löschen', confirmLabel: 'Löschen', action: '?/delete' },
+			{ button: 'Reihenfolge jetzt freigeben', confirmLabel: 'Freigeben', action: '?/openOrder' },
+			{ button: 'Jetzt auflösen', confirmLabel: 'Auflösen', action: '?/reveal' }
+		])('sends $action once "$button" is confirmed', async ({ button, confirmLabel, action }) => {
 			renderDetail({ phase: 'entry' });
+			render(ConfirmDialog);
 
 			await page.getByRole('button', { name: button }).click();
+			await page.getByRole('dialog').getByRole('button', { name: confirmLabel }).click();
 
 			await expect.poll(() => actionRequests).toHaveLength(1);
 			expect(actionRequests[0]).toContain(action);
