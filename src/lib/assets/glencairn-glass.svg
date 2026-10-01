@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 28" width="20" height="28">
+  <defs>
+    <linearGradient id="gc-whisky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c9973f"/>
+      <stop offset="1" stop-color="#7d5212"/>
+    </linearGradient>
+    <clipPath id="gc-glass">
+      <path d="M6.2 1C6.6 4 6.4 6 5 8.5C2.8 11.5 1.8 14 2.2 16.5C2.7 19.5 6 21 8.4 21.6L8.4 24C6 24.4 3.5 25 3.5 26.2L3.5 27L16.5 27L16.5 26.2C16.5 25 14 24.4 11.6 24L11.6 21.6C14 21 17.3 19.5 17.8 16.5C18.2 14 17.2 11.5 15 8.5C13.6 6 13.4 4 13.8 1Z"/>
+    </clipPath>
+  </defs>
+  <path d="M2.4 14L17.6 14C18 16 17.6 18.4 15.6 19.6C13.8 20.7 6.2 20.7 4.4 19.6C2.4 18.4 2 16 2.4 14Z" fill="url(#gc-whisky)" clip-path="url(#gc-glass)"/>
+  <!-- Same outline as the clip path, but open at the rim. -->
+  <path d="M6.2 1C6.6 4 6.4 6 5 8.5C2.8 11.5 1.8 14 2.2 16.5C2.7 19.5 6 21 8.4 21.6L8.4 24C6 24.4 3.5 25 3.5 26.2L3.5 27L16.5 27L16.5 26.2C16.5 25 14 24.4 11.6 24L11.6 21.6C14 21 17.3 19.5 17.8 16.5C18.2 14 17.2 11.5 15 8.5C13.6 6 13.4 4 13.8 1" fill="none" stroke="#87735e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

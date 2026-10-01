@@ -60,16 +60,11 @@ export type TastingBottle = {
 /** Entry progress of a participant or a whole tasting. */
 export type Progress = { entered: number; total: number };
 
-/** Position in the pouring order – everything the `order` phase may show. */
-export type OrderEntry = { position: number; alias: string };
-
 /**
- * The normalized score factors (0–1) as anonymous curves for the `order`
- * phase's chart, one value per bottle in pouring order: no factor names, and
- * sorted by their values, so not even a curve's index tells which factor it
- * is – that only comes with the reveal.
+ * Position in the pouring order with the total score – everything the `order`
+ * phase may show. Neither the factors nor the score breakdown.
  */
-export type OrderCurves = number[][];
+export type OrderEntry = { position: number; alias: string; score: number };
 
 /**
  * An uploaded presentation: the bottle id addresses the download route, the
@@ -95,8 +90,23 @@ export type ScoreBreakdown = { smoke: number; cask: number; abv: number; value: 
 // and the TastingScoreExplainer tile, which renders these same numbers for
 // participants – so it can't import from $lib/server.
 
-/** Weights of the normalized factors. They sum to 1, so the score spans 0–100. */
-export const SCORE_WEIGHTS = { smoke: 0.4, cask: 0.3, abv: 0.2, value: 0.1 } as const;
+/**
+ * Weights of the normalized factors. They sum to 1, so the score spans 0–100.
+ * Smoke and cask linger on the palate, ABV doesn't (a sip of water resets it),
+ * so it weighs least; value moves the highlights to the end of their group.
+ */
+export const SCORE_WEIGHTS = { smoke: 0.4, cask: 0.3, abv: 0.1, value: 0.2 } as const;
+
+export type ScoreFactor = keyof typeof SCORE_WEIGHTS;
+
+/**
+ * The factors, heaviest weight first. One order for both the tie-breakers on
+ * identical scores (tastingScore.ts) and the TastingScoreExplainer tile, so
+ * the tile always describes what the sorting does.
+ */
+export const SCORE_FACTORS_BY_WEIGHT = (Object.keys(SCORE_WEIGHTS) as ScoreFactor[]).sort(
+	(a, b) => SCORE_WEIGHTS[b] - SCORE_WEIGHTS[a]
+);
 
 /** ABV at or below the floor counts as 0, at or above floor + span as 1. */
 export const ABV_FLOOR = 40;
@@ -113,19 +123,47 @@ export const ABV_KINK = 50;
 
 const ABV_LOW_SPAN = ABV_KINK - ABV_FLOOR;
 const ABV_HIGH_SPAN = ABV_FLOOR + ABV_SPAN - ABV_KINK;
-// Slope below the kink; the slope above it is fixed at double this value, so
-// the two segments' contributions add up to exactly 1 at the ceiling.
-const ABV_LOW_SLOPE = 1 / (ABV_LOW_SPAN + 2 * ABV_HIGH_SPAN);
-const ABV_KINK_FRACTION = ABV_LOW_SLOPE * ABV_LOW_SPAN;
+
+/**
+ * % vol per full share below the kink, i.e. the inverse of the slope there.
+ * The slope above the kink is fixed at double, so the divisor halves, and the
+ * two segments' contributions add up to exactly 1 at the ceiling. Exported
+ * together with {@link ABV_KINK_FRACTION} for the TastingScoreExplainer tile,
+ * which prints the formula with these numbers.
+ */
+export const ABV_LOW_DIVISOR = ABV_LOW_SPAN + 2 * ABV_HIGH_SPAN;
+export const ABV_HIGH_DIVISOR = ABV_LOW_DIVISOR / 2;
+const ABV_LOW_SLOPE = 1 / ABV_LOW_DIVISOR;
+/** Normalized ABV share at {@link ABV_KINK}. */
+export const ABV_KINK_FRACTION = ABV_LOW_SLOPE * ABV_LOW_SPAN;
 
 /**
  * Smoke groups are poured in ascending order before the score is compared:
- * group 1 = smoke 0–1, group 2 = 2–3, group 3 = 4–5 (upper bounds below).
+ * group 1 = smoke 0, group 2 = 1–3, group 3 = 4–5 (inclusive upper bounds).
+ * The first bound sits between "no peat" and "any peat" – the one question
+ * every participant rates the same way, and anything peated is poured after
+ * everything unpeated. The labels are shown to participants as they are.
  */
-export const SMOKE_GROUP_UPPER_BOUNDS = [1, 3, 5] as const;
+export const SMOKE_GROUPS = [
+	{ upper: 0, label: 'ungetorft' },
+	{ upper: 3, label: 'rauchig' },
+	{ upper: 5, label: 'stark rauchig' }
+] as const;
 
 /** With `false` only the score (and the tie-breakers) decide the order. */
 export const SMOKE_GROUPS_ENABLED = true;
+
+/** 1-based smoke group of a smoke value, see {@link SMOKE_GROUPS}. */
+export function smokeGroup(smoke: number): number {
+	return SMOKE_GROUPS.findIndex((group) => smoke <= group.upper) + 1;
+}
+
+/** Smoke values a 1-based group covers, e.g. "0" or "1–3". */
+export function formatSmokeGroupRange(group: number): string {
+	const upper = SMOKE_GROUPS[group - 1].upper;
+	const lower = group === 1 ? TASTING_SCALE.min : SMOKE_GROUPS[group - 2].upper + 1;
+	return lower === upper ? String(lower) : `${lower}–${upper}`;
+}
 
 export type ScoreInput = Pick<TastingBottle, 'smoke' | 'cask' | 'abv' | 'value'>;
 

@@ -1,18 +1,19 @@
 import {
 	formatBottleName,
 	normalizeScoreFactors,
+	SCORE_FACTORS_BY_WEIGHT,
 	SCORE_WEIGHTS,
-	SMOKE_GROUP_UPPER_BOUNDS,
+	smokeGroup,
 	SMOKE_GROUPS_ENABLED,
 	type ScoreBreakdown,
 	type ScoreInput,
 	type TastingBottle
 } from '$lib/tasting';
 
-// The tunables (weights, ABV range, smoke groups) and the normalization live
-// in $lib/tasting.ts, not here: the TastingScoreExplainer tile and the
-// TastingScoreChart render the same numbers for participants and can't
-// import a $lib/server module.
+// The tunables (weights, ABV range, smoke groups), the normalization and the
+// smoke grouping live in $lib/tasting.ts, not here: the TastingScoreExplainer
+// tile, the TastingScoreChart and the bottle form render the same numbers for
+// participants and can't import a $lib/server module.
 
 export type BottleScore = { score: number; breakdown: ScoreBreakdown };
 
@@ -20,12 +21,8 @@ function roundOne(value: number): number {
 	return Math.round(value * 10) / 10;
 }
 
-export function smokeGroup(smoke: number): number {
-	return SMOKE_GROUP_UPPER_BOUNDS.findIndex((upper) => smoke <= upper) + 1;
-}
-
 /**
- * score = 100 * (0.4*S + 0.3*C + 0.2*A + 0.1*W), rounded to one decimal place.
+ * score = 100 * (0.4*S + 0.3*C + 0.1*A + 0.2*W), rounded to one decimal place.
  * Rounding happens before any sorting – otherwise float noise such as
  * 52.00000000000001 would defeat the tie-breakers.
  */
@@ -51,10 +48,19 @@ export function scoreBottle(bottle: ScoreInput): BottleScore {
 type SortableBottle = ScoreInput &
 	Pick<TastingBottle, 'distillery' | 'age' | 'bottling' | 'bottler'>;
 
+/** First factor (heaviest weight first) on which the bottles differ: the lower value first. */
+function compareFactors(a: ScoreInput, b: ScoreInput): number {
+	for (const factor of SCORE_FACTORS_BY_WEIGHT) {
+		const diff = a[factor] - b[factor];
+		if (diff !== 0) return diff;
+	}
+	return 0;
+}
+
 /**
  * Bottles in pouring order (light → heavy → smoky), each with its score:
- * smoke group, then score, then the tie-breakers smoke, cask, abv and the
- * display name.
+ * smoke group, then score, then the tie-breakers – the raw factors by weight
+ * (smoke, cask, value, abv with the current weights) and the display name.
  */
 export function sortForPouring<T extends SortableBottle>(
 	bottles: readonly T[],
@@ -66,9 +72,7 @@ export function sortForPouring<T extends SortableBottle>(
 			(a, b) =>
 				(smokeGroups ? smokeGroup(a.smoke) - smokeGroup(b.smoke) : 0) ||
 				a.score - b.score ||
-				a.smoke - b.smoke ||
-				a.cask - b.cask ||
-				a.abv - b.abv ||
+				compareFactors(a, b) ||
 				formatBottleName(a).localeCompare(formatBottleName(b), 'de')
 		);
 }

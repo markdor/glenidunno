@@ -1,17 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, count, countDistinct, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import {
-	normalizeScoreFactors,
-	type ManualPhaseChanges,
-	type OrderCurves,
-	type OrderEntry,
-	type PresentationRef,
-	type Progress,
-	type RevealedBottle,
-	type ScoreInput,
-	type TastingBottle,
-	type TastingPhase
+import type {
+	ManualPhaseChanges,
+	OrderEntry,
+	PresentationRef,
+	Progress,
+	RevealedBottle,
+	TastingBottle,
+	TastingPhase
 } from '$lib/tasting';
 import { isValidTastingDate } from '$lib/validation';
 import type * as Schema from './db/schema';
@@ -86,22 +83,8 @@ export function toDomain(row: BottleRow): TastingBottle {
 // data in the template is not enough: `data` is serialized into the HTML and
 // __data.json in full. Fields are picked explicitly, never spread.
 
-function toOrder(poured: ReadonlyArray<{ alias: string }>): OrderEntry[] {
-	return poured.map((b, i) => ({ position: i + 1, alias: b.alias }));
-}
-
-const CURVE_FACTORS = ['smoke', 'cask', 'abv', 'value'] as const;
-
-/** See OrderCurves: one anonymous curve per factor, sorted by its values. */
-function toCurves(poured: ReadonlyArray<ScoreInput>): OrderCurves {
-	const factors = poured.map((b) => normalizeScoreFactors(b));
-	return CURVE_FACTORS.map((key) => factors.map((f) => f[key])).sort(compareCurves);
-}
-
-// Lexicographic – every curve has one value per bottle.
-function compareCurves(a: number[], b: number[]): number {
-	const i = a.findIndex((value, k) => value !== b[k]);
-	return i === -1 ? 0 : a[i] - b[i];
+function toOrder(poured: ReadonlyArray<{ alias: string; score: number }>): OrderEntry[] {
+	return poured.map((b, i) => ({ position: i + 1, alias: b.alias, score: b.score }));
 }
 
 type PouredBottle = TastingBottle &
@@ -590,7 +573,6 @@ export type ParticipantView =
 			tasting: { name: string; tastingDate: string };
 			manual: ManualPhaseChanges;
 			order: OrderEntry[];
-			curves: OrderCurves;
 	  }
 	| {
 			phase: 'revealed';
@@ -601,8 +583,8 @@ export type ParticipantView =
 
 /**
  * What a participant link shows. Before 18:00 only the holder's own bottles
- * are even queried; afterwards the order with the anonymous factor curves,
- * and after the reveal everything.
+ * are even queried; afterwards the order with each bottle's total score, and
+ * after the reveal everything.
  */
 export function getParticipantView(
 	db: Db,
@@ -633,16 +615,13 @@ export function getParticipantView(
 				bottles
 			};
 		}
-		case 'order': {
-			const poured = pouredBottles(db, holder.tastingId);
+		case 'order':
 			return {
 				phase,
 				tasting: tastingInfo,
 				manual,
-				order: toOrder(poured),
-				curves: toCurves(poured)
+				order: toOrder(pouredBottles(db, holder.tastingId))
 			};
-		}
 		case 'revealed':
 			return {
 				phase,

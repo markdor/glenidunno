@@ -27,8 +27,7 @@ describe('Tasting link page', () => {
 		renderView({
 			phase: 'order',
 			tasting,
-			order: [{ position: 1, alias: 'Nebel' }],
-			curves: [[0], [0.2], [0.4], [1]]
+			order: [{ position: 1, alias: 'Nebel', score: 75.2 }]
 		});
 		await expect.poll(() => document.title).toBe('Whisky-Tasting');
 	});
@@ -81,28 +80,21 @@ describe('Tasting link page', () => {
 		expect(first.getByText('Pflichtfeld').elements()).toHaveLength(0);
 	});
 
-	test('shows the numbered aliases and the unlabeled chart in the order phase', async () => {
+	test('shows the numbered aliases and the total-score chart in the order phase', async () => {
 		renderView({
 			phase: 'order',
 			tasting,
 			order: [
-				{ position: 1, alias: 'Blume' },
-				{ position: 2, alias: 'Nebel' }
-			],
-			curves: [
-				[0, 1],
-				[0.1, 0.5],
-				[0.2, 0.6],
-				[0.8, 0.8]
+				{ position: 1, alias: 'Blume', score: 35.2 },
+				{ position: 2, alias: 'Nebel', score: 75.2 }
 			]
 		});
 
 		await expect.element(page.getByRole('heading', { name: 'Tastingreihenfolge' })).toBeVisible();
 		await expect.element(page.getByRole('listitem').nth(1)).toHaveTextContent(/2.*Nebel/);
 		expect(page.getByRole('form').elements()).toHaveLength(0);
-		await expect
-			.element(page.getByRole('img', { name: /nicht zugeordneten Faktoren/ }))
-			.toBeVisible();
+		await expect.element(page.getByRole('img', { name: /Gesamtscore/ })).toBeVisible();
+		expect(page.getByRole('img').elements()).toHaveLength(1);
 	});
 
 	test('shows the reveal without the score breakdown', async () => {
@@ -139,7 +131,7 @@ describe('Tasting link page', () => {
 	test.each([
 		{
 			phase: 'order',
-			view: { order: [{ position: 1, alias: 'Nebel' }], curves: [[0], [0], [0], [0]] },
+			view: { order: [{ position: 1, alias: 'Nebel', score: 75.2 }] },
 			manual: { orderOpenedAt: new Date('2026-10-24T15:32:00Z'), revealedAt: null },
 			notice: 'Der Admin hat die Reihenfolge am Sa., 24.10.2026 um 17:32 Uhr vorzeitig freigegeben.'
 		},
@@ -188,7 +180,7 @@ describe('Tasting link page', () => {
 
 	test('reports a general save failure as a toast', async () => {
 		renderView(
-			{ phase: 'order', tasting, order: [], curves: [[], [], [], []] },
+			{ phase: 'order', tasting, order: [] },
 			{ action: 'save', slot: 1, userMessage: 'Die Eingabe ist geschlossen.', reload: true }
 		);
 		expect(

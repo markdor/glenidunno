@@ -11,15 +11,17 @@
 
 <script lang="ts">
 	// The plot shared by the score charts: one smoothed line per series over
-	// the pouring order, on a common 0–100 % axis. The tiles around it decide
-	// what the lines are called (or that they stay anonymous) and what a
-	// hovered bottle reveals.
+	// the pouring order, on a common 0–100 axis. The tiles around it decide
+	// what the lines are called (a single line is named by the tile's title)
+	// and whether a hovered bottle reveals anything at all.
 
 	let {
 		aliases,
 		series,
 		ariaLabel,
 		describePoint,
+		unit = '%',
+		bottleMarks = true,
 		activeIndex = $bindable(null)
 	}: {
 		/** X-axis: one alias per bottle, in pouring order. */
@@ -28,23 +30,38 @@
 		ariaLabel: string;
 		/**
 		 * Accessible name of a bottle's hover/focus target. Without it the chart
-		 * has no targets at all and `activeIndex` stays `null`.
+		 * has no targets at all: nothing to hover, tap or focus, no per-bottle
+		 * text – only the line.
 		 */
 		describePoint?: (index: number) => string;
+		/** Unit after the y-axis ticks 0, 50 and 100; `null` for plain numbers. */
+		unit?: string | null;
+		/**
+		 * Per bottle a vertical guide, its alias below the plot and a point on
+		 * every line. Without them only the lines and the y-axis remain.
+		 */
+		bottleMarks?: boolean;
 		activeIndex?: number | null;
 	} = $props();
 
 	const PAD_LEFT = 38;
 	const PAD_TOP = 14;
 	const PLOT_HEIGHT = 220;
-	const PAD_BOTTOM = 54;
+	// Below the plot: room for the rotated aliases, or – without them – just
+	// for the lower half of the 0 tick label.
+	const ALIAS_RESERVE = 54;
+	const TICK_RESERVE = 8;
 	// Right of the last bottle: room for the end labels, or – when no line is
 	// labeled – just for the last point's marker.
 	const LABEL_RESERVE = 104;
 	const MARKER_RESERVE = 12;
 	// Floor for the column spacing – never compressed narrower than this, even
 	// when many bottles would otherwise force it; the wrapper scrolls instead.
+	// The aliases need the wider one; without them only the hover targets
+	// count (the dataviz skill's 24px minimum hit area) – a floor that also
+	// keeps the line legible when there are no targets.
 	const STEP_MIN = 88;
+	const HIT_TARGET_MIN = 24;
 	const MIN_LABEL_GAP = 16;
 	// clientWidth rounds to an integer while the container's true (fractional)
 	// width can be a hair narrower; drawing the SVG at exactly that integer
@@ -55,18 +72,19 @@
 
 	// Measured width of the chart's card slot. Until the ResizeObserver behind
 	// bind:clientWidth reports a real value (SSR, first paint) this stays 0 and
-	// the chart falls back to its natural, STEP_MIN-spaced width below.
+	// the chart falls back to its natural, minimum-spaced width below.
 	let containerWidth: number = $state(0);
 
+	const stepMin = $derived(bottleMarks ? STEP_MIN : HIT_TARGET_MIN);
 	const padRight = $derived(series.some((s) => s.label) ? LABEL_RESERVE : MARKER_RESERVE);
-	const naturalWidth = $derived(PAD_LEFT + Math.max(1, aliases.length - 1) * STEP_MIN + padRight);
+	const naturalWidth = $derived(PAD_LEFT + Math.max(1, aliases.length - 1) * stepMin + padRight);
 	// Fills the available width when there's room (containerWidth > natural);
-	// otherwise keeps the natural, STEP_MIN-spaced width and lets the wrapper
+	// otherwise keeps the natural, minimum-spaced width and lets the wrapper
 	// scroll horizontally.
 	const width = $derived(Math.max(naturalWidth, containerWidth - CONTAINER_SAFETY_MARGIN));
 	const plotWidth = $derived(width - PAD_LEFT - padRight);
 	const step = $derived(aliases.length > 1 ? plotWidth / (aliases.length - 1) : plotWidth);
-	const height = PAD_TOP + PLOT_HEIGHT + PAD_BOTTOM;
+	const height = $derived(PAD_TOP + PLOT_HEIGHT + (bottleMarks ? ALIAS_RESERVE : TICK_RESERVE));
 	const axisLabelY = PAD_TOP + PLOT_HEIGHT + 14;
 
 	function xAt(i: number): number {
@@ -193,21 +211,23 @@
 				text-anchor="end"
 				class="fill-slate-400 text-[10px]"
 			>
-				{fraction * 100}&nbsp;%
+				{fraction * 100}{#if unit}&nbsp;{unit}{/if}
 			</text>
 		{/each}
 
 		<!-- Aliases are unique within a tasting, so they double as keys. -->
-		{#each aliases as alias, i (alias)}
-			<line
-				x1={xAt(i)}
-				x2={xAt(i)}
-				y1={PAD_TOP}
-				y2={PAD_TOP + PLOT_HEIGHT}
-				class="stroke-slate-200"
-				stroke-width="1"
-			/>
-		{/each}
+		{#if bottleMarks}
+			{#each aliases as alias, i (alias)}
+				<line
+					x1={xAt(i)}
+					x2={xAt(i)}
+					y1={PAD_TOP}
+					y2={PAD_TOP + PLOT_HEIGHT}
+					class="stroke-slate-200"
+					stroke-width="1"
+				/>
+			{/each}
+		{/if}
 
 		{#each seriesLines as s (s.key)}
 			{#if s.areaPath}
@@ -221,9 +241,11 @@
 				stroke-linecap="round"
 				stroke-linejoin="round"
 			/>
-			{#each s.coords as c, i (i)}
-				<circle cx={c.x} cy={c.y} r="4" fill={s.color} stroke="white" stroke-width="2" />
-			{/each}
+			{#if bottleMarks}
+				{#each s.coords as c, i (i)}
+					<circle cx={c.x} cy={c.y} r="4" fill={s.color} stroke="white" stroke-width="2" />
+				{/each}
+			{/if}
 		{/each}
 
 		{#each endLabels as l (l.key)}
@@ -248,17 +270,19 @@
 		{/each}
 
 		{#each aliases as alias, i (alias)}
-			<text
-				x="0"
-				y="0"
-				dy="0.3em"
-				text-anchor="end"
-				transform={`translate(${xAt(i)},${axisLabelY}) rotate(-40)`}
-				class="fill-slate-400 text-[10px]"
-			>
-				{truncate(alias)}
-				<title>{alias}</title>
-			</text>
+			{#if bottleMarks}
+				<text
+					x="0"
+					y="0"
+					dy="0.3em"
+					text-anchor="end"
+					transform={`translate(${xAt(i)},${axisLabelY}) rotate(-40)`}
+					class="fill-slate-400 text-[10px]"
+				>
+					{truncate(alias)}
+					<title>{alias}</title>
+				</text>
+			{/if}
 			{#if describePoint}
 				<rect
 					x={xAt(i) - step / 2}
