@@ -4,19 +4,20 @@
 		ABV_FLOOR,
 		ABV_KINK,
 		ABV_SPAN,
+		formatSmokeGroupRange,
 		SCORE_WEIGHTS,
-		SMOKE_GROUP_UPPER_BOUNDS
+		SMOKE_GROUPS
 	} from '$lib/tasting';
 	import { TASTING_SCALE } from '$lib/validation';
 
 	const abvCeiling = ABV_FLOOR + ABV_SPAN;
 
-	// Each bound spans at least two values (0–1, 2–3, 4–5 with the current
-	// bounds), so the label is always a range, never a single number.
-	const smokeGroups = SMOKE_GROUP_UPPER_BOUNDS.map((upper, i) => {
-		const lower = i === 0 ? TASTING_SCALE.min : SMOKE_GROUP_UPPER_BOUNDS[i - 1] + 1;
-		return { group: i + 1, label: `${lower}–${upper}` };
-	});
+	const smokeGroups = SMOKE_GROUPS.map((g, i) => ({
+		group: i + 1,
+		label: g.label,
+		range: formatSmokeGroupRange(i + 1)
+	}));
+	const smokeGroupOrder = smokeGroups.map((g) => g.label).join(' → ');
 </script>
 
 <div class="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
@@ -25,7 +26,7 @@
 		Wie kommt die Reihenfolge zustande?
 	</h2>
 	<p class="text-sm text-slate-700">
-		Die Flaschen werden zuerst nach Rauchintensität in drei Gruppen sortiert (leicht → torfig),
+		Die Flaschen werden zuerst nach Rauchintensität in drei Gruppen sortiert ({smokeGroupOrder}),
 		innerhalb einer Gruppe entscheidet ein Score aus Rauch, Fass, Alkohol und Kaliber.
 	</p>
 
@@ -41,7 +42,7 @@
 				<dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-slate-600">
 					{#each smokeGroups as g (g.group)}
 						<dt>Gruppe {g.group}</dt>
-						<dd>Rauch {g.label}</dd>
+						<dd>{g.label} (Rauch {g.range})</dd>
 					{/each}
 				</dl>
 			</div>

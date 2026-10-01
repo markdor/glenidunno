@@ -2,7 +2,12 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
-	import type { TastingBottle } from '$lib/tasting';
+	import {
+		formatSmokeGroupRange,
+		smokeGroup,
+		SMOKE_GROUPS,
+		type TastingBottle
+	} from '$lib/tasting';
 	import {
 		TASTING_ABV,
 		TASTING_AGE,
@@ -40,8 +45,13 @@
 
 	type Scale = 'smoke' | 'cask' | 'value';
 
+	// The smoke hint lists the smoke groups, e.g. "0 = ungetorft, 1–3 = rauchig, …".
+	const smokeHint = SMOKE_GROUPS.map((g, i) => `${formatSmokeGroupRange(i + 1)} = ${g.label}`).join(
+		', '
+	);
+
 	const scales: Array<{ field: Scale; label: string; hint: string }> = [
-		{ field: 'smoke', label: 'Rauch', hint: '0 = kein Rauch, 5 = Laphroaig-/Ardbeg-Niveau' },
+		{ field: 'smoke', label: 'Rauch', hint: smokeHint },
 		{
 			field: 'cask',
 			label: 'Fass',
@@ -274,6 +284,12 @@
 				</label>
 				<output for={id(scale.field)} class="text-sm font-semibold text-slate-900">
 					{scaleValue(scale.field)}
+					{#if scale.field === 'smoke'}
+						<!-- The group decides the pouring block, so show where the value lands. -->
+						<span class="font-normal text-slate-500">
+							· {SMOKE_GROUPS[smokeGroup(scaleValue('smoke')) - 1].label}
+						</span>
+					{/if}
 				</output>
 			</div>
 			<input

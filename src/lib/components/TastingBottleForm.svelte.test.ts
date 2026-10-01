@@ -85,7 +85,7 @@ describe('TastingBottleForm', () => {
 			.toBeVisible();
 		await expect.element(page.getByText('Leer lassen bei Originalabfüllung.')).toBeVisible();
 		await expect
-			.element(page.getByText('0 = kein Rauch, 5 = Laphroaig-/Ardbeg-Niveau'))
+			.element(page.getByText('0 = ungetorft, 1–3 = rauchig, 4–5 = stark rauchig'))
 			.toBeVisible();
 		await expect
 			.element(page.getByText('0 = Alltagsflasche, 5 = Highlight des Abends'))
@@ -95,13 +95,32 @@ describe('TastingBottleForm', () => {
 	test('shows the current slider value', async () => {
 		render(TastingBottleForm, { slot: 1, bottle: saved });
 		const slider = page.getByRole('slider', { name: 'Kaliber *' });
-		const output = page.getByRole('status').filter({ hasText: /^\d$/ });
+		// Trailing whitespace: the smoke output's group label sits in an #if behind the digit.
+		const output = page.getByRole('status').filter({ hasText: /^\d\s*$/ });
 		await expect.element(slider).toHaveValue('4');
 
 		(slider.element() as HTMLInputElement).value = '1';
 		slider.element().dispatchEvent(new Event('input', { bubbles: true }));
 
 		await expect.poll(() => output.elements().map((o) => o.textContent?.trim())).toContain('1');
+	});
+
+	test('shows the smoke group the smoke value lands in', async () => {
+		render(TastingBottleForm, { slot: 1, bottle: saved });
+		const slider = page.getByRole('slider', { name: 'Rauch *' });
+		const output = page.getByRole('status').filter({ hasText: /ungetorft|rauchig/ });
+		await expect.element(output).toHaveTextContent('5 · stark rauchig');
+
+		for (const [value, text] of [
+			['4', '4 · stark rauchig'],
+			['3', '3 · rauchig'],
+			['1', '1 · rauchig'],
+			['0', '0 · ungetorft']
+		]) {
+			(slider.element() as HTMLInputElement).value = value;
+			slider.element().dispatchEvent(new Event('input', { bubbles: true }));
+			await expect.element(output).toHaveTextContent(text);
+		}
 	});
 
 	test('shows field errors and keeps the sent values', async () => {

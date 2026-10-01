@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scoreBottle, smokeGroup, sortForPouring } from './tastingScore';
+import { scoreBottle, sortForPouring } from './tastingScore';
 
 type TestBottle = {
 	distillery: string;
@@ -60,19 +60,6 @@ describe('scoreBottle', () => {
 	});
 });
 
-describe('smokeGroup', () => {
-	it.each([
-		[0, 1],
-		[1, 1],
-		[2, 2],
-		[3, 2],
-		[4, 3],
-		[5, 3]
-	])('puts smoke %i into group %i', (smoke, group) => {
-		expect(smokeGroup(smoke)).toBe(group);
-	});
-});
-
 describe('sortForPouring', () => {
 	it('pours the reference bottles light → heavy → smoky', () => {
 		expect(names(sortForPouring([islay, sherryBomb, speysider]))).toEqual([
@@ -91,13 +78,22 @@ describe('sortForPouring', () => {
 
 	it('pours a smoky but otherwise weak bottle after the unsmoked ones', () => {
 		const smokyWeak = bottle('Smoky weak', 4, 0, 40, 0); // score 32
-		const strong = bottle('Strong unsmoked', 1, 5, 60, 5); // score 63
+		const strong = bottle('Strong unsmoked', 0, 5, 60, 5); // score 55
 		expect(names(sortForPouring([smokyWeak, strong]))).toEqual(['Strong unsmoked', 'Smoky weak']);
+	});
+
+	it('pours a barely smoky bottle after a heavy unpeated one', () => {
+		const touchOfSmoke = bottle('Touch of smoke', 1, 0, 40, 0); // score 8
+		const sherryBomb = bottle('Unpeated sherry bomb', 0, 5, 60, 5); // score 55
+		expect(names(sortForPouring([touchOfSmoke, sherryBomb]))).toEqual([
+			'Unpeated sherry bomb',
+			'Touch of smoke'
+		]);
 	});
 
 	it('orders by score alone when the smoke groups are switched off', () => {
 		const smokyWeak = bottle('Smoky weak', 4, 0, 40, 0);
-		const strong = bottle('Strong unsmoked', 1, 5, 60, 5);
+		const strong = bottle('Strong unsmoked', 0, 5, 60, 5);
 		expect(names(sortForPouring([strong, smokyWeak], false))).toEqual([
 			'Smoky weak',
 			'Strong unsmoked'
@@ -106,8 +102,9 @@ describe('sortForPouring', () => {
 
 	describe('tie-breakers on identical scores', () => {
 		it('pours the less smoky bottle first', () => {
-			const smokier = bottle('Smokier', 1, 1, 40, 1); // 8 + 6 + 0 + 2 = 16
-			const lessSmoky = bottle('Less smoky', 0, 2, 40, 2); // 0 + 12 + 0 + 4 = 16
+			// Same smoke group, otherwise the group would decide before the tie-breaker.
+			const smokier = bottle('Smokier', 2, 0, 40, 0); // 16 + 0 + 0 + 0 = 16
+			const lessSmoky = bottle('Less smoky', 1, 1, 40, 1); // 8 + 6 + 0 + 2 = 16
 			expect(names(sortForPouring([smokier, lessSmoky]))).toEqual(['Less smoky', 'Smokier']);
 		});
 

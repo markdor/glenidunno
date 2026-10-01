@@ -2,26 +2,22 @@ import {
 	formatBottleName,
 	normalizeScoreFactors,
 	SCORE_WEIGHTS,
-	SMOKE_GROUP_UPPER_BOUNDS,
+	smokeGroup,
 	SMOKE_GROUPS_ENABLED,
 	type ScoreBreakdown,
 	type ScoreInput,
 	type TastingBottle
 } from '$lib/tasting';
 
-// The tunables (weights, ABV range, smoke groups) and the normalization live
-// in $lib/tasting.ts, not here: the TastingScoreExplainer tile and the
-// TastingScoreChart render the same numbers for participants and can't
-// import a $lib/server module.
+// The tunables (weights, ABV range, smoke groups), the normalization and the
+// smoke grouping live in $lib/tasting.ts, not here: the TastingScoreExplainer
+// tile, the TastingScoreChart and the bottle form render the same numbers for
+// participants and can't import a $lib/server module.
 
 export type BottleScore = { score: number; breakdown: ScoreBreakdown };
 
 function roundOne(value: number): number {
 	return Math.round(value * 10) / 10;
-}
-
-export function smokeGroup(smoke: number): number {
-	return SMOKE_GROUP_UPPER_BOUNDS.findIndex((upper) => smoke <= upper) + 1;
 }
 
 /**

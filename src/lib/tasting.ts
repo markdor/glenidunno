@@ -115,12 +115,31 @@ const ABV_KINK_FRACTION = ABV_LOW_SLOPE * ABV_LOW_SPAN;
 
 /**
  * Smoke groups are poured in ascending order before the score is compared:
- * group 1 = smoke 0–1, group 2 = 2–3, group 3 = 4–5 (upper bounds below).
+ * group 1 = smoke 0, group 2 = 1–3, group 3 = 4–5 (inclusive upper bounds).
+ * The first bound sits between "no peat" and "any peat" – the one question
+ * every participant rates the same way, and anything peated is poured after
+ * everything unpeated. The labels are shown to participants as they are.
  */
-export const SMOKE_GROUP_UPPER_BOUNDS = [1, 3, 5] as const;
+export const SMOKE_GROUPS = [
+	{ upper: 0, label: 'ungetorft' },
+	{ upper: 3, label: 'rauchig' },
+	{ upper: 5, label: 'stark rauchig' }
+] as const;
 
 /** With `false` only the score (and the tie-breakers) decide the order. */
 export const SMOKE_GROUPS_ENABLED = true;
+
+/** 1-based smoke group of a smoke value, see {@link SMOKE_GROUPS}. */
+export function smokeGroup(smoke: number): number {
+	return SMOKE_GROUPS.findIndex((group) => smoke <= group.upper) + 1;
+}
+
+/** Smoke values a 1-based group covers, e.g. "0" or "1–3". */
+export function formatSmokeGroupRange(group: number): string {
+	const upper = SMOKE_GROUPS[group - 1].upper;
+	const lower = group === 1 ? TASTING_SCALE.min : SMOKE_GROUPS[group - 2].upper + 1;
+	return lower === upper ? String(lower) : `${lower}–${upper}`;
+}
 
 export type ScoreInput = Pick<TastingBottle, 'smoke' | 'cask' | 'abv' | 'value'>;
 

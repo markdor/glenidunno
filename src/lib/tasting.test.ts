@@ -2,9 +2,34 @@ import { describe, it, expect } from 'vitest';
 import {
 	formatBottleName,
 	formatOneDecimal,
+	formatSmokeGroupRange,
 	formatTastingDate,
-	formatTastingTimestamp
+	formatTastingTimestamp,
+	smokeGroup
 } from './tasting';
+
+describe('smokeGroup', () => {
+	it.each([
+		[0, 1],
+		[1, 2],
+		[2, 2],
+		[3, 2],
+		[4, 3],
+		[5, 3]
+	])('puts smoke %i into group %i', (smoke, group) => {
+		expect(smokeGroup(smoke)).toBe(group);
+	});
+});
+
+describe('formatSmokeGroupRange', () => {
+	it.each([
+		[1, '0'],
+		[2, '1–3'],
+		[3, '4–5']
+	])('shows group %i as %s', (group, range) => {
+		expect(formatSmokeGroupRange(group)).toBe(range);
+	});
+});
 
 describe('formatBottleName', () => {
 	it('uses only the distillery when nothing else is set', () => {
