@@ -13,6 +13,14 @@ describe('TastingScoreExplainer', () => {
 				)
 			)
 			.toBeVisible();
+		// Factors by weight, like the detailed explanation.
+		await expect
+			.element(
+				page.getByText(
+					/innerhalb einer Gruppe entscheidet ein Score aus Rauch, Fass, Kaliber und Alkohol\./
+				)
+			)
+			.toBeVisible();
 	});
 
 	test('explains each score factor with its share of the score', async () => {
@@ -24,11 +32,18 @@ describe('TastingScoreExplainer', () => {
 		for (const [label, weight] of [
 			['Rauch', 40],
 			['Fass', 30],
-			['Alkohol', 20],
-			['Kaliber', 10]
+			['Kaliber', 20],
+			['Alkohol', 10]
 		] as const) {
 			await expect.element(factor(label)).toHaveTextContent(`${weight} % des Scores`);
 		}
+		// Sorted by weight, not in the order of the bottle form.
+		expect(
+			page
+				.getByRole('listitem')
+				.elements()
+				.map((li) => li.querySelector('span')?.textContent)
+		).toEqual(['Rauch', 'Fass', 'Kaliber', 'Alkohol']);
 		for (const label of ['Rauch', 'Fass', 'Kaliber']) {
 			await expect.element(factor(label)).toHaveTextContent('eigener Wert ÷ 5');
 		}
@@ -58,13 +73,13 @@ describe('TastingScoreExplainer', () => {
 		await expect.element(page.getByText('stark rauchig (Rauch 4–5)')).toBeVisible();
 		await expect
 			.element(
-				page.getByText('Score = 100 × (0.4 × Rauch + 0.3 × Fass + 0.2 × Alkohol + 0.1 × Kaliber)')
+				page.getByText('Score = 100 × (0.4 × Rauch + 0.3 × Fass + 0.2 × Kaliber + 0.1 × Alkohol)')
 			)
 			.toBeVisible();
 		await expect
 			.element(
 				page.getByText(
-					'Bei identischem Score entscheiden der Reihe nach Rauch, Fass, Alkohol und zuletzt der Flaschenname.'
+					'Bei identischem Score entscheiden der Reihe nach Rauch, Fass, Kaliber, Alkohol und zuletzt der Flaschenname.'
 				)
 			)
 			.toBeVisible();

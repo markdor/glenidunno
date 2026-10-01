@@ -90,8 +90,23 @@ export type ScoreBreakdown = { smoke: number; cask: number; abv: number; value: 
 // and the TastingScoreExplainer tile, which renders these same numbers for
 // participants – so it can't import from $lib/server.
 
-/** Weights of the normalized factors. They sum to 1, so the score spans 0–100. */
-export const SCORE_WEIGHTS = { smoke: 0.4, cask: 0.3, abv: 0.2, value: 0.1 } as const;
+/**
+ * Weights of the normalized factors. They sum to 1, so the score spans 0–100.
+ * Smoke and cask linger on the palate, ABV doesn't (a sip of water resets it),
+ * so it weighs least; value moves the highlights to the end of their group.
+ */
+export const SCORE_WEIGHTS = { smoke: 0.4, cask: 0.3, abv: 0.1, value: 0.2 } as const;
+
+export type ScoreFactor = keyof typeof SCORE_WEIGHTS;
+
+/**
+ * The factors, heaviest weight first. One order for both the tie-breakers on
+ * identical scores (tastingScore.ts) and the TastingScoreExplainer tile, so
+ * the tile always describes what the sorting does.
+ */
+export const SCORE_FACTORS_BY_WEIGHT = (Object.keys(SCORE_WEIGHTS) as ScoreFactor[]).sort(
+	(a, b) => SCORE_WEIGHTS[b] - SCORE_WEIGHTS[a]
+);
 
 /** ABV at or below the floor counts as 0, at or above floor + span as 1. */
 export const ABV_FLOOR = 40;

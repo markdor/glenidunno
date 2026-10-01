@@ -204,8 +204,8 @@ describe('getParticipantView', () => {
 			tasting: { name: 'Herbst-Tasting', tastingDate: TASTING_DATE },
 			manual: { orderOpenedAt: null, revealedAt: null },
 			order: [
-				{ position: 1, alias: 'Blume', score: 15.5 },
-				{ position: 2, alias: 'Nebel', score: 75.2 }
+				{ position: 1, alias: 'Blume', score: 22.8 },
+				{ position: 2, alias: 'Nebel', score: 78.6 }
 			]
 		});
 	});

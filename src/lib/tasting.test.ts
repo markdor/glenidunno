@@ -11,8 +11,15 @@ import {
 	formatTastingDate,
 	formatTastingTimestamp,
 	normalizeScoreFactors,
+	SCORE_FACTORS_BY_WEIGHT,
 	smokeGroup
 } from './tasting';
+
+describe('SCORE_FACTORS_BY_WEIGHT', () => {
+	it('lists the factors heaviest weight first', () => {
+		expect(SCORE_FACTORS_BY_WEIGHT).toEqual(['smoke', 'cask', 'value', 'abv']);
+	});
+});
 
 describe('ABV formula constants', () => {
 	// The explainer tile prints the formula with these constants – it must

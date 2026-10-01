@@ -8,8 +8,10 @@
 		ABV_LOW_DIVISOR,
 		ABV_SPAN,
 		formatSmokeGroupRange,
+		SCORE_FACTORS_BY_WEIGHT,
 		SCORE_WEIGHTS,
-		SMOKE_GROUPS
+		SMOKE_GROUPS,
+		type ScoreFactor
 	} from '$lib/tasting';
 	import { TASTING_SCALE } from '$lib/validation';
 
@@ -30,12 +32,20 @@
 		.map(([range, share]) => `${range.padEnd(abvRangeWidth)}  ${share}`)
 		.join('\n');
 
-	const factors: Array<{ key: keyof typeof SCORE_WEIGHTS; label: string }> = [
-		{ key: 'smoke', label: 'Rauch' },
-		{ key: 'cask', label: 'Fass' },
-		{ key: 'abv', label: 'Alkohol' },
-		{ key: 'value', label: 'Kaliber' }
-	];
+	const FACTOR_LABEL: Record<ScoreFactor, string> = {
+		smoke: 'Rauch',
+		cask: 'Fass',
+		abv: 'Alkohol',
+		value: 'Kaliber'
+	};
+
+	// Heaviest weight first – the same order the tie-breakers use, so summary,
+	// list, formula and tie-breaker text all follow the weights if they change.
+	const factors = SCORE_FACTORS_BY_WEIGHT.map((key) => ({ key, label: FACTOR_LABEL[key] }));
+	const scoreFormula = factors.map((f) => `${SCORE_WEIGHTS[f.key]} × ${f.label}`).join(' + ');
+	const labels = factors.map((f) => f.label);
+	// "Rauch, Fass, Kaliber und Alkohol" for the short summary.
+	const factorList = new Intl.ListFormat('de-DE', { type: 'conjunction' }).format(labels);
 
 	const smokeGroups = SMOKE_GROUPS.map((g, i) => ({
 		group: i + 1,
@@ -52,7 +62,7 @@
 	</h2>
 	<p class="text-sm text-slate-700">
 		Die Flaschen werden zuerst nach Rauchintensität in drei Gruppen sortiert ({smokeGroupOrder}),
-		innerhalb einer Gruppe entscheidet ein Score aus Rauch, Fass, Alkohol und Kaliber.
+		innerhalb einer Gruppe entscheidet ein Score aus {factorList}.
 	</p>
 
 	<details class="text-sm">
@@ -85,9 +95,9 @@
 							</p>
 							{#if f.key === 'abv'}
 								<p class="mt-0.5 text-slate-600">
-									Ebenfalls auf einen Anteil zwischen 0 und 1 umgerechnet, aber in zwei Abschnitten:
-									Von {ABV_FLOOR} bis {ABV_KINK} % vol. steigt der Anteil gemächlich, ab {ABV_KINK} %
-									vol. doppelt so schnell, bis er bei {abvCeiling} % vol. 1 erreicht – jedes Prozent über
+									Auf einen Anteil zwischen 0 und 1 umgerechnet, aber in zwei Abschnitten: Von {ABV_FLOOR}
+									bis {ABV_KINK} % vol. steigt der Anteil gemächlich, ab {ABV_KINK} % vol. doppelt so
+									schnell, bis er bei {abvCeiling} % vol. 1 erreicht – jedes Prozent über
 									{ABV_KINK} % vol. zählt also doppelt. Unter {ABV_FLOOR} % vol. bleibt er bei 0, über
 									{abvCeiling} % vol. bei 1. Mit Wert = eigener Alkoholgehalt in % vol.:
 								</p>
@@ -107,16 +117,14 @@
 				<p
 					class="mt-1 rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs break-words text-slate-700"
 				>
-					Score = 100 × ({SCORE_WEIGHTS.smoke} × Rauch + {SCORE_WEIGHTS.cask} × Fass + {SCORE_WEIGHTS.abv}
-					× Alkohol + {SCORE_WEIGHTS.value} × Kaliber)
+					Score = 100 × ({scoreFormula})
 				</p>
 			</div>
 
 			<div>
 				<p class="font-medium text-slate-700">3. Gleichstand</p>
 				<p class="mt-1 text-slate-600">
-					Bei identischem Score entscheiden der Reihe nach Rauch, Fass, Alkohol und zuletzt der
-					Flaschenname.
+					Bei identischem Score entscheiden der Reihe nach {labels.join(', ')} und zuletzt der Flaschenname.
 				</p>
 			</div>
 		</div>
