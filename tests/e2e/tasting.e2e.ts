@@ -117,11 +117,8 @@ test.describe('Tasting – Ablauf', () => {
 					/^Der Admin hat die Reihenfolge am .+ um \d\d:\d\d Uhr vorzeitig freigegeben\.$/
 				)
 			).toBeVisible();
-			// Scoped to the list: the blind chart below repeats the aliases on its x-axis.
-			await expect(
-				p.getByRole('list', { name: 'Tastingreihenfolge' }).getByText(ALIASES[0])
-			).toBeVisible();
-			await expect(p.getByRole('img', { name: /nicht zugeordneten Faktoren/ })).toBeVisible();
+			await expect(p.getByText(ALIASES[0])).toBeVisible();
+			await expect(p.getByRole('img', { name: /Gesamtscore/ })).toBeVisible();
 			const html = await (await p.request.get(annaUrl!)).text();
 			for (const name of DISTILLERIES) expect(html).not.toContain(name);
 			await expect(p.getByRole('form')).toHaveCount(0);

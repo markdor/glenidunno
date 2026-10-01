@@ -127,7 +127,7 @@ describe('tasting link load', () => {
 		expect(serialized).not.toContain('Glenkinchie');
 	});
 
-	it('shows only the numbered aliases and anonymous curves from 18:00', async () => {
+	it('shows only the numbered aliases with their total score from 18:00', async () => {
 		await save(annaToken, validBottle);
 		await save(benToken, { ...validBottle, alias: 'Blume', distillery: 'Glenkinchie', smoke: '0' });
 
@@ -138,18 +138,20 @@ describe('tasting link load', () => {
 			tasting: { name: 'Herbst-Tasting', tastingDate: '2026-10-24' },
 			manual: { orderOpenedAt: null, revealedAt: null },
 			order: [
-				{ position: 1, alias: 'Blume' },
-				{ position: 2, alias: 'Nebel' }
-			],
-			curves: [
-				[0, 1],
-				[expect.closeTo(0.46), expect.closeTo(0.46)],
-				[0.6, 0.6],
-				[0.8, 0.8]
+				{ position: 1, alias: 'Blume', score: 35.2 },
+				{ position: 2, alias: 'Nebel', score: 75.2 }
 			]
 		});
 		const serialized = JSON.stringify(result);
-		for (const hidden of ['Ardbeg', 'Glenkinchie', 'whiskybase', 'Anna', 'Ben', 'score', 'smoke']) {
+		for (const hidden of [
+			'Ardbeg',
+			'Glenkinchie',
+			'whiskybase',
+			'Anna',
+			'Ben',
+			'breakdown',
+			'smoke'
+		]) {
 			expect(serialized).not.toContain(hidden);
 		}
 	});

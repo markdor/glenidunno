@@ -1,31 +1,43 @@
 <script lang="ts">
 	import { ChartLine } from '@lucide/svelte';
-	import type { OrderCurves, OrderEntry } from '$lib/tasting';
+	import { formatOneDecimal, SMOKE_GROUPS_ENABLED, type OrderEntry } from '$lib/tasting';
 	import TastingLineChart from './TastingLineChart.svelte';
 
-	let { order, curves }: { order: OrderEntry[]; curves: OrderCurves } = $props();
+	let { order }: { order: OrderEntry[] } = $props();
 
-	// Blind on purpose: every curve in one and the same brown (the logo's
-	// amber, --color-brand), no end labels and no values on hover – which line
-	// is which factor only comes out with the reveal. The server already sends
-	// the curves without factor names (toCurves in tastings.ts).
-	const CURVE_COLOR = '#7d5212';
+	// One line in the logo's amber (--color-brand). Its chroma sits just under
+	// the dataviz skill's categorical floor, which only matters when several
+	// lines must be told apart; the 3:1 contrast on white a lone line needs
+	// passes. The title names the line, so there is no end label – and no
+	// per-bottle marks either: the list above names the bottles, tapping the
+	// chart tells a bottle's score.
+	const SCORE_COLOR = '#7d5212';
 
-	const series = $derived(
-		curves.map((values, i) => ({ key: String(i), color: CURVE_COLOR, values }))
-	);
+	// The score spans 0–100 (the weights sum to 1), the chart takes fractions.
+	const series = $derived([
+		{ key: 'score', color: SCORE_COLOR, values: order.map((entry) => entry.score / 100) }
+	]);
 	const aliases = $derived(order.map((entry) => entry.alias));
+
+	let activeIndex: number | null = $state(null);
+	const active = $derived(activeIndex === null ? null : (order[activeIndex] ?? null));
+
+	function describe(i: number): string {
+		return `Flasche ${order[i].alias}: Score ${formatOneDecimal(order[i].score)}`;
+	}
 </script>
 
 <div class="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
 	<div class="space-y-1">
 		<h2 class="flex items-center gap-2 font-semibold">
 			<ChartLine size={20} strokeWidth={2} aria-hidden="true" />
-			Score-Entwicklung über das Tasting
+			Gesamtscore über das Tasting
 		</h2>
 		<p class="text-sm text-slate-500">
-			Rauch, Fass, Alkohol und Kaliber je Flasche relativ zur Skala (0–100&nbsp;%), in
-			Ausschankreihenfolge. Welche Linie zu welchem Faktor gehört, verrät erst die Auflösung.
+			Der Score jeder Flasche (0–100) in Ausschankreihenfolge.
+			{#if SMOKE_GROUPS_ENABLED}
+				Innerhalb einer Rauchgruppe steigt er, mit der nächsten Gruppe kann er wieder fallen.
+			{/if}
 		</p>
 	</div>
 
@@ -35,7 +47,20 @@
 		<TastingLineChart
 			{aliases}
 			{series}
-			ariaLabel="Entwicklung von vier nicht zugeordneten Faktoren über die Ausschankreihenfolge"
+			ariaLabel="Gesamtscore der Flaschen über die Ausschankreihenfolge"
+			describePoint={describe}
+			unit={null}
+			bottleMarks={false}
+			bind:activeIndex
 		/>
+
+		<p class="min-h-5 text-xs text-slate-600" aria-live="polite">
+			{#if active}
+				<span class="font-medium text-slate-900">{active.alias}</span>
+				· Score {formatOneDecimal(active.score)}
+			{:else}
+				Tippe oder fahre mit der Maus über eine Flasche für den genauen Score.
+			{/if}
+		</p>
 	{/if}
 </div>

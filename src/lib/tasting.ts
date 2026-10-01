@@ -60,16 +60,11 @@ export type TastingBottle = {
 /** Entry progress of a participant or a whole tasting. */
 export type Progress = { entered: number; total: number };
 
-/** Position in the pouring order – everything the `order` phase may show. */
-export type OrderEntry = { position: number; alias: string };
-
 /**
- * The normalized score factors (0–1) as anonymous curves for the `order`
- * phase's chart, one value per bottle in pouring order: no factor names, and
- * sorted by their values, so not even a curve's index tells which factor it
- * is – that only comes with the reveal.
+ * Position in the pouring order with the total score – everything the `order`
+ * phase may show. Neither the factors nor the score breakdown.
  */
-export type OrderCurves = number[][];
+export type OrderEntry = { position: number; alias: string; score: number };
 
 /**
  * An uploaded presentation: the bottle id addresses the download route, the

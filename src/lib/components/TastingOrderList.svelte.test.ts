@@ -7,8 +7,8 @@ describe('TastingOrderList', () => {
 	test('lists the aliases in pouring order', async () => {
 		render(TastingOrderList, {
 			order: [
-				{ position: 1, alias: 'Blume' },
-				{ position: 2, alias: 'Nebel' }
+				{ position: 1, alias: 'Blume', score: 35.2 },
+				{ position: 2, alias: 'Nebel', score: 75.2 }
 			]
 		});
 

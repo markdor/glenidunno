@@ -76,7 +76,7 @@
 			</p>
 			<TastingOrderList order={view.order} />
 		</section>
-		<TastingOrderChart order={view.order} curves={view.curves} />
+		<TastingOrderChart order={view.order} />
 		<TastingScoreExplainer />
 	{:else}
 		<TastingManualNotice manual={view.manual} />
