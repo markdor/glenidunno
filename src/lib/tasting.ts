@@ -108,10 +108,19 @@ export const ABV_KINK = 50;
 
 const ABV_LOW_SPAN = ABV_KINK - ABV_FLOOR;
 const ABV_HIGH_SPAN = ABV_FLOOR + ABV_SPAN - ABV_KINK;
-// Slope below the kink; the slope above it is fixed at double this value, so
-// the two segments' contributions add up to exactly 1 at the ceiling.
-const ABV_LOW_SLOPE = 1 / (ABV_LOW_SPAN + 2 * ABV_HIGH_SPAN);
-const ABV_KINK_FRACTION = ABV_LOW_SLOPE * ABV_LOW_SPAN;
+
+/**
+ * % vol per full share below the kink, i.e. the inverse of the slope there.
+ * The slope above the kink is fixed at double, so the divisor halves, and the
+ * two segments' contributions add up to exactly 1 at the ceiling. Exported
+ * together with {@link ABV_KINK_FRACTION} for the TastingScoreExplainer tile,
+ * which prints the formula with these numbers.
+ */
+export const ABV_LOW_DIVISOR = ABV_LOW_SPAN + 2 * ABV_HIGH_SPAN;
+export const ABV_HIGH_DIVISOR = ABV_LOW_DIVISOR / 2;
+const ABV_LOW_SLOPE = 1 / ABV_LOW_DIVISOR;
+/** Normalized ABV share at {@link ABV_KINK}. */
+export const ABV_KINK_FRACTION = ABV_LOW_SLOPE * ABV_LOW_SPAN;
 
 /**
  * Smoke groups are poured in ascending order before the score is compared:

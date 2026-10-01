@@ -1,12 +1,36 @@
 import { describe, it, expect } from 'vitest';
 import {
+	ABV_FLOOR,
+	ABV_HIGH_DIVISOR,
+	ABV_KINK,
+	ABV_KINK_FRACTION,
+	ABV_LOW_DIVISOR,
 	formatBottleName,
 	formatOneDecimal,
 	formatSmokeGroupRange,
 	formatTastingDate,
 	formatTastingTimestamp,
+	normalizeScoreFactors,
 	smokeGroup
 } from './tasting';
+
+describe('ABV formula constants', () => {
+	// The explainer tile prints the formula with these constants – it must
+	// describe exactly what the normalization computes.
+	it.each([40, 42.5, 46, 50, 55.5, 60, 65])(
+		'reproduce the normalized share at %s %% vol',
+		(abv) => {
+			const shown =
+				abv <= ABV_KINK
+					? (abv - ABV_FLOOR) / ABV_LOW_DIVISOR
+					: ABV_KINK_FRACTION + (abv - ABV_KINK) / ABV_HIGH_DIVISOR;
+			expect(normalizeScoreFactors({ smoke: 0, cask: 0, abv, value: 0 }).abv).toBeCloseTo(
+				shown,
+				10
+			);
+		}
+	);
+});
 
 describe('smokeGroup', () => {
 	it.each([
