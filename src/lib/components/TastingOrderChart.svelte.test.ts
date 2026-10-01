@@ -60,22 +60,27 @@ describe('TastingOrderChart', () => {
 		expect(lastY).toBe(tickY('100'));
 	});
 
-	test('shows the score of a bottle on hover and hides it again', async () => {
-		render(TastingOrderChart, { order });
+	test('reveals no single bottle on hover, tap or focus', async () => {
+		const { container } = render(TastingOrderChart, { order });
+		const chart = page.getByRole('img', { name: /Gesamtscore/ });
+		await expect.element(chart).toBeVisible();
 
-		await expect.element(page.getByText(/Tippe oder fahre mit der Maus/)).toBeVisible();
+		// Nothing to hover, tap or tab to …
+		expect(container.querySelectorAll('[role="button"], [tabindex]')).toHaveLength(0);
 
-		await page.getByRole('button', { name: 'Flasche Nebel: Score 31,2' }).hover();
-		await expect.element(page.getByText('· Score 31,2', { exact: false })).toBeVisible();
-
-		await page.getByRole('img').hover({ position: { x: 5, y: 5 } });
-		await expect.element(page.getByText(/Tippe oder fahre mit der Maus/)).toBeVisible();
-	});
-
-	test('shows the same score on keyboard focus', async () => {
-		render(TastingOrderChart, { order });
-
-		await page.getByRole('button', { name: 'Flasche Blume: Score 12,5' }).element().focus();
-		await expect.element(page.getByText('· Score 12,5', { exact: false })).toBeVisible();
+		// … and no per-bottle text, neither visible nor as an accessible name.
+		const revealed = () =>
+			[
+				container.textContent ?? '',
+				...Array.from(container.querySelectorAll('[aria-label]'), (el) =>
+					el.getAttribute('aria-label')
+				)
+			].join(' ');
+		await chart.hover({ position: { x: 200, y: 100 } });
+		await chart.click({ position: { x: 200, y: 100 } });
+		for (const entry of order) {
+			expect(revealed()).not.toContain(entry.alias);
+			expect(revealed()).not.toContain(String(entry.score).replace('.', ','));
+		}
 	});
 });

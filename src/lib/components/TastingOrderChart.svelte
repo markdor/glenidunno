@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ChartLine } from '@lucide/svelte';
-	import { formatOneDecimal, SMOKE_GROUPS_ENABLED, type OrderEntry } from '$lib/tasting';
+	import { SMOKE_GROUPS_ENABLED, type OrderEntry } from '$lib/tasting';
 	import TastingLineChart from './TastingLineChart.svelte';
 
 	let { order }: { order: OrderEntry[] } = $props();
@@ -9,8 +9,9 @@
 	// the dataviz skill's categorical floor, which only matters when several
 	// lines must be told apart; the 3:1 contrast on white a lone line needs
 	// passes. The title names the line, so there is no end label – and no
-	// per-bottle marks either: the list above names the bottles, tapping the
-	// chart tells a bottle's score.
+	// per-bottle marks either: the list above names the bottles. Before the
+	// reveal the chart only shows the course of the score, so it has no
+	// hover/tap/focus targets that would tell a single bottle's value.
 	const SCORE_COLOR = '#7d5212';
 
 	// The score spans 0–100 (the weights sum to 1), the chart takes fractions.
@@ -18,13 +19,6 @@
 		{ key: 'score', color: SCORE_COLOR, values: order.map((entry) => entry.score / 100) }
 	]);
 	const aliases = $derived(order.map((entry) => entry.alias));
-
-	let activeIndex: number | null = $state(null);
-	const active = $derived(activeIndex === null ? null : (order[activeIndex] ?? null));
-
-	function describe(i: number): string {
-		return `Flasche ${order[i].alias}: Score ${formatOneDecimal(order[i].score)}`;
-	}
 </script>
 
 <div class="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
@@ -48,19 +42,8 @@
 			{aliases}
 			{series}
 			ariaLabel="Gesamtscore der Flaschen über die Ausschankreihenfolge"
-			describePoint={describe}
 			unit={null}
 			bottleMarks={false}
-			bind:activeIndex
 		/>
-
-		<p class="min-h-5 text-xs text-slate-600" aria-live="polite">
-			{#if active}
-				<span class="font-medium text-slate-900">{active.alias}</span>
-				· Score {formatOneDecimal(active.score)}
-			{:else}
-				Tippe oder fahre mit der Maus über eine Flasche für den genauen Score.
-			{/if}
-		</p>
 	{/if}
 </div>

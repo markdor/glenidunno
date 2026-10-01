@@ -13,7 +13,7 @@
 	// The plot shared by the score charts: one smoothed line per series over
 	// the pouring order, on a common 0–100 axis. The tiles around it decide
 	// what the lines are called (a single line is named by the tile's title)
-	// and what a hovered bottle reveals.
+	// and whether a hovered bottle reveals anything at all.
 
 	let {
 		aliases,
@@ -28,8 +28,12 @@
 		aliases: string[];
 		series: ChartSeries[];
 		ariaLabel: string;
-		/** Accessible name of a bottle's hover/focus target. */
-		describePoint: (index: number) => string;
+		/**
+		 * Accessible name of a bottle's hover/focus target. Without it the chart
+		 * has no targets at all: nothing to hover, tap or focus, no per-bottle
+		 * text – only the line.
+		 */
+		describePoint?: (index: number) => string;
 		/** Unit after the y-axis ticks 0, 50 and 100; `null` for plain numbers. */
 		unit?: string | null;
 		/**
@@ -54,7 +58,8 @@
 	// Floor for the column spacing – never compressed narrower than this, even
 	// when many bottles would otherwise force it; the wrapper scrolls instead.
 	// The aliases need the wider one; without them only the hover targets
-	// count (the dataviz skill's 24px minimum hit area).
+	// count (the dataviz skill's 24px minimum hit area) – a floor that also
+	// keeps the line legible when there are no targets.
 	const STEP_MIN = 88;
 	const HIT_TARGET_MIN = 24;
 	const MIN_LABEL_GAP = 16;
@@ -278,21 +283,23 @@
 					<title>{alias}</title>
 				</text>
 			{/if}
-			<rect
-				x={xAt(i) - step / 2}
-				y={PAD_TOP}
-				width={step}
-				height={PLOT_HEIGHT}
-				fill="transparent"
-				role="button"
-				tabindex="0"
-				aria-label={describePoint(i)}
-				onpointerenter={() => activate(i)}
-				onpointerdown={() => activate(i)}
-				onpointerleave={() => deactivate(i)}
-				onfocus={() => activate(i)}
-				onblur={() => deactivate(i)}
-			/>
+			{#if describePoint}
+				<rect
+					x={xAt(i) - step / 2}
+					y={PAD_TOP}
+					width={step}
+					height={PLOT_HEIGHT}
+					fill="transparent"
+					role="button"
+					tabindex="0"
+					aria-label={describePoint(i)}
+					onpointerenter={() => activate(i)}
+					onpointerdown={() => activate(i)}
+					onpointerleave={() => deactivate(i)}
+					onfocus={() => activate(i)}
+					onblur={() => deactivate(i)}
+				/>
+			{/if}
 		{/each}
 	</svg>
 </div>
