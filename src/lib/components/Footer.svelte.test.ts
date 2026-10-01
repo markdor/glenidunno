@@ -26,10 +26,14 @@ describe('Footer', () => {
 		await expect.element(link).toHaveAttribute('rel', 'noopener noreferrer');
 	});
 
-	test('shows the "Gemacht mit" note', async () => {
+	test('shows the "made with love and whisky" note', async () => {
 		render(Footer);
 
-		await expect.element(page.getByText(/Gemacht mit/)).toBeVisible();
-		await expect.element(page.getByRole('img', { name: 'Liebe' })).toBeVisible();
+		await expect.element(page.getByText(/made with/)).toBeVisible();
+		await expect.element(page.getByRole('img', { name: 'love' })).toBeVisible();
+		const glass = page.getByRole('img', { name: 'whisky' });
+		await expect.element(glass).toBeVisible();
+		// Vite inlines assets under 4 KB as data URLs, larger ones get a hashed file name.
+		expect(glass.element().getAttribute('src')).toMatch(/^data:image\/svg\+xml|glencairn-glass/);
 	});
 });

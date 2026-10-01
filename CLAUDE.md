@@ -52,6 +52,7 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
   - `slate-400` wird als Text auf Weiß genutzt (Placeholder, Admin-Metadaten) und ist deshalb bewusst dunkler als üblich (AA auf Weiß) – ein Off-White-Override von `--color-white` würde das kippen.
   - Die Creme steht zusätzlich in `src/app.html` (`theme-color`) und `static/site.webmanifest` – alle drei Stellen zusammen ändern.
 - Logo und Fass-Mark liegen als SVG-Dateien in `src/lib/assets/` und werden per `$lib/assets`-Import als `<img>` eingebunden (gehashte Dateinamen, immutable Caching) – nicht inline und nicht über Lucide. `glen-idunno-logo.svg` weicht bewusst vom Original aus Issue #6 ab: `viewBox` auf den Inhalt zugeschnitten (der leere Creme-Rand kostete auf dem Smartphone Platz) und Untertitel „Blind Tasting" ×1,5 samt nach außen gerückter Goldlinien (sonst unlesbar); die eingebettete C2PA-Signatur ist entfernt, weil sie nach der Bearbeitung nicht mehr zum Inhalt passte – bei einem Re-Export des Logos alles wieder anwenden.
+- Das Glencairn-Glas im Footer („made with ❤️ and 🥃“ – bewusst Englisch, mit `lang="en"`) ist ebenfalls eine eigene SVG-Datei in `src/lib/assets/`, weil weder Lucide noch Emoji ein Glencairn-Glas haben (🥃 ist ein Tumbler). Mit unter 4 KB inlinet Vite sie als `data:`-URL statt als gehashte Datei.
 
 ### Icons
 

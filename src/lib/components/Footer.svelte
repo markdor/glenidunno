@@ -1,4 +1,6 @@
 <script lang="ts">
+	import glencairn from '$lib/assets/glencairn-glass.svg';
+
 	const version = __APP_VERSION__;
 </script>
 
@@ -12,6 +14,10 @@
 		>
 			v{version}
 		</a>
-		<span>Gemacht mit <span role="img" aria-label="Liebe">❤️</span></span>
+		<!-- English on purpose; lang lets screen readers read "made with love and whisky" in English. -->
+		<span lang="en" class="inline-flex items-center gap-1">
+			made with <span role="img" aria-label="love">❤️</span> and
+			<img src={glencairn} alt="whisky" width="13" height="18" class="h-4.5 w-auto" />
+		</span>
 	</div>
 </footer>
