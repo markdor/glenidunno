@@ -324,7 +324,8 @@
 			class="block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700"
 		/>
 		<p id={id('presentation-hint')} class="text-xs text-slate-500">
-			Optional, z. B. PowerPoint, höchstens {MAX_PRESENTATION_MB} MB. Alle sehen sie erst bei der Auflösung.
+			Optional, z. B. PowerPoint, höchstens {MAX_PRESENTATION_MB} MB. Alle können sie ab der Reihenfolge
+			herunterladen, den Dateinamen sehen sie erst bei der Auflösung.
 		</p>
 		{#if bottle?.presentationName}
 			<p class="text-sm break-all text-slate-700">Hochgeladen: {bottle.presentationName}</p>

@@ -29,6 +29,7 @@ import { createTasting, findParticipantByToken, saveBottle } from '$lib/server/t
 import { GET } from './+server';
 
 const ENTRY = new Date('2026-10-20T10:00:00Z');
+const ORDER = new Date('2026-10-24T17:00:00Z');
 const REVEALED = new Date('2026-10-25T08:00:00Z');
 const deckBytes = new Uint8Array([1, 2, 3, 4]);
 
@@ -87,12 +88,23 @@ afterEach(async () => {
 const notFound = expect.objectContaining({ status: 404, body: { message: 'Not found' } });
 
 describe('presentation download through a participant link', () => {
-	it('is a 404 before the reveal – for other participants and the owner alike', async () => {
+	it('is a 404 during entry – for other participants and the owner alike', async () => {
 		await expect(download(tokens[1])).rejects.toEqual(notFound);
 		await expect(download(tokens[0])).rejects.toEqual(notFound);
 	});
 
-	it('serves the file as an attachment after the reveal', async () => {
+	it('serves the file from the order on, under the stored name until the reveal', async () => {
+		vi.setSystemTime(ORDER);
+		const response = await download(tokens[1]);
+
+		expect(response.status).toBe(200);
+		const disposition = response.headers.get('content-disposition');
+		expect(disposition).toContain('filename="Tasting_2026-10-24_Nebel.pptx"');
+		expect(disposition).not.toContain('Ardbeg');
+		expect(new Uint8Array(await response.arrayBuffer())).toEqual(deckBytes);
+	});
+
+	it('serves the file under its original name after the reveal', async () => {
 		vi.setSystemTime(REVEALED);
 		const response = await download(tokens[1]);
 

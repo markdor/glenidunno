@@ -83,8 +83,16 @@ export function toDomain(row: BottleRow): TastingBottle {
 // data in the template is not enough: `data` is serialized into the HTML and
 // __data.json in full. Fields are picked explicitly, never spread.
 
-function toOrder(poured: ReadonlyArray<{ alias: string; score: number }>): OrderEntry[] {
-	return poured.map((b, i) => ({ position: i + 1, alias: b.alias, score: b.score }));
+function toOrder(
+	poured: ReadonlyArray<{ alias: string; score: number; presentation: PresentationRef | null }>
+): OrderEntry[] {
+	return poured.map((b, i) => ({
+		position: i + 1,
+		alias: b.alias,
+		score: b.score,
+		// The link only: the original file name waits for the reveal.
+		presentation: b.presentation && { bottleId: b.presentation.bottleId }
+	}));
 }
 
 type PouredBottle = TastingBottle &
@@ -508,8 +516,10 @@ function findPresentation(db: Db, bottleId: string) {
 
 /**
  * Presentation download through a participant link: only for bottles of the
- * holder's tasting and only after the reveal – the file (and its name) is
- * content. `null` for everything else, so the route answers a uniform 404.
+ * holder's tasting and only from the order on – the slides are shown during
+ * the tasting. Until the reveal the download is named after the stored file
+ * (date + alias), not the original name, which may reveal the whisky.
+ * `null` for everything else, so the route answers a uniform 404.
  */
 export function getPresentationForParticipant(
 	db: Db,
@@ -519,8 +529,9 @@ export function getPresentationForParticipant(
 ): StoredPresentation | null {
 	const found = findPresentation(db, bottleId);
 	if (!found || found.tastingId !== holder.tastingId) return null;
-	if (getTastingPhase(holder.tastingDate, now, holder) !== 'revealed') return null;
-	return { file: found.file, name: found.name };
+	const phase = getTastingPhase(holder.tastingDate, now, holder);
+	if (phase === 'entry') return null;
+	return { file: found.file, name: phase === 'revealed' ? found.name : found.file };
 }
 
 // ── Participant link ────────────────────────────────────────────────────────

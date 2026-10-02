@@ -55,8 +55,10 @@ Links zeigen danach, wann der Admin das getan hat.
 Zu jeder Flasche kann optional eine Präsentation (meist PowerPoint,
 höchstens 30 MB) hochgeladen werden. Die Datei wird unverändert
 gespeichert, im Volume unter dem Namen
-`Tasting_<YYYY-MM-DD>_<Synonym>.<Endung>`, und erst mit der Auflösung
-verlinkt – vorher sieht niemand sie, auch nicht ihren Dateinamen.
+`Tasting_<YYYY-MM-DD>_<Synonym>.<Endung>`. Ab der Reihenfolge können
+alle sie herunterladen, damit die Folien beim Tasting gezeigt werden
+können – bis zur Auflösung unter diesem neutralen Namen, danach unter dem
+Originalnamen. Vorher sieht niemand die Datei, auch nicht ihren Namen.
 
 Blind für alle: Auch der Admin sieht vor 18 Uhr keine fremden Eingaben.
 Die Links zeigt die App dem Admin genau einmal (nach dem Anlegen bzw.
