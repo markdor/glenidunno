@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 
 const ALIASES = ['Nebelhorn', 'Blütenmeer'];
 const DISTILLERIES = ['Ardbeg', 'Glenkinchie'];
-// Uploaded with the first bottle and downloaded through the link after the reveal.
+// Uploaded with the first bottle, downloaded through the link from the order on.
 const PRESENTATION = {
 	name: 'Vortrag Flasche 1.pptx',
 	mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -26,7 +26,8 @@ test.describe('Tasting – Ablauf', () => {
 		// Default storageState of the e2e project: the logged-in admin.
 		await page.goto('/admin/tastings/new');
 		await page.getByLabel('Name *').fill(`E2E-Tasting ${Date.now()}`);
-		await page.getByLabel('Datum *').fill(dateInDays(7));
+		const tastingDate = dateInDays(7);
+		await page.getByLabel('Datum *').fill(tastingDate);
 		await page.getByLabel('Teilnehmer 1').fill('Anna');
 		await page.getByLabel('Teilnehmer 2').fill('Ben');
 		await page.getByRole('button', { name: 'Tasting anlegen' }).click();
@@ -117,11 +118,24 @@ test.describe('Tasting – Ablauf', () => {
 					/^Der Admin hat die Reihenfolge am .+ um \d\d:\d\d Uhr vorzeitig freigegeben\.$/
 				)
 			).toBeVisible();
-			await expect(p.getByText(ALIASES[0])).toBeVisible();
+			await expect(p.getByText(`1. ${ALIASES[0]}`)).toBeVisible();
 			await expect(p.getByRole('img', { name: /Gesamtscore/ })).toBeVisible();
 			const html = await (await p.request.get(annaUrl!)).text();
-			for (const name of DISTILLERIES) expect(html).not.toContain(name);
+			for (const name of [...DISTILLERIES, PRESENTATION.name]) expect(html).not.toContain(name);
 			await expect(p.getByRole('form')).toHaveCount(0);
+		});
+
+		await test.step('Präsentation: ab der Reihenfolge herunterladbar, unter neutralem Namen', async () => {
+			const href = await p
+				.getByRole('link', { name: `Präsentation zu ${ALIASES[0]}` })
+				.getAttribute('href');
+			const download = await p.request.get(href!);
+			expect(download.status()).toBe(200);
+			// Stored name (date + alias): the original one may reveal the whisky.
+			const disposition = download.headers()['content-disposition'];
+			expect(disposition).toContain(`filename="Tasting_${tastingDate}_${ALIASES[0]}`);
+			expect(disposition).not.toContain('Vortrag');
+			expect(Buffer.compare(await download.body(), PRESENTATION.buffer)).toBe(0);
 		});
 
 		await test.step('9-Uhr-Button: alle Links zeigen die Auflösung samt Hinweis', async () => {

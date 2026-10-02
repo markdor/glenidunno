@@ -138,8 +138,8 @@ describe('tasting link load', () => {
 			tasting: { name: 'Herbst-Tasting', tastingDate: '2026-10-24' },
 			manual: { orderOpenedAt: null, revealedAt: null },
 			order: [
-				{ position: 1, alias: 'Blume', score: 38.6 },
-				{ position: 2, alias: 'Nebel', score: 78.6 }
+				{ position: 1, alias: 'Blume', score: 38.6, presentation: null },
+				{ position: 2, alias: 'Nebel', score: 78.6, presentation: null }
 			]
 		});
 		const serialized = JSON.stringify(result);

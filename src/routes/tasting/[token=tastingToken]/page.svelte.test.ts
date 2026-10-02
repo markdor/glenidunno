@@ -27,7 +27,7 @@ describe('Tasting link page', () => {
 		renderView({
 			phase: 'order',
 			tasting,
-			order: [{ position: 1, alias: 'Nebel', score: 75.2 }]
+			order: [{ position: 1, alias: 'Nebel', score: 75.2, presentation: null }]
 		});
 		await expect.poll(() => document.title).toBe('Whisky-Tasting');
 	});
@@ -85,8 +85,8 @@ describe('Tasting link page', () => {
 			phase: 'order',
 			tasting,
 			order: [
-				{ position: 1, alias: 'Blume', score: 35.2 },
-				{ position: 2, alias: 'Nebel', score: 75.2 }
+				{ position: 1, alias: 'Blume', score: 35.2, presentation: null },
+				{ position: 2, alias: 'Nebel', score: 75.2, presentation: null }
 			]
 		});
 
@@ -131,7 +131,7 @@ describe('Tasting link page', () => {
 	test.each([
 		{
 			phase: 'order',
-			view: { order: [{ position: 1, alias: 'Nebel', score: 75.2 }] },
+			view: { order: [{ position: 1, alias: 'Nebel', score: 75.2, presentation: null }] },
 			manual: { orderOpenedAt: new Date('2026-10-24T15:32:00Z'), revealedAt: null },
 			notice: 'Der Admin hat die Reihenfolge am Sa., 24.10.2026 um 17:32 Uhr vorzeitig freigegeben.'
 		},
@@ -148,6 +148,18 @@ describe('Tasting link page', () => {
 			await expect.element(page.getByText(notice)).toBeVisible();
 		}
 	);
+
+	test('links presentations through the own token in the order phase', async () => {
+		renderView({
+			phase: 'order',
+			tasting,
+			order: [{ position: 1, alias: 'Nebel', score: 75.2, presentation: { bottleId: 'b1' } }]
+		});
+
+		await expect
+			.element(page.getByRole('link', { name: 'Präsentation zu Nebel' }))
+			.toHaveAttribute('href', `/tasting/${TOKEN}/presentation/b1`);
+	});
 
 	test('links presentations through the own token after the reveal', async () => {
 		renderView({

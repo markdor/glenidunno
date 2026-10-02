@@ -5,7 +5,7 @@ import { presentationResponse } from '$lib/server/tastingMedia';
 import { findParticipantByToken, getPresentationForParticipant } from '$lib/server/tastings';
 
 // Public like the participant page (exact route ID in guard.ts): the token
-// decides, locals.user is never read. Before the reveal, for another tasting's
+// decides, locals.user is never read. During entry, for another tasting's
 // bottle, without presentation or with an unknown token: always the same 404.
 export const GET: RequestHandler = async ({ params }) => {
 	const holder = findParticipantByToken(db, params.token);

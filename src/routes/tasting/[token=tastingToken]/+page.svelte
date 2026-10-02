@@ -74,7 +74,7 @@
 			<p class="text-sm text-slate-500">
 				Die Auflösung erscheint am Tag danach ab {TASTING_REVEAL_HOUR} Uhr.
 			</p>
-			<TastingOrderList order={view.order} />
+			<TastingOrderList order={view.order} {presentationHref} />
 		</section>
 		<TastingOrderChart order={view.order} />
 		<TastingScoreExplainer />

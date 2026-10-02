@@ -1,7 +1,15 @@
 <script lang="ts">
+	import type { ResolvedPathname } from '$app/types';
 	import type { OrderEntry } from '$lib/tasting';
 
-	let { order }: { order: OrderEntry[] } = $props();
+	let {
+		order,
+		presentationHref
+	}: {
+		order: OrderEntry[];
+		/** Download URL of a bottle's presentation – runs through the link's own token. */
+		presentationHref: (bottleId: string) => ResolvedPathname;
+	} = $props();
 </script>
 
 {#if order.length === 0}
@@ -16,10 +24,21 @@
 				>
 					{entry.position}
 				</span>
-				<span class="min-w-0 text-lg font-medium break-words">
+				<span class="min-w-0 flex-1 text-lg font-medium break-words">
 					<span class="sr-only">{entry.position}.</span>
 					{entry.alias}
 				</span>
+				{#if entry.presentation}
+					<!-- Neutral label: the file name may reveal the whisky and waits for the
+					     reveal. Served as an attachment, `download` keeps the client router out. -->
+					<a
+						href={presentationHref(entry.presentation.bottleId)}
+						download
+						class="shrink-0 py-2 text-sm font-medium text-brand underline hover:text-brand-hover"
+					>
+						Präsentation <span class="sr-only">zu {entry.alias}</span>
+					</a>
+				{/if}
 			</li>
 		{/each}
 	</ol>

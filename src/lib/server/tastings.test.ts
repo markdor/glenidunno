@@ -204,8 +204,8 @@ describe('getParticipantView', () => {
 			tasting: { name: 'Herbst-Tasting', tastingDate: TASTING_DATE },
 			manual: { orderOpenedAt: null, revealedAt: null },
 			order: [
-				{ position: 1, alias: 'Blume', score: 22.8 },
-				{ position: 2, alias: 'Nebel', score: 78.6 }
+				{ position: 1, alias: 'Blume', score: 22.8, presentation: null },
+				{ position: 2, alias: 'Nebel', score: 78.6, presentation: null }
 			]
 		});
 	});
@@ -596,15 +596,19 @@ describe('presentations', () => {
 		).toEqual([null]);
 	});
 
-	it('shows the name only to its owner before the reveal and to every link after it', () => {
+	it('links it from the order on, but shows the name only to its owner before the reveal', () => {
 		const ctx = setup();
 		saveBottle(db, ctx.anna, 1, bottle(), ENTRY, DECK);
+		const bottleId = bottleRow().id;
 
 		const own = getParticipantView(db, ctx.anna, ENTRY);
 		expect(own.phase === 'entry' && own.bottles[0].presentationName).toBe(DECK.name);
 		expect(JSON.stringify(getParticipantView(db, ctx.ben, ENTRY))).not.toContain('Uigeadail');
 
-		const participantOrder = JSON.stringify(getParticipantView(db, ctx.ben, ORDER));
+		// The slides are shown during the tasting: linked, but under no name yet.
+		const order = getParticipantView(db, ctx.ben, ORDER);
+		expect(order.phase === 'order' && order.order[0].presentation).toEqual({ bottleId });
+		const participantOrder = JSON.stringify(order);
 		expect(participantOrder).not.toContain('Uigeadail');
 		expect(participantOrder).not.toContain(DECK_FILE);
 
@@ -617,27 +621,29 @@ describe('presentations', () => {
 		}
 
 		const revealed = getParticipantView(db, ctx.ben, REVEALED);
-		const bottleId = bottleRow().id;
 		expect(revealed.phase === 'revealed' && revealed.bottles[0].presentation).toEqual({
 			bottleId,
 			name: DECK.name
 		});
-		// The stored file name never leaves the server.
+		// The view never carries the stored file name (only the download before the reveal).
 		expect(JSON.stringify(revealed)).not.toContain(DECK_FILE);
 	});
 
-	it('hands out the file only after the reveal and only within the tasting', () => {
+	it('hands out the file from the order on and only within the tasting', () => {
 		const ctx = setup();
 		const other = setup('2026-11-14');
 		saveBottle(db, ctx.anna, 1, bottle(), ENTRY, DECK);
 		const bottleId = bottleRow().id;
 
-		for (const now of [ENTRY, ORDER]) {
-			// Not even the owner: the name counts as content, the download is for the reveal.
-			expect(getPresentationForParticipant(db, ctx.anna, bottleId, now)).toBeNull();
-			expect(getPresentationForParticipant(db, ctx.ben, bottleId, now)).toBeNull();
-		}
+		// Not even the owner during entry: the bottles are still being entered.
+		expect(getPresentationForParticipant(db, ctx.anna, bottleId, ENTRY)).toBeNull();
+		expect(getPresentationForParticipant(db, ctx.ben, bottleId, ENTRY)).toBeNull();
 
+		// Until the reveal under the stored name: the original one may reveal the whisky.
+		expect(getPresentationForParticipant(db, ctx.ben, bottleId, ORDER)).toEqual({
+			file: DECK_FILE,
+			name: DECK_FILE
+		});
 		const stored = { file: DECK_FILE, name: DECK.name };
 		expect(getPresentationForParticipant(db, ctx.ben, bottleId, REVEALED)).toEqual(stored);
 

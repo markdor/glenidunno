@@ -5,9 +5,9 @@ import TastingOrderChart from './TastingOrderChart.svelte';
 
 // Smoke group 1, then group 2: the score drops again at the group change.
 const order = [
-	{ position: 1, alias: 'Blume', score: 12.5 },
-	{ position: 2, alias: 'Heide', score: 38 },
-	{ position: 3, alias: 'Nebel', score: 31.2 }
+	{ position: 1, alias: 'Blume', score: 12.5, presentation: null },
+	{ position: 2, alias: 'Heide', score: 38, presentation: null },
+	{ position: 3, alias: 'Nebel', score: 31.2, presentation: null }
 ];
 
 describe('TastingOrderChart', () => {
@@ -44,8 +44,8 @@ describe('TastingOrderChart', () => {
 	test('maps the score onto the 0–100 axis', async () => {
 		render(TastingOrderChart, {
 			order: [
-				{ position: 1, alias: 'Blume', score: 0 },
-				{ position: 2, alias: 'Nebel', score: 100 }
+				{ position: 1, alias: 'Blume', score: 0, presentation: null },
+				{ position: 2, alias: 'Nebel', score: 100, presentation: null }
 			]
 		});
 
