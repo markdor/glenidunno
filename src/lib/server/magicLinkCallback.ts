@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { user as userTable, magicLinkThrottle } from './db/schema';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type { Logger } from 'pino';
@@ -53,14 +53,15 @@ export async function handleSendMagicLink(
 	const allowed = deps.consumeEmailRateLimit(db, email, emailRateLimit);
 
 	// Whitelist enforcement: Better Auth would otherwise send a link to any
-	// address. Only registered users (a row in `user`) get a mail. The
-	// expensive token generation already happened identically for hit and
-	// miss before this callback runs, so an indexed SELECT here does not
-	// create a timing oracle for enumeration.
+	// address. Only active registered users (a row in `user`, not deactivated)
+	// get a mail – a deactivated user takes the very same path as an unknown
+	// address. The expensive token generation already happened identically
+	// for hit and miss before this callback runs, so an indexed SELECT here
+	// does not create a timing oracle for enumeration.
 	const exists = db
 		.select({ id: userTable.id })
 		.from(userTable)
-		.where(eq(userTable.email, email))
+		.where(and(eq(userTable.email, email), isNull(userTable.deactivatedAt)))
 		.get();
 
 	if (!exists) {

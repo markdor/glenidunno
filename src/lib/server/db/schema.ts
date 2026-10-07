@@ -19,7 +19,6 @@ import {
 	TASTING_BOTTLING_LENGTH,
 	TASTING_DISTILLERY_LENGTH,
 	TASTING_NAME_LENGTH,
-	TASTING_PARTICIPANT_NAME_LENGTH,
 	TASTING_SCALE,
 	TASTING_WHISKYBASE_URL_LENGTH
 } from '../../validation';
@@ -35,7 +34,11 @@ export const user = sqliteTable('user', {
 	// Whitelist + profile fields live directly on the Better Auth user table
 	// (no separate whitelist table): a row here means the address may log in.
 	username: text('username').notNull().unique(),
-	isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false)
+	isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
+	// Set instead of deleting a user who took part in a tasting (their
+	// participations must stay). A deactivated user can't log in; email and
+	// username stay taken.
+	deactivatedAt: integer('deactivated_at', { mode: 'timestamp' })
 });
 
 export const session = sqliteTable('session', {
@@ -118,12 +121,16 @@ export const tasting = sqliteTable(
 	'tasting',
 	{
 		id: text('id').primaryKey(),
+		// The tasting's one link /tasting/<adjective>-<animal>, picked at random
+		// from the free combinations on creation and never changed. Not a
+		// secret: login plus participation protect the page.
+		slug: text('slug').notNull().unique(),
 		name: text('name').notNull(),
 		tastingDate: text('tasting_date').notNull(),
 		bottlesPerParticipant: integer('bottles_per_participant').notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 		// Admin overrides of the 18:00 / 9:00 rules; null = the clock decides.
-		// Every link shows when the admin pressed the button.
+		// Every participant sees when the admin pressed the button.
 		orderOpenedAt: integer('order_opened_at', { mode: 'timestamp' }),
 		revealedAt: integer('revealed_at', { mode: 'timestamp' })
 	},
@@ -140,9 +147,20 @@ export const tasting = sqliteTable(
 	]
 );
 
-// Only the SHA-256 hash of the link token is stored: links never expire, so a
-// DB backup must not contain usable links, and the admin must not be able to
-// open other participants' links later on.
+// Word lists for the tasting links /tasting/<adjective>-<animal>, seeded by a
+// migration (drizzle/0005_*.sql). Lower-case a–z only, so the hyphen is an
+// unambiguous separator (TASTING_SLUG_RE in validation.ts).
+export const tastingSlugAdjective = sqliteTable('tasting_slug_adjective', {
+	word: text('word').primaryKey()
+});
+
+export const tastingSlugAnimal = sqliteTable('tasting_slug_animal', {
+	word: text('word').primaryKey()
+});
+
+// A user taking part in a tasting. ON DELETE restrict: a user with a
+// participation is deactivated instead of deleted (admin page), so their
+// bottles stay in the order and the reveal.
 export const tastingParticipant = sqliteTable(
 	'tasting_participant',
 	{
@@ -150,16 +168,12 @@ export const tastingParticipant = sqliteTable(
 		tastingId: text('tasting_id')
 			.notNull()
 			.references(() => tasting.id, { onDelete: 'cascade' }),
-		name: text('name').notNull(),
-		tokenHash: text('token_hash').notNull().unique(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'restrict' }),
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
 	},
-	(t) => [
-		check(
-			'tasting_participant_name_length',
-			lengthUpTo(t.name, TASTING_PARTICIPANT_NAME_LENGTH.max)
-		)
-	]
+	(t) => [uniqueIndex('tasting_participant_tasting_user_unique').on(t.tastingId, t.userId)]
 );
 
 // No tasting_id here: the tasting is reached via the participant.

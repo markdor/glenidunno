@@ -2,9 +2,9 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 
-// The page builds download links from the token of its own URL.
-const TOKEN = 'a'.repeat(32);
-vi.mock('$app/state', () => ({ page: { params: { token: 'a'.repeat(32) } } }));
+// The page builds download links from the slug of its own URL.
+const SLUG = 'fluffy-otter';
+vi.mock('$app/state', () => ({ page: { params: { slug: 'fluffy-otter' } } }));
 
 import Page from './+page.svelte';
 import { toast } from '$lib/components/toastStore.svelte';
@@ -22,7 +22,7 @@ beforeEach(() => {
 	for (const t of [...toast.toasts]) toast.dismiss(t.id);
 });
 
-describe('Tasting link page', () => {
+describe('Tasting participant page', () => {
 	test('keeps the page title neutral', async () => {
 		renderView({
 			phase: 'order',
@@ -36,7 +36,7 @@ describe('Tasting link page', () => {
 		renderView({
 			phase: 'entry',
 			tasting: { ...tasting, bottlesPerParticipant: 2 },
-			participant: { name: 'Anna' },
+			participant: { username: 'Anna' },
 			bottles: [
 				{
 					slot: 2,
@@ -68,7 +68,7 @@ describe('Tasting link page', () => {
 			{
 				phase: 'entry',
 				tasting: { ...tasting, bottlesPerParticipant: 2 },
-				participant: { name: 'Anna' },
+				participant: { username: 'Anna' },
 				bottles: []
 			},
 			{ action: 'save', slot: 2, values: {}, fieldErrors: { distillery: 'required' } }
@@ -149,7 +149,7 @@ describe('Tasting link page', () => {
 		}
 	);
 
-	test('links presentations through the own token in the order phase', async () => {
+	test('links presentations through the tasting link in the order phase', async () => {
 		renderView({
 			phase: 'order',
 			tasting,
@@ -158,10 +158,10 @@ describe('Tasting link page', () => {
 
 		await expect
 			.element(page.getByRole('link', { name: 'Präsentation zu Nebel' }))
-			.toHaveAttribute('href', `/tasting/${TOKEN}/presentation/b1`);
+			.toHaveAttribute('href', `/tasting/${SLUG}/presentation/b1`);
 	});
 
-	test('links presentations through the own token after the reveal', async () => {
+	test('links presentations through the tasting link after the reveal', async () => {
 		renderView({
 			phase: 'revealed',
 			tasting,
@@ -187,7 +187,7 @@ describe('Tasting link page', () => {
 
 		await expect
 			.element(page.getByRole('link', { name: 'Präsentation: Ardbeg.pptx' }))
-			.toHaveAttribute('href', `/tasting/${TOKEN}/presentation/b1`);
+			.toHaveAttribute('href', `/tasting/${SLUG}/presentation/b1`);
 	});
 
 	test('reports a general save failure as a toast', async () => {

@@ -33,14 +33,12 @@ const sessionHandle: Handle = async ({ event, resolve }) => {
 };
 
 // Closed app: nothing is public except the login page, the health check, the
-// Better Auth endpoints, static assets and – by exact route ID – the tasting
-// participant link and its presentation downloads. The decision itself lives in evaluateGuard so it can be
-// unit-tested without a full request. event.route.id is already set here,
-// also for __data.json requests and action POSTs.
+// Better Auth endpoints and static assets – tastings need a login too. The
+// decision itself lives in evaluateGuard so it can be unit-tested without a
+// full request.
 const guardHandle: Handle = ({ event, resolve }) => {
 	const decision = evaluateGuard(event.url.pathname, {
-		authenticated: Boolean(event.locals.user),
-		routeId: event.route.id
+		authenticated: Boolean(event.locals.user)
 	});
 
 	switch (decision.action) {

@@ -3,29 +3,47 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 vi.mock('$lib/server/db', async () => {
 	const Database = (await import('better-sqlite3')).default;
 	const { drizzle } = await import('drizzle-orm/better-sqlite3');
-	const { migrate } = await import('drizzle-orm/better-sqlite3/migrator');
+	const { runMigrations } = await import('$lib/server/db/migrate');
 	const schema = await import('$lib/server/db/schema');
 	const sqlite = new Database(':memory:');
-	sqlite.pragma('foreign_keys = ON');
+	runMigrations(sqlite, './drizzle');
 	const db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: './drizzle' });
 	return { db, schema };
 });
 
 import { db } from '$lib/server/db';
-import { tasting } from '$lib/server/db/schema';
+import { tasting, user } from '$lib/server/db/schema';
 import {
 	createTasting,
-	findParticipantByToken,
+	findParticipant,
 	saveBottle,
 	type TastingListItem
 } from '$lib/server/tastings';
 import { load } from './+page.server';
 
+/** Participants are users now. */
+function insertUsers(...usernames: string[]) {
+	for (const username of usernames) {
+		db.insert(user)
+			.values({
+				id: `u-${username}`,
+				name: username,
+				email: `${username.toLowerCase()}@example.com`,
+				username,
+				createdAt: new Date(),
+				updatedAt: new Date()
+			})
+			.onConflictDoNothing()
+			.run();
+	}
+}
+
 const ADMIN = { id: 'admin-id', username: 'admin', isAdmin: true };
 
-function loadAs(user: unknown) {
-	return load({ locals: { user, session: null } } as unknown as Parameters<typeof load>[0]) as {
+function loadAs(currentUser: unknown) {
+	return load({ locals: { user: currentUser, session: null } } as unknown as Parameters<
+		typeof load
+	>[0]) as {
 		tastings: TastingListItem[];
 	};
 }
@@ -50,14 +68,15 @@ describe('admin tastings list load', () => {
 		);
 	});
 
-	it('lists management data only – no aliases, bottle names or tokens', () => {
-		const { tokens } = createTasting(db, {
+	it('lists management data only – no aliases, bottle names or links', () => {
+		insertUsers('Anna', 'Ben');
+		const { slug } = createTasting(db, {
 			name: 'Herbst-Tasting',
 			tastingDate: '2026-10-24',
 			bottlesPerParticipant: 2,
-			participantNames: ['Anna', 'Ben']
+			participantUserIds: ['u-Anna', 'u-Ben']
 		});
-		const anna = findParticipantByToken(db, tokens[0].token)!;
+		const anna = findParticipant(db, slug, 'u-Anna')!;
 		saveBottle(db, anna, 1, {
 			alias: 'Nebel',
 			distillery: 'Ardbeg',
@@ -82,7 +101,7 @@ describe('admin tastings list load', () => {
 			}
 		]);
 		const serialized = JSON.stringify(result);
-		for (const hidden of ['Nebel', 'Ardbeg', tokens[0].token]) {
+		for (const hidden of ['Nebel', 'Ardbeg', slug]) {
 			expect(serialized).not.toContain(hidden);
 		}
 	});

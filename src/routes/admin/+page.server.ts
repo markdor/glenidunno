@@ -3,24 +3,39 @@ import { asc, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { isValidEmail, USERNAME_RE } from '$lib/validation';
 import { db } from '$lib/server/db';
-import { user } from '$lib/server/db/schema';
+import { session, tastingParticipant, user } from '$lib/server/db/schema';
 import { requireAdmin } from '$lib/server/authGuards';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/server/errorMessages';
 import { logger } from '$lib/server/logger';
 
 export const load: ServerLoad = ({ locals }) => {
 	requireAdmin(locals);
+	// Decides what "Löschen" does: users with a participation are deactivated
+	// instead (see the delete action).
+	const participants = new Set(
+		db
+			.selectDistinct({ userId: tastingParticipant.userId })
+			.from(tastingParticipant)
+			.all()
+			.map((p) => p.userId)
+	);
 	const users = db
 		.select({
 			id: user.id,
 			email: user.email,
 			username: user.username,
 			isAdmin: user.isAdmin,
-			createdAt: user.createdAt
+			createdAt: user.createdAt,
+			deactivatedAt: user.deactivatedAt
 		})
 		.from(user)
 		.orderBy(asc(user.createdAt))
-		.all();
+		.all()
+		.map(({ deactivatedAt, ...u }) => ({
+			...u,
+			deactivated: deactivatedAt !== null,
+			hasParticipation: participants.has(u.id)
+		}));
 	return { users };
 };
 
@@ -42,6 +57,8 @@ function validate(
 
 	return { email, username, fieldErrors };
 }
+
+type DeleteOutcome = 'deleted' | 'deactivated' | 'not-found';
 
 function uniqueColumn(message: string): 'email' | 'username' {
 	return message.includes('username') ? 'username' : 'email';
@@ -180,22 +197,56 @@ export const actions: Actions = {
 			});
 		}
 
+		let outcome: DeleteOutcome;
 		try {
-			// session.userId has ON DELETE CASCADE, so all of the user's active
-			// sessions die with the row → forced logout on their next request.
-			const result = db.delete(user).where(eq(user.id, id)).run();
-			if (result.changes === 0) {
-				return fail(404, {
-					action: 'delete',
-					userMessage:
-						'Dieser Benutzer wurde nicht gefunden – möglicherweise wurde er bereits gelöscht.'
-				});
-			}
+			outcome = db.transaction((tx): DeleteOutcome => {
+				const target = tx
+					.select({ deactivatedAt: user.deactivatedAt })
+					.from(user)
+					.where(eq(user.id, id))
+					.get();
+				if (!target) return 'not-found';
+
+				const participated = tx
+					.select({ id: tastingParticipant.id })
+					.from(tastingParticipant)
+					.where(eq(tastingParticipant.userId, id))
+					.limit(1)
+					.get();
+				if (!participated) {
+					// session.userId has ON DELETE CASCADE, so all of the user's active
+					// sessions die with the row → forced logout on their next request.
+					tx.delete(user).where(eq(user.id, id)).run();
+					return 'deleted';
+				}
+
+				// The participations must stay (ON DELETE restrict): their bottles
+				// are part of the order and the reveal. Deactivated instead – the
+				// sessions go now, the magic-link whitelist and the session hook
+				// (sessionGuard.ts) keep the user from getting a new one. Email and
+				// username stay taken. A second click keeps the first timestamp.
+				const now = new Date();
+				tx.update(user)
+					.set({ deactivatedAt: target.deactivatedAt ?? now, updatedAt: now })
+					.where(eq(user.id, id))
+					.run();
+				tx.delete(session).where(eq(session.userId, id)).run();
+				return 'deactivated';
+			});
 		} catch (err) {
 			logger.error({ err }, 'admin delete user failed');
 			return fail(500, { action: 'delete', userMessage: UNEXPECTED_ERROR_MESSAGE });
 		}
 
-		return { action: 'delete', deleted: true };
+		if (outcome === 'not-found') {
+			return fail(404, {
+				action: 'delete',
+				userMessage:
+					'Dieser Benutzer wurde nicht gefunden – möglicherweise wurde er bereits gelöscht.'
+			});
+		}
+		return outcome === 'deleted'
+			? { action: 'delete', deleted: true }
+			: { action: 'delete', deactivated: true };
 	}
 };

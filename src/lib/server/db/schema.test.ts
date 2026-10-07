@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { getTableConfig, SQLiteSyncDialect, type SQLiteTable } from 'drizzle-orm/sqlite-core';
 import {
 	TASTING_ABV,
@@ -10,6 +9,7 @@ import {
 	TASTING_BOTTLES_PER_PARTICIPANT,
 	TASTING_SCALE
 } from '$lib/validation';
+import { runMigrations } from './migrate';
 import * as schema from './schema';
 
 const dialect = new SQLiteSyncDialect();
@@ -36,11 +36,19 @@ describe('foreign keys', () => {
 	])(
 		'$source → $target cascades on delete',
 		({ table, target }: { table: SQLiteTable; target: string }) => {
-			const [fk] = getTableConfig(table).foreignKeys;
-			expect(getTableConfig(fk.reference().foreignTable).name).toBe(target);
-			expect(fk.onDelete).toBe('cascade');
+			const fk = getTableConfig(table).foreignKeys.find(
+				(f) => getTableConfig(f.reference().foreignTable).name === target
+			);
+			expect(fk?.onDelete).toBe('cascade');
 		}
 	);
+
+	it('tasting_participant → user restricts deletes (participants are deactivated instead)', () => {
+		const fk = getTableConfig(schema.tastingParticipant).foreignKeys.find(
+			(f) => getTableConfig(f.reference().foreignTable).name === 'user'
+		);
+		expect(fk?.onDelete).toBe('restrict');
+	});
 });
 
 describe('tasting CHECK constraints', () => {
@@ -75,6 +83,14 @@ describe('tasting CHECK constraints', () => {
 			unique: true
 		});
 	});
+
+	it('declare the (tasting, user) pair unique', () => {
+		const [index] = getTableConfig(schema.tastingParticipant).indexes;
+		expect(index.config).toMatchObject({
+			name: 'tasting_participant_tasting_user_unique',
+			unique: true
+		});
+	});
 });
 
 describe('migrated tasting tables', () => {
@@ -82,12 +98,22 @@ describe('migrated tasting tables', () => {
 
 	beforeEach(() => {
 		const sqlite = new Database(':memory:');
-		sqlite.pragma('foreign_keys = ON');
+		runMigrations(sqlite, './drizzle');
 		db = drizzle(sqlite, { schema });
-		migrate(db, { migrationsFolder: './drizzle' });
+		db.insert(schema.user)
+			.values({
+				id: 'u1',
+				name: 'anna',
+				email: 'anna@example.com',
+				username: 'anna',
+				createdAt: new Date(),
+				updatedAt: new Date()
+			})
+			.run();
 		db.insert(schema.tasting)
 			.values({
 				id: 't1',
+				slug: 'fluffy-otter',
 				name: 'Herbst',
 				tastingDate: '2026-10-24',
 				bottlesPerParticipant: 2,
@@ -95,7 +121,7 @@ describe('migrated tasting tables', () => {
 			})
 			.run();
 		db.insert(schema.tastingParticipant)
-			.values({ id: 'p1', tastingId: 't1', name: 'Anna', tokenHash: 'h1', createdAt: new Date() })
+			.values({ id: 'p1', tastingId: 't1', userId: 'u1', createdAt: new Date() })
 			.run();
 	});
 
@@ -146,5 +172,34 @@ describe('migrated tasting tables', () => {
 		db.delete(schema.tasting).run();
 		expect(db.select().from(schema.tastingParticipant).all()).toEqual([]);
 		expect(db.select().from(schema.tastingBottle).all()).toEqual([]);
+	});
+
+	it('refuses to delete a user who took part in a tasting', () => {
+		expect(() => db.delete(schema.user).run()).toThrow(/FOREIGN KEY constraint failed/);
+	});
+
+	it('rejects the same user twice in one tasting', () => {
+		expect(() =>
+			db
+				.insert(schema.tastingParticipant)
+				.values({ id: 'p2', tastingId: 't1', userId: 'u1', createdAt: new Date() })
+				.run()
+		).toThrow(/UNIQUE constraint failed/);
+	});
+
+	it('rejects a second tasting with the same slug', () => {
+		expect(() =>
+			db
+				.insert(schema.tasting)
+				.values({
+					id: 't2',
+					slug: 'fluffy-otter',
+					name: 'Winter',
+					tastingDate: '2026-12-12',
+					bottlesPerParticipant: 2,
+					createdAt: new Date()
+				})
+				.run()
+		).toThrow(/UNIQUE constraint failed/);
 	});
 });

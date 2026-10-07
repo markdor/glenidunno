@@ -1,29 +1,31 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { eq, ne } from 'drizzle-orm';
 import type { TastingBottle } from '$lib/tasting';
+import { TASTING_SLUG_RE } from '$lib/validation';
+import { runMigrations } from './db/migrate';
 import * as schema from './db/schema';
 import { presentationExtension } from './presentationFiles';
 import type { PendingUpload } from './tastingMedia';
-import { hashTastingToken } from './tastingToken';
 import {
 	createTasting,
 	deleteTasting,
-	findParticipantByToken,
+	findParticipant,
 	getAdminTastingDetail,
 	getParticipantView,
 	getPresentationForParticipant,
 	getStartPageSummary,
 	listPresentationFiles,
+	listSelectableUsers,
 	listTastings,
 	openOrderEarly,
-	regenerateParticipantToken,
 	revealEarly,
 	saveBottle,
 	TastingValidationError,
 	updateTastingDate,
-	validateTastingDate
+	validateTastingDate,
+	type NewTasting
 } from './tastings';
 
 let db: BetterSQLite3Database<typeof schema>;
@@ -51,58 +53,169 @@ function bottle(overrides: Partial<TastingBottle> = {}): TastingBottle {
 	};
 }
 
+const PARTICIPANT_IDS = ['u-anna', 'u-ben', 'u-cem'];
+
+function insertUser(id: string, username: string, deactivatedAt: Date | null = null) {
+	db.insert(schema.user)
+		.values({
+			id,
+			name: username,
+			email: `${username.toLowerCase()}@example.com`,
+			username,
+			deactivatedAt,
+			createdAt: ENTRY,
+			updatedAt: ENTRY
+		})
+		.run();
+}
+
+function newTasting(overrides: Partial<NewTasting> = {}): NewTasting {
+	return {
+		name: 'Herbst-Tasting',
+		tastingDate: TASTING_DATE,
+		bottlesPerParticipant: 2,
+		participantUserIds: PARTICIPANT_IDS,
+		...overrides
+	};
+}
+
 function setup(tastingDate = TASTING_DATE) {
-	const created = createTasting(
-		db,
-		{
-			name: 'Herbst-Tasting',
-			tastingDate,
-			bottlesPerParticipant: 2,
-			participantNames: ['Anna', 'Ben', 'Cem']
-		},
-		ENTRY
-	);
-	const [anna, ben, cem] = created.tokens.map((t) => findParticipantByToken(db, t.token)!);
-	return { id: created.id, tokens: created.tokens, anna, ben, cem };
+	const { id, slug } = createTasting(db, newTasting({ tastingDate }), ENTRY);
+	const [anna, ben, cem] = PARTICIPANT_IDS.map((userId) => findParticipant(db, slug, userId)!);
+	return { id, slug, anna, ben, cem };
 }
 
 beforeEach(() => {
 	const sqlite = new Database(':memory:');
-	sqlite.pragma('foreign_keys = ON');
+	runMigrations(sqlite, './drizzle');
 	db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: './drizzle' });
+	insertUser('u-anna', 'Anna');
+	insertUser('u-ben', 'Ben');
+	insertUser('u-cem', 'Cem');
+	// Takes part in nothing – like the admin, who manages without tasting along.
+	insertUser('u-admin', 'Markus');
 });
 
 describe('createTasting', () => {
-	it('returns the plaintext tokens once and stores only their hashes', () => {
-		const { tokens } = setup();
-		expect(tokens.map((t) => t.name)).toEqual(['Anna', 'Ben', 'Cem']);
+	it('adds the users as participants in the given order, under a slug from the word lists', () => {
+		const { id, slug } = createTasting(db, newTasting(), ENTRY);
 
-		const stored = db.select().from(schema.tastingParticipant).all();
-		expect(stored.map((p) => p.tokenHash).sort()).toEqual(
-			tokens.map((t) => hashTastingToken(t.token)).sort()
+		expect(slug).toMatch(TASTING_SLUG_RE);
+		const [adjective, animal] = slug.split('-');
+		expect(
+			db
+				.select()
+				.from(schema.tastingSlugAdjective)
+				.where(eq(schema.tastingSlugAdjective.word, adjective))
+				.get()
+		).toBeDefined();
+		expect(
+			db
+				.select()
+				.from(schema.tastingSlugAnimal)
+				.where(eq(schema.tastingSlugAnimal.word, animal))
+				.get()
+		).toBeDefined();
+		expect(db.select().from(schema.tasting).get()).toMatchObject({ id, slug });
+		expect(getAdminTastingDetail(db, id, ENTRY)?.participants.map((p) => p.name)).toEqual([
+			'Anna',
+			'Ben',
+			'Cem'
+		]);
+	});
+
+	it('picks the slug among the combinations no other tasting uses', () => {
+		const maxima: number[] = [];
+		const first = (max: number) => {
+			maxima.push(max);
+			return 0;
+		};
+
+		expect(createTasting(db, newTasting(), ENTRY, first).slug).toBe('bouncy-alpaca');
+		expect(createTasting(db, newTasting(), ENTRY, first).slug).toBe('bouncy-axolotl');
+		expect(maxima).toEqual([10_000, 9_999]);
+	});
+
+	it('refuses once every combination is taken', () => {
+		db.delete(schema.tastingSlugAdjective)
+			.where(ne(schema.tastingSlugAdjective.word, 'fluffy'))
+			.run();
+		db.delete(schema.tastingSlugAnimal).where(ne(schema.tastingSlugAnimal.word, 'otter')).run();
+		expect(createTasting(db, newTasting(), ENTRY).slug).toBe('fluffy-otter');
+
+		expect(() => createTasting(db, newTasting(), ENTRY)).toThrow(
+			expect.objectContaining({
+				name: 'TastingValidationError',
+				userMessage:
+					'Alle Tasting-Links sind vergeben, es lässt sich kein weiteres Tasting anlegen.'
+			})
 		);
-		const dump = JSON.stringify(stored);
-		for (const t of tokens) expect(dump).not.toContain(t.token);
+		expect(db.select().from(schema.tasting).all()).toHaveLength(1);
+	});
+
+	it.each([
+		{ label: 'an unknown user', userId: 'u-nobody' },
+		{ label: 'a deactivated user', userId: 'u-gone' }
+	])('refuses $label and creates nothing', ({ userId }) => {
+		insertUser('u-gone', 'Gone', ENTRY);
+
+		expect(() =>
+			createTasting(db, newTasting({ participantUserIds: ['u-anna', userId] }), ENTRY)
+		).toThrow(TastingValidationError);
+		expect(db.select().from(schema.tasting).all()).toEqual([]);
+		expect(db.select().from(schema.tastingParticipant).all()).toEqual([]);
+	});
+
+	it('adds a user picked twice only once', () => {
+		const { id } = createTasting(
+			db,
+			newTasting({ participantUserIds: ['u-anna', 'u-ben', 'u-anna'] }),
+			ENTRY
+		);
+		expect(getAdminTastingDetail(db, id, ENTRY)?.participants).toHaveLength(2);
 	});
 });
 
-describe('findParticipantByToken', () => {
-	it('finds the holder of a token', () => {
-		const { tokens, anna } = setup();
-		expect(anna).toMatchObject({ name: 'Anna', tastingName: 'Herbst-Tasting' });
-		expect(findParticipantByToken(db, tokens[0].token)?.id).toBe(anna.id);
+describe('listSelectableUsers', () => {
+	it('lists the active users alphabetically, without deactivated ones', () => {
+		insertUser('u-dora', 'dora');
+		insertUser('u-gone', 'Gone', ENTRY);
+		expect(listSelectableUsers(db)).toEqual([
+			{ id: 'u-anna', username: 'Anna' },
+			{ id: 'u-ben', username: 'Ben' },
+			{ id: 'u-cem', username: 'Cem' },
+			{ id: 'u-dora', username: 'dora' },
+			{ id: 'u-admin', username: 'Markus' }
+		]);
+	});
+});
+
+describe('findParticipant', () => {
+	it('finds the user’s participation in the tasting behind the slug', () => {
+		const { id, slug, anna } = setup();
+		expect(anna).toMatchObject({
+			username: 'Anna',
+			tastingId: id,
+			tastingName: 'Herbst-Tasting',
+			tastingDate: TASTING_DATE,
+			bottlesPerParticipant: 2,
+			orderOpenedAt: null,
+			revealedAt: null
+		});
+		expect(findParticipant(db, slug, 'u-anna')?.id).toBe(anna.id);
 	});
 
-	it('returns null for unknown, replaced and deleted tokens alike', () => {
-		const { id, tokens, anna } = setup();
-		expect(findParticipantByToken(db, 'x'.repeat(32))).toBeNull();
+	it('returns null for an unknown slug, a user who doesn’t take part and a deleted tasting', () => {
+		const { id, slug } = setup();
+		const other = setup('2026-11-14');
 
-		regenerateParticipantToken(db, id, anna.id);
-		expect(findParticipantByToken(db, tokens[0].token)).toBeNull();
+		expect(findParticipant(db, 'fluffy-nothing', 'u-anna')).toBeNull();
+		// The admin manages the tasting, but doesn't take part in it.
+		expect(findParticipant(db, slug, 'u-admin')).toBeNull();
+		expect(findParticipant(db, other.slug, 'u-admin')).toBeNull();
 
 		deleteTasting(db, id);
-		expect(findParticipantByToken(db, tokens[1].token)).toBeNull();
+		expect(findParticipant(db, slug, 'u-anna')).toBeNull();
 	});
 });
 
@@ -185,7 +298,7 @@ describe('getParticipantView', () => {
 		const view = getParticipantView(db, ctx.anna, ENTRY);
 		expect(view).toMatchObject({
 			phase: 'entry',
-			participant: { name: 'Anna' },
+			participant: { username: 'Anna' },
 			tasting: { bottlesPerParticipant: 2 }
 		});
 		const serialized = JSON.stringify(view);
@@ -228,6 +341,18 @@ describe('getParticipantView', () => {
 		});
 		expect(view.bottles[1]).not.toHaveProperty('breakdown');
 	});
+
+	it('marks the bringer of a bottle as inactive once deactivated', () => {
+		const ctx = setup();
+		fill(ctx);
+		db.update(schema.user).set({ deactivatedAt: ORDER }).where(eq(schema.user.id, 'u-ben')).run();
+
+		const view = getParticipantView(db, ctx.anna, REVEALED);
+		expect(view.phase === 'revealed' && view.bottles.map((b) => b.broughtBy)).toEqual([
+			'Ben (inaktiv)',
+			'Anna'
+		]);
+	});
 });
 
 describe('getAdminTastingDetail', () => {
@@ -254,10 +379,16 @@ describe('getAdminTastingDetail', () => {
 		for (const secret of ['Nebel', 'Torf', 'Ardbeg', 'Lagavulin', 'whiskybase']) {
 			expect(serialized).not.toContain(secret);
 		}
-		for (const t of ctx.tokens) {
-			expect(serialized).not.toContain(t.token);
-			expect(serialized).not.toContain(hashTastingToken(t.token));
-		}
+	});
+
+	it('marks deactivated participants', () => {
+		const ctx = setup();
+		db.update(schema.user).set({ deactivatedAt: ENTRY }).where(eq(schema.user.id, 'u-cem')).run();
+		expect(getAdminTastingDetail(db, ctx.id, ENTRY)?.participants.map((p) => p.name)).toEqual([
+			'Anna',
+			'Ben',
+			'Cem (inaktiv)'
+		]);
 	});
 
 	it.each([
@@ -346,13 +477,13 @@ describe('openOrderEarly and revealEarly (admin buttons)', () => {
 	// Drizzle stores timestamps in whole seconds.
 	const PRESSED = new Date('2026-10-22T15:32:10Z');
 
-	it('opens the order ahead of 18:00 and tells every link when', () => {
+	it('opens the order ahead of 18:00 and tells every participant when', () => {
 		const ctx = setup();
 		saveBottle(db, ctx.anna, 1, bottle(), ENTRY);
 
 		expect(openOrderEarly(db, ctx.id, PRESSED)).toBe(true);
 
-		const holder = findParticipantByToken(db, ctx.tokens[1].token)!;
+		const holder = findParticipant(db, ctx.slug, 'u-ben')!;
 		const view = getParticipantView(db, holder, PRESSED);
 		expect(view).toMatchObject({
 			phase: 'order',
@@ -391,7 +522,7 @@ describe('openOrderEarly and revealEarly (admin buttons)', () => {
 		openOrderEarly(db, ctx.id, PRESSED);
 		expect(revealEarly(db, ctx.id, REVEAL_PRESSED)).toBe(true);
 
-		const holder = findParticipantByToken(db, ctx.tokens[2].token)!;
+		const holder = findParticipant(db, ctx.slug, 'u-cem')!;
 		expect(getParticipantView(db, holder, REVEAL_PRESSED)).toMatchObject({
 			phase: 'revealed',
 			manual: { orderOpenedAt: PRESSED, revealedAt: REVEAL_PRESSED },
@@ -434,25 +565,6 @@ describe('openOrderEarly and revealEarly (admin buttons)', () => {
 	it('returns false for an unknown tasting', () => {
 		expect(openOrderEarly(db, 'nope', PRESSED)).toBe(false);
 		expect(revealEarly(db, 'nope', PRESSED)).toBe(false);
-	});
-});
-
-describe('regenerateParticipantToken', () => {
-	it('issues a new working token and keeps the bottles', () => {
-		const { id, anna, tokens } = setup();
-		saveBottle(db, anna, 1, bottle(), ENTRY);
-
-		const issued = regenerateParticipantToken(db, id, anna.id)!;
-		expect(issued).toMatchObject({ participantId: anna.id, name: 'Anna' });
-		expect(issued.token).not.toBe(tokens[0].token);
-		expect(findParticipantByToken(db, issued.token)?.id).toBe(anna.id);
-		expect(db.select().from(schema.tastingBottle).all()).toHaveLength(1);
-	});
-
-	it('refuses a participant of another tasting', () => {
-		const first = setup();
-		const second = setup('2026-11-14');
-		expect(regenerateParticipantToken(db, second.id, first.anna.id)).toBeNull();
 	});
 });
 

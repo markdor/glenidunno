@@ -25,19 +25,20 @@ Browser (PWA) ◄──► app (SvelteKit)
 
 ## Zugriff
 
-Closed App – keine anonyme Nutzung, mit genau einer Ausnahme. Initial ist
-nur die in `.env` hinterlegte Admin-Mailadresse freigeschaltet; weitere
-User legt der Admin auf einer eigenen Admin-Seite an. Login erfolgt per
-Magic Link, ohne Passwort.
+Closed App – keine anonyme Nutzung. Initial ist nur die in `.env`
+hinterlegte Admin-Mailadresse freigeschaltet; weitere User legt der Admin
+auf einer eigenen Admin-Seite an. Login erfolgt per Magic Link, ohne
+Passwort.
 
-**Ausnahme Whisky-Blindtasting:** Der Admin legt ein Tasting mit Datum
-und Teilnehmern an. Jeder Teilnehmer trägt seine Flaschen ohne Login
-über einen persönlichen Link (`/tasting/<token>`) ein. Das ist die
-einzige anonym erreichbare Route, und ein Link gibt nur Zugriff auf die
-eigenen Eingaben in diesem einen Tasting. Die Phase ergibt sich aus dem
-Tasting-Datum (Berliner Zeit):
+**Whisky-Blindtasting:** Der Admin legt ein Tasting mit Datum an und wählt
+die Teilnehmer aus den freigeschalteten Usern (neue Personen legt er vorher
+auf der Admin-Seite an). Jedes Tasting hat genau einen festen Link der Form
+`/tasting/<adjektiv>-<tier>` (z. B. `/tasting/fluffy-otter`), den alle
+Teilnehmer gemeinsam nutzen. Wer welcher Teilnehmer ist, ergibt sich aus
+dem Login – wer nicht am Tasting teilnimmt, sieht nichts. Die Phase ergibt
+sich aus dem Tasting-Datum (Berliner Zeit):
 
-| Zeitraum | Alle Links sehen |
+| Zeitraum | Alle Teilnehmer sehen |
 |---|---|
 | bis 18 Uhr am Tasting-Tag | nur die eigenen Flaschen |
 | ab 18 Uhr am Tasting-Tag | nur die Tastingreihenfolge der Synonyme |
@@ -45,26 +46,27 @@ Tasting-Datum (Berliner Zeit):
 
 Die Admin-Seite eines Tastings zeigt in keiner Phase Inhalte, nur
 Teilnehmer, Eingabefortschritt und Verwaltung. Der Admin verkostet mit
-und sieht Reihenfolge und Auflösung über seinen eigenen Link.
+und sieht Reihenfolge und Auflösung als Teilnehmer des Tastings.
 
 Der Admin kann beide Schritte nacheinander per Knopfdruck vorziehen:
 erst „Reihenfolge jetzt freigeben“ statt 18 Uhr, danach „Jetzt
 auflösen“ statt 9 Uhr. Das lässt sich nicht rückgängig machen, und alle
-Links zeigen danach, wann der Admin das getan hat.
+Teilnehmer sehen danach, wann der Admin das getan hat.
 
 Zu jeder Flasche kann optional eine Präsentation (meist PowerPoint,
 höchstens 30 MB) hochgeladen werden. Die Datei wird unverändert
 gespeichert, im Volume unter dem Namen
 `Tasting_<YYYY-MM-DD>_<Synonym>.<Endung>`. Ab der Reihenfolge können
-alle sie herunterladen, damit die Folien beim Tasting gezeigt werden
-können – bis zur Auflösung unter diesem neutralen Namen, danach unter dem
-Originalnamen. Vorher sieht niemand die Datei, auch nicht ihren Namen.
+alle Teilnehmer sie herunterladen, damit die Folien beim Tasting gezeigt
+werden können – bis zur Auflösung unter diesem neutralen Namen, danach
+unter dem Originalnamen. Vorher sieht niemand die Datei, auch nicht ihren
+Namen.
 
 Blind für alle: Auch der Admin sieht vor 18 Uhr keine fremden Eingaben.
-Die Links zeigt die App dem Admin genau einmal (nach dem Anlegen bzw.
-„Link neu generieren“), gespeichert wird nur ein Hash. Wer einen Link
-hat, sieht und ändert die Eingaben dieses Teilnehmers – Links deshalb
-einzeln verschicken, nicht in die Gruppe.
+
+User, die an einem Tasting teilgenommen haben, werden beim Löschen nur
+deaktiviert: Sie können sich nicht mehr anmelden, bleiben in ihren
+Tastings aber als „<Username> (inaktiv)“ sichtbar.
 
 ## Entwicklung
 

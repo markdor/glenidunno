@@ -6,12 +6,11 @@ import { EMAIL_LENGTH } from '$lib/validation';
 vi.mock('$lib/server/db', async () => {
 	const Database = (await import('better-sqlite3')).default;
 	const { drizzle } = await import('drizzle-orm/better-sqlite3');
-	const { migrate } = await import('drizzle-orm/better-sqlite3/migrator');
+	const { runMigrations } = await import('$lib/server/db/migrate');
 	const schema = await import('$lib/server/db/schema');
 	const sqlite = new Database(':memory:');
-	sqlite.pragma('foreign_keys = ON');
+	runMigrations(sqlite, './drizzle');
 	const db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: './drizzle' });
 	return { db, schema };
 });
 
@@ -19,9 +18,11 @@ vi.mock('$lib/server/logger', () => ({
 	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
 }));
 
+import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
-import { user, session } from '$lib/server/db/schema';
+import { user, session, tasting } from '$lib/server/db/schema';
 import { logger } from '$lib/server/logger';
+import { createTasting } from '$lib/server/tastings';
 import { actions, load } from './+page.server';
 
 const ADMIN = { id: 'admin-id', username: 'admin', isAdmin: true };
@@ -54,8 +55,33 @@ function insertUser(opts: { id?: string; email: string; username: string; isAdmi
 	return id;
 }
 
+/** Makes the user a participant of a fresh tasting (together with the admin). */
+function takePart(userId: string) {
+	createTasting(db, {
+		name: 'Herbst-Tasting',
+		tastingDate: '2026-10-24',
+		bottlesPerParticipant: 2,
+		participantUserIds: [ADMIN.id, userId]
+	});
+}
+
+function addSession(userId: string, id = `sess-${userId}`) {
+	db.insert(session)
+		.values({
+			id,
+			expiresAt: new Date(Date.now() + 1000),
+			token: `tok-${id}`,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			userId
+		})
+		.run();
+}
+
 beforeEach(() => {
 	db.delete(session).run();
+	// Participations restrict deleting their users, so the tastings go first.
+	db.delete(tasting).run();
 	db.delete(user).run();
 	// The current admin always exists (bootstrap guarantees this in prod).
 	insertUser({ id: ADMIN.id, email: 'admin@glenidunno.de', username: 'admin', isAdmin: true });
@@ -75,6 +101,28 @@ describe('admin load', () => {
 	it('returns the users for an admin', () => {
 		const result = load(loadEvent(ADMIN)) as { users: unknown[] };
 		expect(result.users.length).toBe(1);
+	});
+
+	it('tells per user whether they are deactivated and took part in a tasting', () => {
+		const anna = insertUser({ email: 'anna@glenidunno.de', username: 'anna' });
+		insertUser({ email: 'ben@glenidunno.de', username: 'ben' });
+		takePart(anna);
+		db.update(user).set({ deactivatedAt: new Date() }).where(eq(user.id, anna)).run();
+
+		const { users } = load(loadEvent(ADMIN)) as {
+			users: Array<{ username: string; deactivated: boolean; hasParticipation: boolean }>;
+		};
+		expect(
+			users.map(({ username, deactivated, hasParticipation }) => ({
+				username,
+				deactivated,
+				hasParticipation
+			}))
+		).toEqual([
+			{ username: 'admin', deactivated: false, hasParticipation: true },
+			{ username: 'anna', deactivated: true, hasParticipation: true },
+			{ username: 'ben', deactivated: false, hasParticipation: false }
+		]);
 	});
 });
 
@@ -320,10 +368,58 @@ describe('admin delete', () => {
 		});
 	});
 
+	it('deactivates a user who took part in a tasting instead of deleting them', async () => {
+		const id = insertUser({ email: 'anna@glenidunno.de', username: 'anna' });
+		takePart(id);
+		addSession(id);
+
+		expect(await actions.delete(makeEvent({ id }))).toEqual({
+			action: 'delete',
+			deactivated: true
+		});
+		const row = db.select().from(user).where(eq(user.id, id)).get();
+		expect(row).toMatchObject({ email: 'anna@glenidunno.de', username: 'anna' });
+		expect(row?.deactivatedAt).toBeInstanceOf(Date);
+		// Forced logout as with a delete.
+		expect(db.select().from(session).all()).toEqual([]);
+	});
+
+	it('keeps the first deactivation time on a second click', async () => {
+		const id = insertUser({ email: 'anna@glenidunno.de', username: 'anna' });
+		takePart(id);
+		const first = new Date('2026-10-01T12:00:00Z');
+		db.update(user).set({ deactivatedAt: first }).where(eq(user.id, id)).run();
+
+		expect(await actions.delete(makeEvent({ id }))).toEqual({
+			action: 'delete',
+			deactivated: true
+		});
+		expect(db.select().from(user).where(eq(user.id, id)).get()?.deactivatedAt).toEqual(first);
+	});
+
+	it('keeps the email and username of a deactivated user taken', async () => {
+		const id = insertUser({ email: 'anna@glenidunno.de', username: 'anna' });
+		takePart(id);
+		await actions.delete(makeEvent({ id }));
+
+		expect(
+			await actions.create(makeEvent({ email: 'anna@glenidunno.de', username: 'anna2' }))
+		).toMatchObject({ status: 409, data: { fieldErrors: { email: 'taken' } } });
+		expect(
+			await actions.create(makeEvent({ email: 'anna2@glenidunno.de', username: 'anna' }))
+		).toMatchObject({ status: 409, data: { fieldErrors: { username: 'taken' } } });
+	});
+
+	it('refuses to deactivate the current admin (self) as well', async () => {
+		takePart(insertUser({ email: 'anna@glenidunno.de', username: 'anna' }));
+		expect(await actions.delete(makeEvent({ id: ADMIN.id }))).toMatchObject({ status: 400 });
+		expect(db.select().from(user).where(eq(user.id, ADMIN.id)).get()?.deactivatedAt).toBeNull();
+	});
+
 	it('logs and returns 500 on an unexpected database error', async () => {
 		const id = insertUser({ email: 'boom@glenidunno.de', username: 'boom' });
 		const err = new Error('disk full');
-		const deleteSpy = vi.spyOn(db, 'delete').mockImplementationOnce(() => {
+		const deleteSpy = vi.spyOn(db, 'transaction').mockImplementationOnce(() => {
 			throw err;
 		});
 

@@ -1,10 +1,8 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { env } from '$env/dynamic/private';
 import {
 	TASTING_BOTTLES_PER_PARTICIPANT,
 	TASTING_NAME_LENGTH,
-	TASTING_PARTICIPANT_NAME_LENGTH,
 	TASTING_PARTICIPANTS
 } from '$lib/validation';
 import { db } from '$lib/server/db';
@@ -12,13 +10,22 @@ import { requireAdmin } from '$lib/server/authGuards';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/server/errorMessages';
 import { logger } from '$lib/server/logger';
 import { getBerlinToday } from '$lib/server/tastingPhase';
-import { buildTastingLink } from '$lib/server/tastingToken';
-import { createTasting, validateTastingDate } from '$lib/server/tastings';
+import {
+	createTasting,
+	listSelectableUsers,
+	TastingValidationError,
+	validateTastingDate
+} from '$lib/server/tastings';
 
 export const load: PageServerLoad = ({ locals }) => {
 	requireAdmin(locals);
-	// The server decides what "today" is (Berlin date), not the client clock.
-	return { today: getBerlinToday(new Date()) };
+	return {
+		// The server decides what "today" is (Berlin date), not the client clock.
+		today: getBerlinToday(new Date()),
+		// Participants are picked from the active users; new people are added
+		// on /admin first.
+		users: listSelectableUsers(db)
+	};
 };
 
 type Values = {
@@ -48,25 +55,24 @@ function validate(values: Values, now: Date) {
 		fieldErrors.bottlesPerParticipant = 'invalid';
 	}
 
-	// Empty participant fields are simply ignored.
-	const participantNames = values.participants.map((p) => p.trim()).filter(Boolean);
-	if (participantNames.length === 0) fieldErrors.participants = 'required';
+	// User ids of the ticked checkboxes; a tampered form may repeat one.
+	const participantUserIds = [...new Set(values.participants.filter(Boolean))];
+	if (participantUserIds.length === 0) fieldErrors.participants = 'required';
 	else if (
-		participantNames.length < TASTING_PARTICIPANTS.min ||
-		participantNames.length > TASTING_PARTICIPANTS.max ||
-		participantNames.some((p) => p.length > TASTING_PARTICIPANT_NAME_LENGTH.max)
+		participantUserIds.length < TASTING_PARTICIPANTS.min ||
+		participantUserIds.length > TASTING_PARTICIPANTS.max
 	) {
 		fieldErrors.participants = 'invalid';
 	}
 
 	return {
-		input: { name, tastingDate: date.tastingDate, bottlesPerParticipant, participantNames },
+		input: { name, tastingDate: date.tastingDate, bottlesPerParticipant, participantUserIds },
 		fieldErrors
 	};
 }
 
 export const actions: Actions = {
-	create: async ({ request, locals, url }) => {
+	create: async ({ request, locals }) => {
 		requireAdmin(locals);
 		const form = await request.formData();
 		const values: Values = {
@@ -81,21 +87,16 @@ export const actions: Actions = {
 			return fail(400, { action: 'create', values, fieldErrors });
 		}
 
+		let id: string;
 		try {
-			const { id, tokens } = createTasting(db, input);
-			// BASE_URL is the app's single public origin (see CLAUDE.md).
-			const baseUrl = env.BASE_URL || url.origin;
-			// The plaintext links exist only in this response – they are shown once.
-			return {
-				action: 'create',
-				created: {
-					tastingId: id,
-					links: tokens.map((t) => ({ name: t.name, url: buildTastingLink(baseUrl, t.token) }))
-				}
-			};
-		} catch (err) {
+			({ id } = createTasting(db, input));
+		} catch (err: unknown) {
+			if (err instanceof TastingValidationError) {
+				return fail(422, { action: 'create', values, userMessage: err.userMessage });
+			}
 			logger.error({ err }, 'create tasting failed');
-			return fail(500, { action: 'create', userMessage: UNEXPECTED_ERROR_MESSAGE });
+			return fail(500, { action: 'create', values, userMessage: UNEXPECTED_ERROR_MESSAGE });
 		}
+		redirect(303, `/admin/tastings/${id}`);
 	}
 };

@@ -1,14 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('$lib/server/db', async () => {
 	const Database = (await import('better-sqlite3')).default;
 	const { drizzle } = await import('drizzle-orm/better-sqlite3');
-	const { migrate } = await import('drizzle-orm/better-sqlite3/migrator');
+	const { runMigrations } = await import('$lib/server/db/migrate');
 	const schema = await import('$lib/server/db/schema');
 	const sqlite = new Database(':memory:');
-	sqlite.pragma('foreign_keys = ON');
+	runMigrations(sqlite, './drizzle');
 	const db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: './drizzle' });
 	return { db, schema };
 });
 
@@ -26,14 +25,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TASTING_PRESENTATION_MAX_BYTES } from '$lib/validation';
 import { db } from '$lib/server/db';
-import { tasting, tastingBottle, tastingWriteThrottle } from '$lib/server/db/schema';
+import { tasting, tastingBottle, tastingWriteThrottle, user } from '$lib/server/db/schema';
 import { logger } from '$lib/server/logger';
 import { TASTING_WRITE_LIMIT } from '$lib/server/tastingWriteThrottle';
 import {
 	createTasting,
 	deleteTasting,
+	findParticipant,
 	openOrderEarly,
-	regenerateParticipantToken,
 	revealEarly,
 	type ParticipantView
 } from '$lib/server/tastings';
@@ -46,35 +45,68 @@ const LAST_ENTRY_SECOND = new Date('2026-10-24T15:59:59Z');
 const ORDER = new Date('2026-10-24T16:00:00Z');
 const REVEALED = new Date('2026-10-25T08:00:00Z');
 
+// User ids: Anna and Ben take part, the admin manages the tasting but doesn't
+// taste along, Olga has nothing to do with it.
+const ANNA = 'u-anna';
+const BEN = 'u-ben';
+const ADMIN = 'u-admin';
+const OUTSIDER = 'u-olga';
+
 type LoadEvent = Parameters<typeof load>[0];
 type ActionEvent = Parameters<typeof actions.save>[0];
 
 let tastingId: string;
-let annaToken: string;
-let benToken: string;
+let slug: string;
 let annaId: string;
 
-function loadFor(token: string) {
-	// locals.user is set on purpose: the public route must not care about it.
+function locals(userId: string | null) {
+	return {
+		user: userId ? { id: userId, isAdmin: userId === ADMIN } : null,
+		session: null
+	};
+}
+
+function loadFor(userId: string | null, tastingSlug = slug) {
 	return load({
-		params: { token },
-		locals: { user: { id: 'admin', isAdmin: true }, session: null }
+		params: { slug: tastingSlug },
+		locals: locals(userId)
 	} as unknown as LoadEvent) as { view: ParticipantView };
 }
 
-function save(token: string, fields: Record<string, string | File>) {
+function save(userId: string, fields: Record<string, string | File>, tastingSlug = slug) {
 	const fd = new FormData();
 	for (const [k, v] of Object.entries(fields)) fd.append(k, v);
-	const request = new Request(`http://localhost/tasting/${token}?/save`, {
+	const request = new Request(`http://localhost/tasting/${tastingSlug}?/save`, {
 		method: 'POST',
 		body: fd
 	});
 	return actions.save({
 		request,
-		params: { token },
-		locals: { user: null, session: null }
+		params: { slug: tastingSlug },
+		locals: locals(userId)
 	} as unknown as ActionEvent);
 }
+
+beforeAll(() => {
+	for (const [id, username] of [
+		[ANNA, 'Anna'],
+		[BEN, 'Ben'],
+		[ADMIN, 'Markus'],
+		[OUTSIDER, 'Olga']
+	]) {
+		db.insert(user)
+			.values({
+				id,
+				name: username,
+				email: `${username.toLowerCase()}@example.com`,
+				username,
+				isAdmin: id === ADMIN,
+				createdAt: ENTRY,
+				updatedAt: ENTRY
+			})
+			.run();
+	}
+});
 
 const validBottle = {
 	slot: '1',
@@ -101,11 +133,11 @@ beforeEach(async () => {
 		name: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
 		bottlesPerParticipant: 2,
-		participantNames: ['Anna', 'Ben']
+		participantUserIds: [ANNA, BEN]
 	});
 	tastingId = created.id;
-	[annaToken, benToken] = created.tokens.map((t) => t.token);
-	annaId = created.tokens[0].participantId;
+	slug = created.slug;
+	annaId = findParticipant(db, slug, ANNA)!.id;
 });
 
 afterEach(async () => {
@@ -114,13 +146,13 @@ afterEach(async () => {
 	await rm(mediaDir, { recursive: true, force: true });
 });
 
-describe('tasting link load', () => {
-	it('shows the holder their own bottles during entry, ignoring the session', async () => {
-		await save(annaToken, validBottle);
-		await save(benToken, { ...validBottle, alias: 'Blume', distillery: 'Glenkinchie' });
+describe('participant page load', () => {
+	it('shows the logged-in participant their own bottles during entry', async () => {
+		await save(ANNA, validBottle);
+		await save(BEN, { ...validBottle, alias: 'Blume', distillery: 'Glenkinchie' });
 
-		const result = loadFor(annaToken);
-		expect(result.view).toMatchObject({ phase: 'entry', participant: { name: 'Anna' } });
+		const result = loadFor(ANNA);
+		expect(result.view).toMatchObject({ phase: 'entry', participant: { username: 'Anna' } });
 		const serialized = JSON.stringify(result);
 		expect(serialized).toContain('Nebel');
 		expect(serialized).not.toContain('Blume');
@@ -128,11 +160,11 @@ describe('tasting link load', () => {
 	});
 
 	it('shows only the numbered aliases with their total score from 18:00', async () => {
-		await save(annaToken, validBottle);
-		await save(benToken, { ...validBottle, alias: 'Blume', distillery: 'Glenkinchie', smoke: '0' });
+		await save(ANNA, validBottle);
+		await save(BEN, { ...validBottle, alias: 'Blume', distillery: 'Glenkinchie', smoke: '0' });
 
 		vi.setSystemTime(ORDER);
-		const result = loadFor(annaToken);
+		const result = loadFor(ANNA);
 		expect(result.view).toEqual({
 			phase: 'order',
 			tasting: { name: 'Herbst-Tasting', tastingDate: '2026-10-24' },
@@ -157,25 +189,25 @@ describe('tasting link load', () => {
 	});
 
 	it('follows the admin’s 18-Uhr button at once and tells when it was pressed', async () => {
-		await save(annaToken, validBottle);
+		await save(ANNA, validBottle);
 		const pressed = new Date('2026-10-21T15:32:00Z');
 		vi.setSystemTime(pressed);
 		openOrderEarly(db, tastingId);
 
-		expect(loadFor(benToken).view).toMatchObject({
+		expect(loadFor(BEN).view).toMatchObject({
 			phase: 'order',
 			manual: { orderOpenedAt: pressed, revealedAt: null },
 			order: [{ position: 1, alias: 'Nebel' }]
 		});
 		// Saving is locked on the server as well; the page is told to reload.
-		expect(await save(annaToken, { ...validBottle, distillery: 'Other' })).toMatchObject({
+		expect(await save(ANNA, { ...validBottle, distillery: 'Other' })).toMatchObject({
 			status: 422,
 			data: { reload: true }
 		});
 	});
 
 	it('follows the admin’s 9-Uhr button at once', async () => {
-		await save(annaToken, validBottle);
+		await save(ANNA, validBottle);
 		const orderPressed = new Date('2026-10-21T15:32:00Z');
 		vi.setSystemTime(orderPressed);
 		openOrderEarly(db, tastingId);
@@ -183,7 +215,7 @@ describe('tasting link load', () => {
 		vi.setSystemTime(pressed);
 		revealEarly(db, tastingId);
 
-		expect(loadFor(benToken).view).toMatchObject({
+		expect(loadFor(BEN).view).toMatchObject({
 			phase: 'revealed',
 			manual: { orderOpenedAt: orderPressed, revealedAt: pressed },
 			bottles: [{ alias: 'Nebel', distillery: 'Ardbeg', broughtBy: 'Anna' }]
@@ -191,10 +223,10 @@ describe('tasting link load', () => {
 	});
 
 	it('reveals everything but the score breakdown from 9:00 on the next day', async () => {
-		await save(annaToken, validBottle);
+		await save(ANNA, validBottle);
 
 		vi.setSystemTime(REVEALED);
-		const { view } = loadFor(benToken);
+		const { view } = loadFor(BEN);
 		expect(view.phase).toBe('revealed');
 		expect(JSON.stringify(view)).not.toContain('breakdown');
 		expect(view).toMatchObject({
@@ -213,22 +245,26 @@ describe('tasting link load', () => {
 		});
 	});
 
-	it('answers unknown, replaced and deleted tokens with the same 404', () => {
+	it('answers an unknown slug, a non-participant, the admin and a deleted tasting with the same 404', () => {
 		const expected = expect.objectContaining({ status: 404, body: { message: 'Not found' } });
-		expect(() => loadFor('x'.repeat(32))).toThrowError(expected);
-
-		regenerateParticipantToken(db, tastingId, annaId);
-		expect(() => loadFor(annaToken)).toThrowError(expected);
+		expect(() => loadFor(ANNA, 'fluffy-nothing')).toThrowError(expected);
+		expect(() => loadFor(OUTSIDER)).toThrowError(expected);
+		// The admin manages the tasting, but only participants see it.
+		expect(() => loadFor(ADMIN)).toThrowError(expected);
 
 		deleteTasting(db, tastingId);
-		expect(() => loadFor(benToken)).toThrowError(expected);
+		expect(() => loadFor(ANNA)).toThrowError(expected);
+	});
+
+	it('requires a login (behind the global guard as a second line)', () => {
+		expect(() => loadFor(null)).toThrowError(expect.objectContaining({ status: 401 }));
 	});
 });
 
-describe('tasting link save', () => {
-	it('saves into the holder’s own slot and updates it later', async () => {
-		expect(await save(annaToken, validBottle)).toEqual({ action: 'save', slot: 1, saved: true });
-		await save(annaToken, { ...validBottle, distillery: 'Laphroaig' });
+describe('participant page save', () => {
+	it('saves into the participant’s own slot and updates it later', async () => {
+		expect(await save(ANNA, validBottle)).toEqual({ action: 'save', slot: 1, saved: true });
+		await save(ANNA, { ...validBottle, distillery: 'Laphroaig' });
 
 		const rows = db.select().from(tastingBottle).all();
 		expect(rows).toHaveLength(1);
@@ -241,22 +277,33 @@ describe('tasting link save', () => {
 		});
 	});
 
-	it('takes the participant only from the token, never from the form', async () => {
-		await save(annaToken, { ...validBottle, participantId: 'someone-else', participant_id: 'x' });
+	it('takes the participant only from slug and login, never from the form', async () => {
+		const benId = findParticipant(db, slug, BEN)!.id;
+		await save(ANNA, {
+			...validBottle,
+			participantId: benId,
+			participant_id: benId,
+			userId: BEN,
+			user_id: BEN
+		});
 		expect(db.select().from(tastingBottle).get()?.participantId).toBe(annaId);
 	});
 
-	it('answers an unknown token with 404 and writes nothing', async () => {
-		await expect(save('x'.repeat(32), validBottle)).rejects.toMatchObject({ status: 404 });
+	it.each([
+		{ label: 'a user who doesn’t take part', userId: OUTSIDER, tastingSlug: undefined },
+		{ label: 'the admin without participation', userId: ADMIN, tastingSlug: undefined },
+		{ label: 'an unknown slug', userId: ANNA, tastingSlug: 'fluffy-nothing' }
+	])('answers $label with 404 and writes nothing', async ({ userId, tastingSlug }) => {
+		await expect(save(userId, validBottle, tastingSlug)).rejects.toMatchObject({ status: 404 });
 		expect(db.select().from(tastingBottle).all()).toEqual([]);
 	});
 
 	it('refuses to save from 18:00 on the tasting day and asks the client to reload', async () => {
 		vi.setSystemTime(LAST_ENTRY_SECOND);
-		expect(await save(annaToken, validBottle)).toMatchObject({ saved: true });
+		expect(await save(ANNA, validBottle)).toMatchObject({ saved: true });
 
 		vi.setSystemTime(ORDER);
-		expect(await save(annaToken, { ...validBottle, distillery: 'Other' })).toMatchObject({
+		expect(await save(ANNA, { ...validBottle, distillery: 'Other' })).toMatchObject({
 			status: 422,
 			data: {
 				action: 'save',
@@ -268,30 +315,30 @@ describe('tasting link save', () => {
 	});
 
 	it('rejects a slot beyond bottlesPerParticipant', async () => {
-		expect(await save(annaToken, { ...validBottle, slot: '3' })).toMatchObject({
+		expect(await save(ANNA, { ...validBottle, slot: '3' })).toMatchObject({
 			status: 422,
 			data: { userMessage: 'Diese Flasche gibt es in diesem Tasting nicht.' }
 		});
 	});
 
 	it('rejects an alias that someone else already uses, ignoring case', async () => {
-		await save(benToken, { ...validBottle, alias: 'Nebel' });
-		expect(await save(annaToken, { ...validBottle, alias: 'NEBEL' })).toMatchObject({
+		await save(BEN, { ...validBottle, alias: 'Nebel' });
+		expect(await save(ANNA, { ...validBottle, alias: 'NEBEL' })).toMatchObject({
 			status: 409,
 			data: { action: 'save', slot: 1, fieldErrors: { alias: 'taken' } }
 		});
 	});
 
-	it('answers 429 once the write limit of the link is used up', async () => {
+	it('answers 429 once the participant’s write limit is used up', async () => {
 		for (let i = 0; i < TASTING_WRITE_LIMIT.max; i++) {
-			expect(await save(annaToken, validBottle)).toMatchObject({ saved: true });
+			expect(await save(ANNA, validBottle)).toMatchObject({ saved: true });
 		}
-		expect(await save(annaToken, validBottle)).toMatchObject({
+		expect(await save(ANNA, validBottle)).toMatchObject({
 			status: 429,
 			data: { action: 'save', userMessage: expect.stringContaining('Zu viele') }
 		});
-		// Other links keep their own quota.
-		expect(await save(benToken, { ...validBottle, alias: 'Blume' })).toMatchObject({ saved: true });
+		// Other participants keep their own quota.
+		expect(await save(BEN, { ...validBottle, alias: 'Blume' })).toMatchObject({ saved: true });
 		expect(db.select().from(tastingWriteThrottle).all()).toHaveLength(2);
 	});
 
@@ -316,7 +363,7 @@ describe('tasting link save', () => {
 		{ field: 'whiskybaseUrl', value: 'https://evil.example/w/1', code: 'invalid' },
 		{ field: 'whiskybaseUrl', value: 'javascript:alert(1)', code: 'invalid' }
 	])('rejects $field = "$value" as $code', async ({ field, value, code }) => {
-		expect(await save(annaToken, { ...validBottle, [field]: value })).toMatchObject({
+		expect(await save(ANNA, { ...validBottle, [field]: value })).toMatchObject({
 			status: 400,
 			data: { action: 'save', slot: 1, fieldErrors: { [field]: code } }
 		});
@@ -324,7 +371,7 @@ describe('tasting link save', () => {
 	});
 
 	it('accepts the limits and a dot as decimal separator with a trailing zero', async () => {
-		const result = await save(annaToken, {
+		const result = await save(ANNA, {
 			...validBottle,
 			alias: 'x'.repeat(30),
 			age: '80',
@@ -342,7 +389,7 @@ describe('tasting link save', () => {
 	});
 
 	it('echoes the raw values on a validation error', async () => {
-		const result = await save(annaToken, { ...validBottle, abv: 'stark' });
+		const result = await save(ANNA, { ...validBottle, abv: 'stark' });
 		expect(result).toMatchObject({ data: { values: { alias: 'Nebel', abv: 'stark' } } });
 	});
 
@@ -352,7 +399,7 @@ describe('tasting link save', () => {
 			throw err;
 		});
 
-		expect(await save(annaToken, validBottle)).toMatchObject({
+		expect(await save(ANNA, validBottle)).toMatchObject({
 			status: 500,
 			data: { action: 'save', userMessage: 'Da ist etwas schiefgelaufen.' }
 		});
@@ -361,7 +408,7 @@ describe('tasting link save', () => {
 	});
 });
 
-describe('tasting link save with a presentation', () => {
+describe('participant page save with a presentation', () => {
 	const deckBytes = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 1, 2, 3]);
 	const deck = (name = 'Ardbeg.pptx', bytes: Uint8Array<ArrayBuffer> = deckBytes) =>
 		new File([bytes], name);
@@ -372,7 +419,7 @@ describe('tasting link save with a presentation', () => {
 	const DECK_FILE = 'Tasting_2026-10-24_Nebel.pptx';
 
 	it('stores the upload byte for byte as Tasting_<date>_<alias>', async () => {
-		expect(await save(annaToken, { ...validBottle, presentation: deck() })).toMatchObject({
+		expect(await save(ANNA, { ...validBottle, presentation: deck() })).toMatchObject({
 			saved: true
 		});
 
@@ -383,17 +430,17 @@ describe('tasting link save with a presentation', () => {
 		expect(await storedFiles()).toEqual([DECK_FILE]);
 		expect(await content(DECK_FILE)).toEqual(deckBytes);
 		// The owner sees the name of the uploaded file during entry.
-		expect(loadFor(annaToken).view).toMatchObject({
+		expect(loadFor(ANNA).view).toMatchObject({
 			bottles: [{ presentationName: 'Ardbeg.pptx' }]
 		});
 	});
 
 	it('keeps the presentation when saving without a new file', async () => {
-		await save(annaToken, { ...validBottle, presentation: deck() });
+		await save(ANNA, { ...validBottle, presentation: deck() });
 		const file = bottleRow().presentationFile;
 
 		// An untouched file input arrives as an empty, nameless file.
-		await save(annaToken, {
+		await save(ANNA, {
 			...validBottle,
 			distillery: 'Other',
 			presentation: deck('', new Uint8Array())
@@ -404,8 +451,8 @@ describe('tasting link save with a presentation', () => {
 	});
 
 	it('replaces the presentation and deletes the old file', async () => {
-		await save(annaToken, { ...validBottle, presentation: deck() });
-		await save(annaToken, { ...validBottle, presentation: deck('Neu.pdf') });
+		await save(ANNA, { ...validBottle, presentation: deck() });
+		await save(ANNA, { ...validBottle, presentation: deck('Neu.pdf') });
 
 		expect(bottleRow()).toMatchObject({
 			presentationFile: 'Tasting_2026-10-24_Nebel.pdf',
@@ -415,17 +462,17 @@ describe('tasting link save with a presentation', () => {
 	});
 
 	it('overwrites the file on a re-upload under the same alias', async () => {
-		await save(annaToken, { ...validBottle, presentation: deck() });
+		await save(ANNA, { ...validBottle, presentation: deck() });
 		const second = new Uint8Array([7, 7, 7]);
-		await save(annaToken, { ...validBottle, presentation: deck('v2.pptx', second) });
+		await save(ANNA, { ...validBottle, presentation: deck('v2.pptx', second) });
 
 		expect(await storedFiles()).toEqual([DECK_FILE]);
 		expect(await content(DECK_FILE)).toEqual(second);
 	});
 
 	it('renames the file when the alias changes', async () => {
-		await save(annaToken, { ...validBottle, presentation: deck() });
-		await save(annaToken, { ...validBottle, alias: 'Blaue Stunde' });
+		await save(ANNA, { ...validBottle, presentation: deck() });
+		await save(ANNA, { ...validBottle, alias: 'Blaue Stunde' });
 
 		const renamed = 'Tasting_2026-10-24_Blaue_Stunde.pptx';
 		expect(bottleRow().presentationFile).toBe(renamed);
@@ -434,12 +481,12 @@ describe('tasting link save with a presentation', () => {
 	});
 
 	it('keeps the previous file intact when a re-upload is refused', async () => {
-		await save(annaToken, { ...validBottle, presentation: deck() });
-		await save(benToken, { ...validBottle, alias: 'Blume' });
+		await save(ANNA, { ...validBottle, presentation: deck() });
+		await save(BEN, { ...validBottle, alias: 'Blume' });
 
 		// Refused (alias taken) – the staged upload is discarded, the old file stays.
 		expect(
-			await save(annaToken, {
+			await save(ANNA, {
 				...validBottle,
 				alias: 'Blume',
 				presentation: deck('v2.pptx', new Uint8Array([9]))
@@ -451,8 +498,8 @@ describe('tasting link save with a presentation', () => {
 	});
 
 	it('removes the presentation on request', async () => {
-		await save(annaToken, { ...validBottle, presentation: deck() });
-		await save(annaToken, { ...validBottle, removePresentation: 'on' });
+		await save(ANNA, { ...validBottle, presentation: deck() });
+		await save(ANNA, { ...validBottle, removePresentation: 'on' });
 
 		expect(bottleRow()).toMatchObject({ presentationFile: null, presentationName: null });
 		expect(await storedFiles()).toEqual([]);
@@ -460,7 +507,7 @@ describe('tasting link save with a presentation', () => {
 
 	it('rejects a file above 30 MB without storing anything', async () => {
 		const tooLarge = deck('big.pptx', new Uint8Array(TASTING_PRESENTATION_MAX_BYTES + 1));
-		expect(await save(annaToken, { ...validBottle, presentation: tooLarge })).toMatchObject({
+		expect(await save(ANNA, { ...validBottle, presentation: tooLarge })).toMatchObject({
 			status: 400,
 			data: { fieldErrors: { presentation: 'invalid' } }
 		});
@@ -469,37 +516,37 @@ describe('tasting link save with a presentation', () => {
 	});
 
 	it('discards the uploaded file when the alias is taken', async () => {
-		await save(benToken, { ...validBottle, alias: 'Nebel' });
+		await save(BEN, { ...validBottle, alias: 'Nebel' });
 		expect(
-			await save(annaToken, { ...validBottle, alias: 'nebel', presentation: deck() })
+			await save(ANNA, { ...validBottle, alias: 'nebel', presentation: deck() })
 		).toMatchObject({ status: 409 });
 		expect(await storedFiles()).toEqual([]);
 	});
 
 	it('discards the uploaded file when the entry is closed', async () => {
 		vi.setSystemTime(ORDER);
-		expect(await save(annaToken, { ...validBottle, presentation: deck() })).toMatchObject({
+		expect(await save(ANNA, { ...validBottle, presentation: deck() })).toMatchObject({
 			status: 422
 		});
 		expect(await storedFiles()).toEqual([]);
 	});
 
 	it('does not even read the body once the write limit is used up', async () => {
-		for (let i = 0; i < TASTING_WRITE_LIMIT.max; i++) await save(annaToken, validBottle);
-		expect(await save(annaToken, { ...validBottle, presentation: deck() })).toMatchObject({
+		for (let i = 0; i < TASTING_WRITE_LIMIT.max; i++) await save(ANNA, validBottle);
+		expect(await save(ANNA, { ...validBottle, presentation: deck() })).toMatchObject({
 			status: 429
 		});
 		expect(await storedFiles()).toEqual([]);
 	});
 
 	it('reveals a link to the presentation with the other bottle data', async () => {
-		await save(annaToken, { ...validBottle, presentation: deck() });
+		await save(ANNA, { ...validBottle, presentation: deck() });
 
 		vi.setSystemTime(ORDER);
-		expect(JSON.stringify(loadFor(benToken))).not.toContain('Ardbeg.pptx');
+		expect(JSON.stringify(loadFor(BEN))).not.toContain('Ardbeg.pptx');
 
 		vi.setSystemTime(REVEALED);
-		expect(loadFor(benToken).view).toMatchObject({
+		expect(loadFor(BEN).view).toMatchObject({
 			bottles: [{ presentation: { bottleId: bottleRow().id, name: 'Ardbeg.pptx' } }]
 		});
 	});

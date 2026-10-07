@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { formatTastingTimestamp, type ManualPhaseChanges } from '$lib/tasting';
 
-	// Shown on every link (and the admin page) once the admin pressed the
-	// 18:00 or 9:00 button, so nobody wonders why the phase changed early.
+	// Shown to every participant (and on the admin page) once the admin pressed
+	// the 18:00 or 9:00 button, so nobody wonders why the phase changed early.
 	let { manual }: { manual: ManualPhaseChanges } = $props();
 </script>
 

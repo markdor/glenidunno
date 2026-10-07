@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { randomUUID } from 'node:crypto';
 
+import { runMigrations } from './db/migrate';
 import * as schema from './db/schema';
 import { consumeEmailRateLimit, type ThrottleOptions } from './magicLinkThrottle';
 import { handleSendMagicLink, type MagicLinkCallbackDeps } from './magicLinkCallback';
@@ -18,8 +18,8 @@ const sendMagicLinkMail = vi.fn<(email: string, url: string) => Promise<void>>()
 const appendFile = vi.fn<(path: string, data: string) => void>();
 const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
-/** A row in `user` is what makes an address whitelisted for login. */
-function whitelist(email: string): void {
+/** An active row in `user` is what makes an address whitelisted for login. */
+function whitelist(email: string, deactivatedAt: Date | null = null): void {
 	db.insert(schema.user)
 		.values({
 			id: randomUUID(),
@@ -28,6 +28,7 @@ function whitelist(email: string): void {
 			emailVerified: true,
 			username: `user-${randomUUID().slice(0, 8)}`,
 			isAdmin: false,
+			deactivatedAt,
 			createdAt: new Date(),
 			updatedAt: new Date()
 		})
@@ -51,9 +52,8 @@ function makeDeps(overrides: Partial<MagicLinkCallbackDeps> = {}): MagicLinkCall
 
 beforeEach(() => {
 	const sqlite = new Database(':memory:');
-	sqlite.pragma('foreign_keys = ON');
+	runMigrations(sqlite, './drizzle');
 	db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: './drizzle' });
 
 	vi.clearAllMocks();
 	sendMagicLinkMail.mockImplementation(async () => {});
@@ -71,6 +71,23 @@ describe('handleSendMagicLink', () => {
 				{ email: EMAIL },
 				'magic link requested for non-whitelisted email (ignored)'
 			);
+		});
+
+		it('treats a deactivated user exactly like an address that is not whitelisted', async () => {
+			whitelist(EMAIL, new Date());
+			const consume = vi.fn(() => true);
+
+			await handleSendMagicLink(EMAIL, LINK, makeDeps({ consumeEmailRateLimit: consume }));
+
+			expect(sendMagicLinkMail).not.toHaveBeenCalled();
+			expect(appendFile).not.toHaveBeenCalled();
+			// Same branch as a miss: quota consumed, same debug log, nothing else.
+			expect(consume).toHaveBeenCalledOnce();
+			expect(logger.debug).toHaveBeenCalledWith(
+				{ email: EMAIL },
+				'magic link requested for non-whitelisted email (ignored)'
+			);
+			expect(logger.warn).not.toHaveBeenCalled();
 		});
 
 		it('sends no mail once the email has exhausted its rate limit', async () => {

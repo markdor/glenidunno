@@ -1,18 +1,37 @@
-import { randomUUID } from 'node:crypto';
-import { and, asc, count, countDistinct, desc, eq, isNotNull, sql } from 'drizzle-orm';
+import { randomInt, randomUUID } from 'node:crypto';
+import {
+	and,
+	asc,
+	count,
+	countDistinct,
+	desc,
+	eq,
+	inArray,
+	isNotNull,
+	isNull,
+	sql
+} from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import type {
-	ManualPhaseChanges,
-	OrderEntry,
-	PresentationRef,
-	Progress,
-	RevealedBottle,
-	TastingBottle,
-	TastingPhase
+import {
+	participantLabel,
+	type ManualPhaseChanges,
+	type OrderEntry,
+	type PresentationRef,
+	type Progress,
+	type RevealedBottle,
+	type TastingBottle,
+	type TastingPhase
 } from '$lib/tasting';
 import { isValidTastingDate } from '$lib/validation';
 import type * as Schema from './db/schema';
-import { tasting, tastingBottle, tastingParticipant } from './db/schema';
+import {
+	tasting,
+	tastingBottle,
+	tastingParticipant,
+	tastingSlugAdjective,
+	tastingSlugAnimal,
+	user
+} from './db/schema';
 import {
 	fileNameKey,
 	presentationBaseName,
@@ -23,7 +42,6 @@ import {
 import { getBerlinToday, getTastingPhase } from './tastingPhase';
 import type { PendingUpload, StoredPresentation } from './tastingMedia';
 import { sortForPouring, type BottleScore } from './tastingScore';
-import { generateTastingToken, hashTastingToken } from './tastingToken';
 
 type Db = BetterSQLite3Database<typeof Schema>;
 /** The database or a transaction on it – both can run the same queries. */
@@ -120,16 +138,21 @@ function toReveal(poured: ReadonlyArray<PouredBottle>) {
 /** All bottles of a tasting with their participant, in pouring order. */
 function pouredBottles(db: Db, tastingId: string) {
 	const rows = db
-		.select({ bottle: tastingBottle, broughtBy: tastingParticipant.name })
+		.select({
+			bottle: tastingBottle,
+			username: user.username,
+			deactivatedAt: user.deactivatedAt
+		})
 		.from(tastingBottle)
 		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+		.innerJoin(user, eq(user.id, tastingParticipant.userId))
 		.where(eq(tastingParticipant.tastingId, tastingId))
 		.orderBy(asc(tastingBottle.id))
 		.all();
 	return sortForPouring(
-		rows.map(({ bottle, broughtBy }) => ({
+		rows.map(({ bottle, username, deactivatedAt }) => ({
 			...toDomain(bottle),
-			broughtBy,
+			broughtBy: participantLabel(username, deactivatedAt),
 			presentation: presentationRef(bottle)
 		}))
 	);
@@ -141,7 +164,7 @@ function presentationRef(bottle: BottleRow): PresentationRef | null {
 		: null;
 }
 
-// Participants in the order the admin entered them (created in one insert,
+// Participants in the order the admin picked them (created in one insert,
 // so created_at alone can't tell them apart).
 const participantOrder = [asc(tastingParticipant.createdAt), sql`${tastingParticipant}.rowid`];
 
@@ -189,29 +212,81 @@ export type NewTasting = {
 	name: string;
 	tastingDate: string;
 	bottlesPerParticipant: number;
-	participantNames: string[];
+	/** Users taking part, in the order they are listed. */
+	participantUserIds: string[];
 };
 
-/** Plaintext token of a participant – only ever part of an action response. */
-export type IssuedToken = { participantId: string; name: string; token: string };
+/** A random index below `max`: crypto's randomInt, replaceable in tests. */
+export type PickIndex = (max: number) => number;
 
-/** Creates the tasting and its participants. Only the token hashes are stored. */
+/**
+ * A random `<adjective>-<animal>` no other tasting uses, `null` once all
+ * combinations are taken. Read inside the creating transaction, so two
+ * creations can't pick the same slug (better-sqlite3 runs them one after
+ * another).
+ */
+function pickFreeSlug(db: Executor, pick: PickIndex): string | null {
+	const taken = new Set(
+		db
+			.select({ slug: tasting.slug })
+			.from(tasting)
+			.all()
+			.map((t) => t.slug)
+	);
+	const words = (table: typeof tastingSlugAdjective | typeof tastingSlugAnimal) =>
+		db
+			.select({ word: table.word })
+			.from(table)
+			.orderBy(asc(table.word))
+			.all()
+			.map((row) => row.word);
+	const animals = words(tastingSlugAnimal);
+	const free = words(tastingSlugAdjective)
+		.flatMap((adjective) => animals.map((animal) => `${adjective}-${animal}`))
+		.filter((slug) => !taken.has(slug));
+	return free.length > 0 ? free[pick(free.length)] : null;
+}
+
+/**
+ * Creates the tasting with its participants and its one link, a free random
+ * slug that never changes afterwards. Every participant must be an active
+ * user – checked in the same transaction, so a user deactivated in the
+ * meantime can't slip in.
+ */
 export function createTasting(
 	db: Db,
 	input: NewTasting,
-	now: Date = new Date()
-): { id: string; tokens: IssuedToken[] } {
+	now: Date = new Date(),
+	pick: PickIndex = (max) => randomInt(max)
+): { id: string; slug: string } {
 	const id = randomUUID();
-	const tokens = input.participantNames.map((name) => ({
-		participantId: randomUUID(),
-		name,
-		token: generateTastingToken()
-	}));
+	const userIds = [...new Set(input.participantUserIds)];
 
-	db.transaction((tx) => {
+	const slug = db.transaction((tx) => {
+		const active = tx
+			.select({ id: user.id })
+			.from(user)
+			.where(and(inArray(user.id, userIds), isNull(user.deactivatedAt)))
+			.all();
+		if (active.length !== userIds.length) {
+			throw new TastingValidationError(
+				'create rejected: a participant is unknown or deactivated',
+				'Mindestens eine ausgewählte Person ist nicht mehr aktiv. Lade die Seite neu und wähle erneut.'
+			);
+		}
+
+		const slug = pickFreeSlug(tx, pick);
+		if (!slug) {
+			throw new TastingValidationError(
+				'create rejected: all tasting links are taken',
+				'Alle Tasting-Links sind vergeben, es lässt sich kein weiteres Tasting anlegen.'
+			);
+		}
+
 		tx.insert(tasting)
 			.values({
 				id,
+				slug,
 				name: input.name,
 				tastingDate: input.tastingDate,
 				bottlesPerParticipant: input.bottlesPerParticipant,
@@ -220,18 +295,25 @@ export function createTasting(
 			.run();
 		tx.insert(tastingParticipant)
 			.values(
-				tokens.map((t) => ({
-					id: t.participantId,
-					tastingId: id,
-					name: t.name,
-					tokenHash: hashTastingToken(t.token),
-					createdAt: now
-				}))
+				userIds.map((userId) => ({ id: randomUUID(), tastingId: id, userId, createdAt: now }))
 			)
 			.run();
+		return slug;
 	});
 
-	return { id, tokens };
+	return { id, slug };
+}
+
+export type SelectableUser = { id: string; username: string };
+
+/** Users the admin can pick as participants: the active ones, alphabetically. */
+export function listSelectableUsers(db: Db): SelectableUser[] {
+	return db
+		.select({ id: user.id, username: user.username })
+		.from(user)
+		.where(isNull(user.deactivatedAt))
+		.all()
+		.sort((a, b) => a.username.localeCompare(b.username, 'de'));
 }
 
 export type TastingListItem = {
@@ -299,6 +381,7 @@ export function getStartPageSummary(db: Db, now: Date = new Date()): StartPageSu
 	};
 }
 
+/** `name` is the display label: the username, marked if deactivated. */
 export type AdminParticipant = { id: string; name: string; progress: Progress };
 
 export type AdminTastingDetail = {
@@ -310,7 +393,7 @@ export type AdminTastingDetail = {
 
 /**
  * Management data only, in every phase: no bottles, no order, no reveal. The
- * admin tastes along and sees the content through their own participant link
+ * admin tastes along and sees the content as a participant of the tasting
  * like everybody else. `null` if the tasting doesn't exist.
  */
 export function getAdminTastingDetail(
@@ -324,10 +407,12 @@ export function getAdminTastingDetail(
 	const participants = db
 		.select({
 			id: tastingParticipant.id,
-			name: tastingParticipant.name,
+			username: user.username,
+			deactivatedAt: user.deactivatedAt,
 			entered: count(tastingBottle.id)
 		})
 		.from(tastingParticipant)
+		.innerJoin(user, eq(user.id, tastingParticipant.userId))
 		.leftJoin(tastingBottle, eq(tastingBottle.participantId, tastingParticipant.id))
 		.where(eq(tastingParticipant.tastingId, id))
 		.groupBy(tastingParticipant.id)
@@ -335,7 +420,7 @@ export function getAdminTastingDetail(
 		.all()
 		.map((p) => ({
 			id: p.id,
-			name: p.name,
+			name: participantLabel(p.username, p.deactivatedAt),
 			progress: { entered: p.entered, total: t.bottlesPerParticipant }
 		}));
 
@@ -415,9 +500,9 @@ export function updateTastingDate(
 }
 
 /**
- * "18-Uhr-Button": shows the pouring order on all links right away and closes
- * the entry, overruling the 18:00 rule. Only while the entry is still open.
- * Returns false if the tasting doesn't exist.
+ * "18-Uhr-Button": shows the pouring order to all participants right away and
+ * closes the entry, overruling the 18:00 rule. Only while the entry is still
+ * open. Returns false if the tasting doesn't exist.
  */
 export function openOrderEarly(db: Db, id: string, now: Date = new Date()): boolean {
 	const phase = currentPhase(db, id, now);
@@ -433,9 +518,10 @@ export function openOrderEarly(db: Db, id: string, now: Date = new Date()): bool
 }
 
 /**
- * "9-Uhr-Button": reveals everything on all links right away, overruling the
- * 9:00 rule. Only once the order is out (by the clock or the 18-Uhr-Button) –
- * the steps can't be skipped. Returns false if the tasting doesn't exist.
+ * "9-Uhr-Button": reveals everything to all participants right away,
+ * overruling the 9:00 rule. Only once the order is out (by the clock or the
+ * 18-Uhr-Button) – the steps can't be skipped. Returns false if the tasting
+ * doesn't exist.
  */
 export function revealEarly(db: Db, id: string, now: Date = new Date()): boolean {
 	const phase = currentPhase(db, id, now);
@@ -454,28 +540,6 @@ export function revealEarly(db: Db, id: string, now: Date = new Date()): boolean
 	}
 	db.update(tasting).set({ revealedAt: now }).where(eq(tasting.id, id)).run();
 	return true;
-}
-
-/**
- * Replaces the participant's token hash, so the old link stops working at
- * once. Bottles hang on the participant and are kept. `null` if the
- * participant doesn't belong to this tasting.
- */
-export function regenerateParticipantToken(
-	db: Db,
-	tastingId: string,
-	participantId: string
-): IssuedToken | null {
-	const token = generateTastingToken();
-	const updated = db
-		.update(tastingParticipant)
-		.set({ tokenHash: hashTastingToken(token) })
-		.where(
-			and(eq(tastingParticipant.id, participantId), eq(tastingParticipant.tastingId, tastingId))
-		)
-		.returning({ name: tastingParticipant.name })
-		.get();
-	return updated ? { participantId, name: updated.name, token } : null;
 }
 
 /** Deletes the tasting; participants, bottles and throttle rows cascade. */
@@ -515,15 +579,15 @@ function findPresentation(db: Db, bottleId: string) {
 }
 
 /**
- * Presentation download through a participant link: only for bottles of the
- * holder's tasting and only from the order on – the slides are shown during
- * the tasting. Until the reveal the download is named after the stored file
- * (date + alias), not the original name, which may reveal the whisky.
+ * Presentation download from the participant page: only for bottles of the
+ * participant's tasting and only from the order on – the slides are shown
+ * during the tasting. Until the reveal the download is named after the stored
+ * file (date + alias), not the original name, which may reveal the whisky.
  * `null` for everything else, so the route answers a uniform 404.
  */
 export function getPresentationForParticipant(
 	db: Db,
-	holder: TokenHolder,
+	holder: Participant,
 	bottleId: string,
 	now: Date = new Date()
 ): StoredPresentation | null {
@@ -534,11 +598,12 @@ export function getPresentationForParticipant(
 	return { file: found.file, name: phase === 'revealed' ? found.name : found.file };
 }
 
-// ── Participant link ────────────────────────────────────────────────────────
+// ── Participant page ────────────────────────────────────────────────────────
 
-export type TokenHolder = ManualPhaseChanges & {
+/** A user's participation in a tasting – `id` is the participant id. */
+export type Participant = ManualPhaseChanges & {
 	id: string;
-	name: string;
+	username: string;
 	tastingId: string;
 	tastingName: string;
 	tastingDate: string;
@@ -546,15 +611,16 @@ export type TokenHolder = ManualPhaseChanges & {
 };
 
 /**
- * One single query on the token hash: unknown, deleted and replaced tokens
- * all take the same path and end in the same `null`.
+ * The user's participation in the tasting behind `slug`, in one single query:
+ * an unknown slug and a user who doesn't take part – the admin included – take
+ * the same path and end in the same `null`.
  */
-export function findParticipantByToken(db: Db, token: string): TokenHolder | null {
+export function findParticipant(db: Db, slug: string, userId: string): Participant | null {
 	return (
 		db
 			.select({
 				id: tastingParticipant.id,
-				name: tastingParticipant.name,
+				username: user.username,
 				tastingId: tasting.id,
 				tastingName: tasting.name,
 				tastingDate: tasting.tastingDate,
@@ -564,19 +630,20 @@ export function findParticipantByToken(db: Db, token: string): TokenHolder | nul
 			})
 			.from(tastingParticipant)
 			.innerJoin(tasting, eq(tasting.id, tastingParticipant.tastingId))
-			.where(eq(tastingParticipant.tokenHash, hashTastingToken(token)))
+			.innerJoin(user, eq(user.id, tastingParticipant.userId))
+			.where(and(eq(tasting.slug, slug), eq(tastingParticipant.userId, userId)))
 			.get() ?? null
 	);
 }
 
-/** The holder's own bottle during entry, incl. the name of an uploaded presentation. */
+/** The participant's own bottle during entry, incl. the name of an uploaded presentation. */
 export type OwnBottle = TastingBottle & { slot: number; presentationName: string | null };
 
 export type ParticipantView =
 	| {
 			phase: 'entry';
 			tasting: { name: string; tastingDate: string; bottlesPerParticipant: number };
-			participant: { name: string };
+			participant: { username: string };
 			bottles: OwnBottle[];
 	  }
 	| {
@@ -593,17 +660,17 @@ export type ParticipantView =
 	  };
 
 /**
- * What a participant link shows. Before 18:00 only the holder's own bottles
- * are even queried; afterwards the order with each bottle's total score, and
- * after the reveal everything.
+ * What the participant page shows. Before 18:00 only the participant's own
+ * bottles are even queried; afterwards the order with each bottle's total
+ * score, and after the reveal everything.
  */
 export function getParticipantView(
 	db: Db,
-	holder: TokenHolder,
+	holder: Participant,
 	now: Date = new Date()
 ): ParticipantView {
 	const tastingInfo = { name: holder.tastingName, tastingDate: holder.tastingDate };
-	// When the admin pressed the 18:00 / 9:00 button – every link shows it.
+	// When the admin pressed the 18:00 / 9:00 button – every participant sees it.
 	const manual = { orderOpenedAt: holder.orderOpenedAt, revealedAt: holder.revealedAt };
 	const phase = getTastingPhase(holder.tastingDate, now, manual);
 	switch (phase) {
@@ -622,7 +689,7 @@ export function getParticipantView(
 			return {
 				phase,
 				tasting: { ...tastingInfo, bottlesPerParticipant: holder.bottlesPerParticipant },
-				participant: { name: holder.name },
+				participant: { username: holder.username },
 				bottles
 			};
 		}
@@ -650,7 +717,7 @@ function aliasKey(alias: string): string {
 }
 
 /**
- * Saves a bottle into the holder's slot (insert or update). Phase, slot and
+ * Saves a bottle into the participant's slot (insert or update). Phase, slot and
  * alias uniqueness are checked in the same transaction as the upsert, so a
  * save can't overlap with the switch at 18:00. better-sqlite3 runs writes one
  * after another, so there is no race on the alias check either.
@@ -667,7 +734,7 @@ function aliasKey(alias: string): string {
  */
 export function saveBottle(
 	db: Db,
-	holder: Pick<TokenHolder, 'id' | 'tastingId'>,
+	holder: Pick<Participant, 'id' | 'tastingId'>,
 	slot: number,
 	bottle: TastingBottle,
 	now: Date = new Date(),

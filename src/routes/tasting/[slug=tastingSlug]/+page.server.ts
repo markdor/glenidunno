@@ -11,6 +11,7 @@ import {
 	TASTING_DISTILLERY_LENGTH,
 	TASTING_SCALE
 } from '$lib/validation';
+import { requireUser } from '$lib/server/authGuards';
 import { db } from '$lib/server/db';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/server/errorMessages';
 import { logger } from '$lib/server/logger';
@@ -22,30 +23,31 @@ import {
 } from '$lib/server/tastingMedia';
 import { consumeTastingWriteLimit } from '$lib/server/tastingWriteThrottle';
 import {
-	findParticipantByToken,
+	findParticipant,
 	getParticipantView,
 	saveBottle,
 	TastingValidationError,
-	type SaveBottleResult,
-	type TokenHolder
+	type Participant,
+	type SaveBottleResult
 } from '$lib/server/tastings';
 
-// The anonymous participant page (see guard.ts; its presentation downloads
-// live in presentation/[bottleId]/+server.ts). The token alone decides what is
-// shown: locals.user is never read here, and the participant always comes
-// from the token, never from form data. GET has no side effects – messengers
-// and mail scanners fetch links for previews.
+// The participant page of a tasting (its presentation downloads live in
+// presentation/[bottleId]/+server.ts). The participant always comes from the
+// slug plus the logged-in user, never from form data. GET has no side effects
+// – messengers and mail scanners fetch links for previews.
 
-function holderOr404(token: string): TokenHolder {
-	// Unknown, deleted and replaced tokens end in the very same 404.
-	const holder = findParticipantByToken(db, token);
-	if (!holder) error(404, 'Not found');
-	return holder;
+function participantOr404(locals: App.Locals, slug: string): Participant {
+	const user = requireUser(locals);
+	// Unknown slug and a user who doesn't take part – the admin included – end
+	// in the very same 404.
+	const participant = findParticipant(db, slug, user.id);
+	if (!participant) error(404, 'Not found');
+	return participant;
 }
 
-export const load: PageServerLoad = ({ params }) => {
-	const holder = holderOr404(params.token);
-	return { view: getParticipantView(db, holder) };
+export const load: PageServerLoad = ({ locals, params }) => {
+	const participant = participantOr404(locals, params.slug);
+	return { view: getParticipantView(db, participant) };
 };
 
 /**
@@ -138,8 +140,8 @@ function parseBottle(raw: RawBottle): {
 }
 
 export const actions: Actions = {
-	save: async ({ request, params }) => {
-		const holder = holderOr404(params.token);
+	save: async ({ request, locals, params }) => {
+		const holder = participantOr404(locals, params.slug);
 
 		// Before the (possibly 30 MB) body is parsed at all.
 		if (!consumeTastingWriteLimit(db, holder.id)) {
