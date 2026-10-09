@@ -61,6 +61,21 @@ export type TastingBottle = {
 export type Progress = { entered: number; total: number };
 
 /**
+ * The start page's hero: the user's own next tasting, or the last revealed one
+ * (`phase === 'revealed'`). Management data plus the slug for the link – no
+ * content in any phase, not even the user's own bottles. `progress` counts the
+ * user's own bottles only.
+ */
+export type DashboardTasting = {
+	slug: string;
+	name: string;
+	tastingDate: string;
+	phase: TastingPhase;
+	isToday: boolean;
+	progress: Progress;
+};
+
+/**
  * Link to an uploaded presentation, from the `order` phase on (the slides are
  * shown during the tasting): the bottle id addresses the download route.
  */

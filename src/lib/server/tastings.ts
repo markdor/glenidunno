@@ -14,6 +14,7 @@ import {
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
 	participantLabel,
+	type DashboardTasting,
 	type ManualPhaseChanges,
 	type OrderEntry,
 	type PresentationRef,
@@ -378,6 +379,54 @@ export function getStartPageSummary(db: Db, now: Date = new Date()): StartPageSu
 		preview: upcoming
 			.slice(0, START_PAGE_PREVIEW_SIZE)
 			.map((t) => ({ ...t, isToday: t.tastingDate === today }))
+	};
+}
+
+/**
+ * The start page's hero for every user: their own next tasting that isn't
+ * revealed yet (soonest first), otherwise their last revealed one, `null`
+ * without any participation. Filtered on the user's own participations – never
+ * derived from listTastings – so a slug only leaves the server for tastings the
+ * user takes part in, the admin included. Management data only, in every phase.
+ */
+export function getDashboardTasting(
+	db: Db,
+	userId: string,
+	now: Date = new Date()
+): DashboardTasting | null {
+	const own = db
+		.select({
+			slug: tasting.slug,
+			name: tasting.name,
+			...phaseColumns,
+			bottlesPerParticipant: tasting.bottlesPerParticipant,
+			entered: count(tastingBottle.id)
+		})
+		.from(tastingParticipant)
+		.innerJoin(tasting, eq(tasting.id, tastingParticipant.tastingId))
+		.leftJoin(tastingBottle, eq(tastingBottle.participantId, tastingParticipant.id))
+		.where(eq(tastingParticipant.userId, userId))
+		.groupBy(tastingParticipant.id)
+		// created_at only has second precision: the rowid keeps tastings on the
+		// same date in creation order.
+		.orderBy(asc(tasting.tastingDate), asc(tasting.createdAt), sql`${tasting}.rowid`)
+		.all();
+
+	// The admin's buttons can reveal a tasting ahead of an earlier one, so the
+	// phase decides per tasting instead of the date alone. Without an upcoming
+	// one all of them are revealed, and the last one is the latest.
+	const withPhase = own.map((t) => ({ t, phase: getTastingPhase(t.tastingDate, now, t) }));
+	const hero = withPhase.find(({ phase }) => phase !== 'revealed') ?? withPhase.at(-1);
+	if (!hero) return null;
+
+	const { t, phase } = hero;
+	return {
+		slug: t.slug,
+		name: t.name,
+		tastingDate: t.tastingDate,
+		phase,
+		isToday: t.tastingDate === getBerlinToday(now),
+		progress: { entered: t.entered, total: t.bottlesPerParticipant }
 	};
 }
 

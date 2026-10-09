@@ -24,7 +24,7 @@
 	<div class="flex items-center justify-between gap-3">
 		<h2 class="flex items-center gap-2 font-semibold">
 			<GlassWater size={20} strokeWidth={2} aria-hidden="true" />
-			Whisky-Tasting
+			Tasting-Verwaltung
 		</h2>
 		<span
 			class="shrink-0 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700"

@@ -25,7 +25,7 @@ describe('TastingCard', () => {
 	test('links to the tasting admin as a whole', async () => {
 		render(TastingCard, { summary: { upcomingCount: 2, preview: [today, later] } });
 
-		const card = page.getByRole('link', { name: /Whisky-Tasting/ });
+		const card = page.getByRole('link', { name: /Tasting-Verwaltung/ });
 		await expect.element(card).toHaveAttribute('href', '/admin/tastings');
 		await expect.element(page.getByText('2 anstehend')).toBeVisible();
 	});
