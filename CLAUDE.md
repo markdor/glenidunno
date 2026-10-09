@@ -62,21 +62,28 @@ Docker Compose, deployed auf Hetzner VPS hinter Traefik v3.
   | Verwendung | Beispiele | `size` | `strokeWidth` |
   |---|---|---|---|
   | Primäre Buttons | `Plus` | `20` | `2` |
-  | Karten-Leiticon (Startseiten-Karte) | `GlassWater` | `20` | `2` |
-  | Sekundär (Dropdown-Indikator, Zurück-Link, Kopieren-Button) | `ChevronDown`, `ChevronLeft`, `Copy` | `16` | `2` |
+  | Karten-Leiticon (Hero, Tasting-Verwaltung) | `GlassWater` | `20` | `2` |
+  | Dashboard-Kachel | `Plus`, `CircleCheck`, `RotateCcwClock`, `ChartColumn` | `20` | `2` |
+  | Sekundär (Dropdown-Indikator, Zurück-Link, Kopieren-Button, Hero-Aktion) | `ChevronDown`, `ChevronLeft`, `Copy`, `ChevronRight` | `16` | `2` |
   | Inline-Status (klein, kräftig) | `Check` | `14` | `3` |
   | Toast-Leiticon (visueller Anker) | `CircleAlert`, `CircleCheck`, `Info` | `20` | `2` |
   | Toast-Schließen-Button | `X` | `16` | `2` |
+- Keine deprecated Aliase importieren: `@lucide/svelte` benennt Icons um und behält den alten Namen nur als `@deprecated`-Alias (z. B. `History` → `RotateCcwClock`) – vor der Wahl eines Icons in `dist/aliases/aliases.d.ts` nachsehen.
 - Keine eigene Icon-Wrapper-Komponente – bei der aktuell überschaubaren Anzahl an Vorkommen reicht die direkte `size`/`strokeWidth`-Prop-Vergabe an der jeweiligen Nutzungsstelle; eine Abstraktion erst einführen, falls sich das Muster wiederholt.
 
-### Startseite (`/`)
+### Startseite (`/`) – Dashboard
 
-Reine Begrüßungsseite, keine Arbeitsfläche. Aufbau von oben nach unten:
+Aufbau von oben nach unten:
 
 1. **Header** – Fass-Mark (dekorativ, `alt=""`) + App-Name links als gemeinsamer Link auf `/`, Username-Dropdown rechts (Logout, ggf. Admin)
-2. **Begrüßung** „Hallo {username} 👋"
-3. **Admin:** Tasting-Karte (`TastingCard.svelte`) – ersetzt bewusst die frühere Festlegung „keine Module oder Karten“. Zeigt nur Verwaltungsdaten (Name, Datum, „heute“, Fortschritt), vor der Auflösung nie Inhalte. Der Startseiten-`load` (`src/routes/+page.server.ts`) liefert die Daten nur bei `isAdmin`.
-   **Alle anderen:** Leerzustand-Hinweis – eine gedämpfte Zeile (`text-slate-500`)
+2. **Begrüßung** „Hallo {username} 👋" – bleibt `<h1>`, `auth-login.e2e.ts` prüft darauf
+3. **Hero** (`DashboardTastingCard.svelte`, für alle, `heroTasting` aus `getDashboardTasting()`): Er zeigt das nächste eigene Tasting, das noch nicht aufgelöst ist, also das früheste Datum („Kommendes Tasting“). Die Phase wird pro Tasting berechnet, weil die Admin-Buttons ein späteres Tasting vor ein früheres ziehen können. Gibt es keins, zeigt er das zuletzt aufgelöste eigene („Letztes Tasting“), bis ein neues geplant ist. Ohne jede Teilnahme erscheint der nicht klickbare Leerzustand „Kein Tasting geplant.“, auch beim Admin.
+   - Der Hero ist der einzige Weg über die Oberfläche auf die Teilnehmerseite.
+   - Er zeigt nur den Fortschritt der eigenen Flaschen. Der Gesamtfortschritt bleibt eine Information für den Admin.
+4. **Admin:** `TastingCard.svelte` („Tasting-Verwaltung“) – der einzige Weg über die Oberfläche zur Tasting-Verwaltung. Sie zeigt Verwaltungsdaten aller Tastings: bis zu 3 anstehende mit dem Fortschritt aller Teilnehmer. Der `load` liefert `tastingSummary` nur bei `isAdmin`.
+5. **Kachelraster** (`DashboardTile.svelte`, `grid-cols-2`, gleich hohe Zeilen): „Neues Tasting“ sieht nur der Admin.
+   - Eine Kachel ohne `href` ist ein deaktivierter Platzhalter für einen Bereich, den es noch nicht gibt: ein `<div>`, nicht fokussierbar, ohne Hover, mit Badge „Demnächst“. Derzeit gilt das für „Abgeschlossene Tastings“, „Historie“ und „Statistiken“, sichtbar für alle.
+   - Bei ungerader Kachelzahl (drei bei Nicht-Admins) erstreckt sich die letzte über beide Spalten, statt eine Lücke zu lassen.
 
 ### Komponenten-Konventionen
 
@@ -98,7 +105,7 @@ Reine Begrüßungsseite, keine Arbeitsfläche. Aufbau von oben nach unten:
 
 - **Closed App – keine anonyme Nutzung.** Jeder nicht eingeloggte Request wird auf `/login` umgeleitet. Außer der `/login`-Route, `/health`, den Better-Auth-Endpoints unter `/auth/*` und statischen Assets ist nichts öffentlich erreichbar – auch die Tastings nicht und auch `/api/*` nicht, das keine Sonderbehandlung hat.
   - Implementierung als globaler Auth-Guard in `hooks.server.ts`: Session prüfen, sonst `throw redirect(302, '/login')`. Die Entscheidung (`evaluateGuard` in `guard.ts`) hängt nur am Pfad und an der Session – die früheren anonymen Tasting-Token-Links samt Route-ID-Ausnahme sind seit #16 ausgebaut.
-  - Kein Rücksprung auf den ursprünglichen Pfad: Wer ohne Login einen Tasting-Link öffnet, landet nach dem Magic-Link-Login auf `/` (bewusst hingenommen).
+  - Kein Rücksprung auf den ursprünglichen Pfad: Wer ohne Login einen Tasting-Link öffnet, landet nach dem Magic-Link-Login auf `/` (bewusst hingenommen). Dort führt ihn der Hero in sein Tasting.
   - Die Login-Seite ist die de-facto-Startseite für nicht eingeloggte User; nach erfolgreichem Login geht es auf `/` (Startseite).
   - **Ausnahme `/health`**: rein technischer Liveness-Check (Docker-Healthcheck, siehe Compose-Konventionen) – öffentlich wie `/login`/`/auth/*`, kein Redirect. Response bleibt bewusst leer/status-only (kein Stacktrace, keine Versions-/Config-Details), da der Pfad ungeschützt erreichbar ist.
 - Im Header (nur sichtbar für eingeloggte User) steht der Username als Drop-Down-Trigger: "Logout" und – falls Admin – zusätzlich "Admin".
@@ -170,11 +177,11 @@ Blindtastings: Der Admin legt unter `/admin/tastings` ein Tasting mit Datum an u
   - `tasting_date` ist deshalb ein Kalenderdatum (`text`, `YYYY-MM-DD`) statt eines Zeitstempels – bewusste Abweichung vom Timestamp-Standard.
   - **Admin-Buttons überstimmen die Uhr** (nachträglich gewünscht, entgegen dem ursprünglichen Nicht-Ziel „keine manuelle Status-Steuerung“ aus Issue #5): „Reihenfolge jetzt freigeben“ (18-Uhr-Button, nur in `entry`) setzt `tasting.order_opened_at`, „Jetzt auflösen“ (9-Uhr-Button, nur in `order` – die Reihenfolge lässt sich nicht überspringen, auch serverseitig in `revealEarly()` geprüft) setzt `tasting.revealed_at`. Die Admin-Seite zeigt beide Buttons in jeder Phase, aktiv ist nur der für den nächsten Schritt. Die Zeitstempel ziehen die Phase nur vor, nie zurück, und lassen sich nicht zurücknehmen (Bestätigungsdialog). Jeder Teilnehmer und die Admin-Seite sehen per `TastingManualNotice.svelte`, wann der Admin gedrückt hat (Berliner Zeit). Jede Phasenberechnung muss deshalb die beiden Spalten mitlesen (`getTastingPhase(date, now, manual)`) – auch die Speichern-Transaktion, damit ein Button-Druck die Eingabe sofort sperrt.
 - **Blind für alle, auch für den Admin** (er verkostet mit): Die Admin-Seite `/admin/tastings/[id]` zeigt in **keiner** Phase Whisky-Inhalte – weder Flaschen noch Reihenfolge, Auflösung, Graph oder Präsentationen –, nur Verwaltung (Teilnehmer mit Fortschritt, Datum, 18-/9-Uhr-Buttons, Löschen) – auch keinen Link. Reihenfolge und Auflösung sieht der Admin wie alle anderen als Teilnehmer des Tastings; nimmt er nicht teil, bekommt er auf der Teilnehmerseite dieselbe 404 wie jeder Nicht-Teilnehmer. Bewusst keine gemeinsame Route mit Admin-Buttons: Die Teilnehmerseite hängt an einer Teilnahme, die Admin-Seite am Tasting. Die frühere Score-Aufschlüsselung für den Admin ist deshalb entfallen.
-  - Welche Felder ein `load` liefert, entscheidet ausschließlich die Projektion in `src/lib/server/tastings.ts` (Felder explizit gepickt, nie gespreadet) – phasenabhängig für die Teilnehmerseite, reine Verwaltungsdaten für Admin-Seiten und Startseite. Ausblenden im Template reicht nicht, `data` landet komplett im HTML bzw. `__data.json`. Der Whiskybase-Link zählt als Inhalt.
+  - Welche Felder ein `load` liefert, entscheidet ausschließlich die Projektion in `src/lib/server/tastings.ts` (Felder explizit gepickt, nie gespreadet) – phasenabhängig für die Teilnehmerseite, reine Verwaltungsdaten für Admin-Seiten und Startseite. Die Startseite bekommt zusätzlich den Slug, aber nur für Tastings mit eigener Teilnahme: `getDashboardTasting` filtert auf `user_id` und leitet den Slug nie aus `listTastings` ab, auch nicht beim Admin. Ausblenden im Template reicht nicht, `data` landet komplett im HTML bzw. `__data.json`. Der Whiskybase-Link zählt als Inhalt.
   - In `entry` werden fremde Flaschen gar nicht erst abgefragt; `order` liefert nur `{ position, alias, score, presentation }` (Gesamtscore für den Chart, siehe Score-Entwicklungs-Chart; `presentation` nur `{ bottleId }` für den Download-Link, ohne Dateinamen) – keine Faktoren, keine Aufschlüsselung.
 - **Tasting-Link** (seit #16, vorher anonyme Token-Links pro Teilnehmer): genau ein fester Link pro Tasting, `/tasting/<adjektiv>-<tier>` (`tasting.slug`, unique, `NOT NULL`), alle Teilnehmer nutzen denselben. Der Slug ist **kein Geheimnis**, der Schutz kommt allein aus Login und Teilnahmeprüfung.
   - Je 100 englische „süße“ Adjektive und Tiere (nur `a–z`, damit der Bindestrich eindeutig trennt) liegen in `tasting_slug_adjective`/`tasting_slug_animal`, geseedet per Migration `0005`. `createTasting` wählt in seiner Transaktion zufällig (`randomInt`, in Tests injizierbar) eine von keinem anderen Tasting genutzte Kombination; sind alle 10.000 belegt, folgt ein `TastingValidationError`. Der Link ändert sich danach nie. `TASTING_SLUG_RE` (Param-Matcher `src/params/tastingSlug.ts`) prüft nur das Format.
-  - Keine Seite zeigt den Link: Teilnehmer haben bis zu einem Einstieg über die Startseite keinen Weg über die Oberfläche ins Tasting (bewusst hingenommen).
+  - Den Link zeigt nur der Hero der Startseite, und nur den Teilnehmern des Tastings (siehe Startseite). Die Admin-Seiten zeigen ihn nie, das prüft `expectNoLinkOnAdminPage` in `tasting.e2e.ts`.
   - **Teilnehmer sind User** (`tasting_participant.user_id`, `ON DELETE restrict`, unique `(tasting_id, user_id)`): Der Admin wählt beim Anlegen 2–12 (`TASTING_PARTICIPANTS`) aktive User per Checkbox, freie Namen gibt es nicht. `findParticipant(slug, userId)` ist eine einzige Query über Slug und Teilnahme: unbekannter Slug, Nicht-Teilnehmer und Admin ohne Teilnahme enden im selben `error(404)`. Angezeigt wird überall der Username (Begrüßung, „mitgebracht von“, Teilnehmerliste), bei deaktivierten Usern `<username> (inaktiv)` (siehe Authentifizierung).
   - `participantId` kommt nur aus Slug plus `locals.user`, aus `FormData` nur freigegebene Felder. `GET` hat keine Nebenwirkungen (Messenger-Link-Previews).
   - **Migration der Token-Bestände** (`0005_tasting_users_data`, nicht umkehrbar): Teilnehmernamen wurden einem User mit gleichem Username (ohne Beachtung der Groß-/Kleinschreibung) zugeordnet, sonst einem neuen User mit dem Namen als Username und der Platzhalter-Adresse `dummy-<n>@dummy.invalid` (reservierte TLD, nie zustellbar – ein Magic Link kann nicht bei Fremden landen; die echte Adresse trägt der Admin auf `/admin` ein). Bewusst ohne Ableitung oder Suffixe: produktiv gab es nur ein Tasting ohne doppelte Namen; eine Kollision rollt die Migration komplett zurück.
@@ -303,7 +310,7 @@ Aufbau analog zu `C:\Users\Markus\git\gritshot`.
 - E2E via Playwright (`tests/`), nur Smoke- und Critical-Path-Tests.
   - Keine Zufallswerte in Testtiteln (z. B. `randomUUID()` in einer Titel-Schleife): Playwright sammelt Tests im Hauptprozess und im Worker getrennt ein und findet den Test sonst nicht wieder („Test not found in the worker process“).
   - Die Server-Uhr lässt sich aus Playwright nicht steuern: `tasting.e2e.ts` erreicht Reihenfolge und Auflösung über die Admin-Buttons, den uhrzeitbasierten Wechsel um 18 und 9 Uhr testen nur Route-Tests (`vi.setSystemTime()`) und Komponenten-Tests.
-  - Die Teilnehmerseite fehlt im E2E: Keine Seite zeigt den Tasting-Link, und die DB direkt auslesen ginge nur lokal (bei `docker:test` liegt sie im Volume `glenidunno-data-e2e`). Eingabe, Reihenfolge, Auflösung und Präsentations-Download der Teilnehmer decken Route- und Komponenten-Tests ab.
+  - Die Teilnehmerseite erreicht `tasting.e2e.ts` nur über den Hero der Startseite (der Admin nimmt selbst teil) und prüft dort nur die Ankunft. Derselbe Schritt prüft, dass `/` bei 360 px Breite nicht horizontal scrollt. Eingabe, Reihenfolge, Auflösung und Präsentations-Download der Teilnehmer decken Route- und Komponenten-Tests ab.
 - **Submit-Callbacks von `use:enhance`** (Toast, `update({ reset: false })`, `invalidateAll()`) testet man mit gemocktem `$app/forms` und `$app/navigation` (Muster `TastingBottleForm.svelte.test.ts`): Das echte `update()` braucht einen laufenden SvelteKit-Client. Für reine Bestätigungsdialoge bleibt das echte `enhance` mit abgefangenem `fetch` die Vorlage (`admin/page.svelte.test.ts`).
 - **Test-DBs** (In-Memory) über `runMigrations(sqlite, './drizzle')` aufbauen: Es migriert wie die App und lässt die Fremdschlüssel danach eingeschaltet – SQLite erzwingt sie sonst nicht, Cascade- und `restrict`-Tests liefen ins Leere. Tests, die User löschen, müssen vorher die Tastings löschen (`restrict` über die Teilnahmen).
 - **E2E-Login via Setup-Project + `storageState`** (Playwright-Standardmuster, https://playwright.dev/docs/auth): ein `auth.setup.ts`-Project loggt sich einmal per echtem Magic-Link-Flow als der `ADMIN_EMAIL`-Testuser ein und speichert die Session in `playwright/.auth/admin.json`. Das `e2e`-Project hängt per `dependencies: ['setup']` daran und startet alle weiteren Specs bereits eingeloggt – kein Login-Boilerplate pro Testdatei.

@@ -13,6 +13,7 @@ import {
 	deleteTasting,
 	findParticipant,
 	getAdminTastingDetail,
+	getDashboardTasting,
 	getParticipantView,
 	getPresentationForParticipant,
 	getStartPageSummary,
@@ -439,6 +440,119 @@ describe('listTastings and getStartPageSummary', () => {
 		const summary = getStartPageSummary(db, ENTRY);
 		expect(summary.upcomingCount).toBe(4);
 		expect(summary.preview).toHaveLength(3);
+	});
+});
+
+describe('getDashboardTasting', () => {
+	// An admin button press on a Thursday before the tasting.
+	const PRESSED = new Date('2026-10-22T15:32:10Z');
+
+	function revealByButton(id: string) {
+		openOrderEarly(db, id, PRESSED);
+		revealEarly(db, id, PRESSED);
+	}
+
+	it('shows the own next tasting with management data and the own progress only', () => {
+		const ctx = setup();
+		saveBottle(db, ctx.anna, 1, bottle(), ENTRY);
+		saveBottle(db, ctx.ben, 1, bottle({ alias: 'Torf' }), ENTRY);
+		saveBottle(db, ctx.ben, 2, bottle({ alias: 'Rauch' }), ENTRY);
+
+		expect(getDashboardTasting(db, 'u-anna', ENTRY)).toEqual({
+			slug: ctx.slug,
+			name: 'Herbst-Tasting',
+			tastingDate: TASTING_DATE,
+			phase: 'entry',
+			isToday: false,
+			progress: { entered: 1, total: 2 }
+		});
+		expect(getDashboardTasting(db, 'u-cem', ENTRY)?.progress).toEqual({ entered: 0, total: 2 });
+	});
+
+	it('returns null without any participation, also for the admin', () => {
+		setup();
+		expect(getDashboardTasting(db, 'u-admin', ENTRY)).toBeNull();
+		expect(getDashboardTasting(db, 'u-admin', REVEALED)).toBeNull();
+	});
+
+	it('only considers tastings the user takes part in', () => {
+		const own = setup('2026-11-14');
+		// Sooner, but without Anna.
+		createTasting(db, newTasting({ participantUserIds: ['u-ben', 'u-cem'] }), ENTRY);
+		expect(getDashboardTasting(db, 'u-anna', ENTRY)?.slug).toBe(own.slug);
+	});
+
+	it('picks the soonest unrevealed tasting, the next one moves up once it is revealed', () => {
+		const later = setup('2026-11-14');
+		const sooner = setup(TASTING_DATE);
+		expect(getDashboardTasting(db, 'u-anna', ENTRY)?.slug).toBe(sooner.slug);
+		expect(getDashboardTasting(db, 'u-anna', REVEALED)).toMatchObject({
+			slug: later.slug,
+			phase: 'entry'
+		});
+	});
+
+	it('prefers an upcoming tasting over a revealed one with a later date', () => {
+		const upcoming = setup(TASTING_DATE);
+		const revealed = setup('2026-11-14');
+		revealByButton(revealed.id);
+		expect(getDashboardTasting(db, 'u-anna', PRESSED)).toMatchObject({
+			slug: upcoming.slug,
+			phase: 'entry'
+		});
+	});
+
+	it('falls back to the latest revealed tasting, also one revealed by the admin button', () => {
+		setup('2026-10-10'); // revealed by the clock long before PRESSED
+		const latest = setup(TASTING_DATE);
+		revealByButton(latest.id);
+		expect(getDashboardTasting(db, 'u-anna', PRESSED)).toMatchObject({
+			slug: latest.slug,
+			phase: 'revealed'
+		});
+	});
+
+	it('shows the order phase once the admin opened it', () => {
+		const ctx = setup();
+		openOrderEarly(db, ctx.id, PRESSED);
+		expect(getDashboardTasting(db, 'u-anna', PRESSED)?.phase).toBe('order');
+	});
+
+	it('flags a tasting taking place today in Berlin', () => {
+		setup();
+		// 22:30 UTC on Friday is already Saturday in Berlin.
+		expect(getDashboardTasting(db, 'u-anna', new Date('2026-10-23T22:30:00Z'))?.isToday).toBe(true);
+		expect(getDashboardTasting(db, 'u-anna', ENTRY)?.isToday).toBe(false);
+	});
+
+	it('keeps tastings on the same date in creation order', () => {
+		const first = setup();
+		const second = setup();
+		expect(getDashboardTasting(db, 'u-anna', ENTRY)?.slug).toBe(first.slug);
+		expect(getDashboardTasting(db, 'u-anna', REVEALED)?.slug).toBe(second.slug);
+	});
+
+	it('carries no content in any phase, not even the own bottle and presentation', () => {
+		const ctx = setup();
+		const deck = 'Ardbeg-Uigeadail.pptx';
+		saveBottle(db, ctx.anna, 1, bottle(), ENTRY, {
+			tempFile: '.upload-1',
+			name: deck,
+			extension: presentationExtension(deck)
+		});
+
+		for (const [now, phase] of [
+			[ENTRY, 'entry'],
+			[ORDER, 'order'],
+			[REVEALED, 'revealed']
+		] as const) {
+			const hero = getDashboardTasting(db, 'u-anna', now);
+			expect(hero?.phase).toBe(phase);
+			const serialized = JSON.stringify(hero);
+			for (const secret of ['Nebel', 'Ardbeg', 'Uigeadail', 'whiskybase', 'pptx']) {
+				expect(serialized).not.toContain(secret);
+			}
+		}
 	});
 });
 

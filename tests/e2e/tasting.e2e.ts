@@ -4,10 +4,9 @@ import { test, expect } from '@playwright/test';
 // reached here via the admin's 18-Uhr/9-Uhr buttons, the clock-based switch
 // at 18:00 and 9:00 is covered by route and component tests.
 //
-// No page shows a tasting's link (participants will find their tastings on
-// the start page with #15), so this spec can't open the participant page –
-// entering bottles and the presentation downloads are covered by route and
-// component tests until then.
+// The participant page is reached via the start page's hero, but this spec
+// only checks the arrival: entering bottles and the presentation downloads
+// are covered by route and component tests.
 
 // A week ahead is in the future in any time zone.
 function dateInDays(days: number): string {
@@ -26,6 +25,7 @@ test.describe('Tasting – Ablauf', () => {
 		// Default storageState of the e2e project: the logged-in admin. The
 		// address is unique per run, so a retry doesn't fail on "taken".
 		const guest = `gast_${Date.now().toString(36)}`;
+		const tastingName = `E2E-Tasting ${Date.now()}`;
 
 		await test.step('Admin legt den zweiten Teilnehmer als User an', async () => {
 			await page.goto('/admin');
@@ -37,7 +37,7 @@ test.describe('Tasting – Ablauf', () => {
 
 		await test.step('Admin wählt die Teilnehmer per Checkbox und landet auf der Detailseite', async () => {
 			await page.goto('/admin/tastings/new');
-			await page.getByLabel('Name *').fill(`E2E-Tasting ${Date.now()}`);
+			await page.getByLabel('Name *').fill(tastingName);
 			await page.getByLabel('Datum *').fill(dateInDays(7));
 			await page.getByRole('checkbox', { name: 'admin', exact: true }).check();
 			// The whole row is the label: tapping the name ticks the box.
@@ -69,6 +69,30 @@ test.describe('Tasting – Ablauf', () => {
 			}
 			await expect(page.getByRole('button', { name: /Link/ })).toHaveCount(0);
 			await expectNoLinkOnAdminPage();
+		});
+
+		await test.step('Admin gelangt als Teilnehmer über den Hero der Startseite ins Tasting', async () => {
+			// Smallest phone width: the dashboard must not scroll sideways, not
+			// even with the admin's extra cards and the long e2e name.
+			const viewport = page.viewportSize();
+			await page.setViewportSize({ width: 360, height: 800 });
+			await page.goto('/');
+			await expect(page.getByRole('link', { name: /Kommendes Tasting/ })).toContainText(
+				tastingName
+			);
+			expect(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+				)
+			).toBe(true);
+
+			// The heading, not the card's center (see CLAUDE.md, E2E clicks on cards).
+			await page.getByRole('heading', { name: 'Kommendes Tasting' }).click();
+			await expect(page).toHaveURL(/\/tasting\/[a-z]+-[a-z]+$/);
+			await expect(page.getByRole('heading', { level: 1, name: tastingName })).toBeVisible();
+
+			if (viewport) await page.setViewportSize(viewport);
+			await page.goto(detailUrl);
 		});
 
 		const openOrderButton = page.getByRole('button', { name: 'Reihenfolge jetzt freigeben' });
