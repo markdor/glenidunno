@@ -1,6 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { env } from '$env/dynamic/private';
 import { db } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/authGuards';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/server/errorMessages';
@@ -8,13 +7,11 @@ import { logger } from '$lib/server/logger';
 import type { FileChange } from '$lib/server/presentationFiles';
 import { applyFileChanges } from '$lib/server/tastingMedia';
 import { getBerlinToday } from '$lib/server/tastingPhase';
-import { buildTastingLink } from '$lib/server/tastingToken';
 import {
 	deleteTasting,
 	getAdminTastingDetail,
 	listPresentationFiles,
 	openOrderEarly,
-	regenerateParticipantToken,
 	revealEarly,
 	TastingValidationError,
 	updateTastingDate,
@@ -78,7 +75,7 @@ export const actions: Actions = {
 		return { action: 'updateDate', updated: true };
 	},
 
-	// "18-Uhr-Button" and "9-Uhr-Button": overrule the clock for all links.
+	// "18-Uhr-Button" and "9-Uhr-Button": overrule the clock for all participants.
 	openOrder: async ({ locals, params }) => {
 		requireAdmin(locals);
 		return changePhase('openOrder', () => openOrderEarly(db, params.id));
@@ -87,37 +84,6 @@ export const actions: Actions = {
 	reveal: async ({ locals, params }) => {
 		requireAdmin(locals);
 		return changePhase('reveal', () => revealEarly(db, params.id));
-	},
-
-	regenerate: async ({ request, locals, params, url }) => {
-		requireAdmin(locals);
-		const form = await request.formData();
-		const participantId = String(form.get('participantId') ?? '');
-
-		try {
-			// Only replaces the hash: the old link dies at once, the bottles stay.
-			const issued = regenerateParticipantToken(db, params.id, participantId);
-			if (!issued) {
-				return fail(404, {
-					action: 'regenerate',
-					userMessage: 'Diese Person gehört nicht (mehr) zu diesem Tasting.'
-				});
-			}
-			// The plaintext link exists only in this response – it is shown once.
-			return {
-				action: 'regenerate',
-				regenerated: {
-					participantId,
-					link: {
-						name: issued.name,
-						url: buildTastingLink(env.BASE_URL || url.origin, issued.token)
-					}
-				}
-			};
-		} catch (err) {
-			logger.error({ err }, 'regenerate tasting link failed');
-			return fail(500, { action: 'regenerate', userMessage: UNEXPECTED_ERROR_MESSAGE });
-		}
 	},
 
 	delete: async ({ locals, params }) => {

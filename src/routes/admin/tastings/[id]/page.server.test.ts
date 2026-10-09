@@ -1,14 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('$lib/server/db', async () => {
 	const Database = (await import('better-sqlite3')).default;
 	const { drizzle } = await import('drizzle-orm/better-sqlite3');
-	const { migrate } = await import('drizzle-orm/better-sqlite3/migrator');
+	const { runMigrations } = await import('$lib/server/db/migrate');
 	const schema = await import('$lib/server/db/schema');
 	const sqlite = new Database(':memory:');
-	sqlite.pragma('foreign_keys = ON');
+	runMigrations(sqlite, './drizzle');
 	const db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: './drizzle' });
 	return { db, schema };
 });
 
@@ -17,17 +16,17 @@ vi.mock('$lib/server/logger', () => ({
 }));
 
 // MEDIA_PATH points at a throwaway directory per test (see beforeEach).
-const mockEnv = vi.hoisted((): Record<string, string | undefined> => ({
-	BASE_URL: 'https://glenidunno.test'
-}));
+const mockEnv = vi.hoisted((): Record<string, string | undefined> => ({}));
 vi.mock('$env/dynamic/private', () => ({ env: mockEnv }));
 
+import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import {
 	tasting,
 	tastingBottle,
 	tastingParticipant,
-	tastingWriteThrottle
+	tastingWriteThrottle,
+	user
 } from '$lib/server/db/schema';
 import { logger } from '$lib/server/logger';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
@@ -35,13 +34,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyFileChanges, stageUpload } from '$lib/server/tastingMedia';
 import { consumeTastingWriteLimit } from '$lib/server/tastingWriteThrottle';
-import {
-	createTasting,
-	findParticipantByToken,
-	saveBottle,
-	type IssuedToken,
-	type TokenHolder
-} from '$lib/server/tastings';
+import { createTasting, findParticipant, saveBottle, type Participant } from '$lib/server/tastings';
 import type { TastingBottle } from '$lib/tasting';
 import { actions, load } from './+page.server';
 
@@ -55,11 +48,11 @@ const ORDER = new Date('2026-10-24T16:00:00Z');
 const REVEALED = new Date('2026-10-25T08:00:00Z');
 
 type LoadEvent = Parameters<typeof load>[0];
-type ActionName = 'updateDate' | 'openOrder' | 'reveal' | 'regenerate' | 'delete';
+type ActionName = 'updateDate' | 'openOrder' | 'reveal' | 'delete';
 
 let tastingId: string;
-let tokens: IssuedToken[];
-let anna: TokenHolder;
+let slug: string;
+let anna: Participant;
 
 function loadAs(user: unknown, id = tastingId) {
 	return load({ params: { id }, locals: { user, session: null } } as unknown as LoadEvent) as {
@@ -96,18 +89,37 @@ const bottle: TastingBottle = {
 	value: 4
 };
 
+beforeAll(() => {
+	for (const [id, username] of [
+		['u-anna', 'Anna'],
+		['u-ben', 'Ben']
+	]) {
+		db.insert(user)
+			.values({
+				id,
+				name: username,
+				email: `${username.toLowerCase()}@example.com`,
+				username,
+				createdAt: ENTRY,
+				updatedAt: ENTRY
+			})
+			.run();
+	}
+});
+
 beforeEach(() => {
 	vi.setSystemTime(ENTRY);
 	db.delete(tasting).run();
+	db.update(user).set({ deactivatedAt: null }).run();
 	const created = createTasting(db, {
 		name: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
 		bottlesPerParticipant: 2,
-		participantNames: ['Anna', 'Ben']
+		participantUserIds: ['u-anna', 'u-ben']
 	});
 	tastingId = created.id;
-	tokens = created.tokens;
-	anna = findParticipantByToken(db, tokens[0].token)!;
+	slug = created.slug;
+	anna = findParticipant(db, slug, 'u-anna')!;
 	saveBottle(db, anna, 1, bottle);
 	saveBottle(db, anna, 2, { ...bottle, alias: 'Blume', distillery: 'Glenkinchie', smoke: 0 });
 });
@@ -127,7 +139,7 @@ describe('admin tasting detail – access', () => {
 		expect(() => loadAs(ADMIN, 'nope')).toThrowError(expect.objectContaining({ status: 404 }));
 	});
 
-	it.each(['updateDate', 'openOrder', 'reveal', 'regenerate', 'delete'] as const)(
+	it.each(['updateDate', 'openOrder', 'reveal', 'delete'] as const)(
 		'rejects %s for anonymous users and non-admins',
 		async (name) => {
 			await expect(act(name, {}, null)).rejects.toMatchObject({ status: 401 });
@@ -154,11 +166,19 @@ describe('admin tasting detail – projection per phase', () => {
 		for (const hidden of ['Nebel', 'Blume', 'Ardbeg', 'Glenkinchie', 'whiskybase', 'score']) {
 			expect(serialized(result)).not.toContain(hidden);
 		}
-		for (const t of tokens) expect(serialized(result)).not.toContain(t.token);
-		expect(serialized(result)).not.toContain('tokenHash');
+		// No link either: participants reach the tasting themselves.
+		expect(serialized(result)).not.toContain(slug);
+		expect(serialized(result)).not.toContain('/tasting/');
 	});
 
-	// The admin sees the content through their own participant link, never here.
+	it('marks deactivated participants', () => {
+		db.update(user).set({ deactivatedAt: ENTRY }).where(eq(user.id, 'u-ben')).run();
+		expect(loadAs(ADMIN).detail).toMatchObject({
+			participants: [{ name: 'Anna' }, { name: 'Ben (inaktiv)' }]
+		});
+	});
+
+	// The admin sees the content as a participant of the tasting, never here.
 	it.each([
 		{ phase: 'order', now: ORDER },
 		{ phase: 'revealed', now: REVEALED }
@@ -175,7 +195,7 @@ describe('admin tasting detail – projection per phase', () => {
 		for (const hidden of ['Nebel', 'Blume', 'Ardbeg', 'Glenkinchie', 'whiskybase', 'score']) {
 			expect(serialized(result)).not.toContain(hidden);
 		}
-		for (const t of tokens) expect(serialized(result)).not.toContain(t.token);
+		expect(serialized(result)).not.toContain(slug);
 	});
 });
 
@@ -323,53 +343,9 @@ describe('openOrder and reveal (18-Uhr and 9-Uhr buttons)', () => {
 	});
 });
 
-describe('regenerate', () => {
-	it('returns the new link once, kills the old one and keeps the bottles', async () => {
-		const result = (await act('regenerate', { participantId: anna.id })) as {
-			regenerated: { participantId: string; link: { name: string; url: string } };
-		};
-		expect(result).toMatchObject({
-			action: 'regenerate',
-			regenerated: { participantId: anna.id, link: { name: 'Anna' } }
-		});
-		const newToken = result.regenerated.link.url.split('/').pop()!;
-		expect(result.regenerated.link.url).toBe(`https://glenidunno.test/tasting/${newToken}`);
-
-		expect(findParticipantByToken(db, tokens[0].token)).toBeNull();
-		expect(findParticipantByToken(db, newToken)?.id).toBe(anna.id);
-		expect(db.select().from(tastingBottle).all()).toHaveLength(2);
-		// The next load doesn't hand the link out again.
-		expect(JSON.stringify(loadAs(ADMIN))).not.toContain(newToken);
-	});
-
-	it('works in every phase', async () => {
-		vi.setSystemTime(REVEALED);
-		expect(await act('regenerate', { participantId: anna.id })).toMatchObject({
-			action: 'regenerate'
-		});
-	});
-
-	it('refuses a participant of another tasting', async () => {
-		const other = createTasting(db, {
-			name: 'Anderes',
-			tastingDate: '2026-11-14',
-			bottlesPerParticipant: 1,
-			participantNames: ['Dora', 'Emil']
-		});
-		expect(await act('regenerate', { participantId: other.tokens[0].participantId })).toMatchObject(
-			{ status: 404, data: { action: 'regenerate' } }
-		);
-		expect(findParticipantByToken(db, other.tokens[0].token)?.name).toBe('Dora');
-	});
-
-	it('logs and returns 500 on an unexpected database error', async () => {
-		const err = new Error('disk full');
-		const spy = vi.spyOn(db, 'update').mockImplementationOnce(() => {
-			throw err;
-		});
-		expect(await act('regenerate', { participantId: anna.id })).toMatchObject({ status: 500 });
-		expect(logger.error).toHaveBeenCalledWith({ err }, 'regenerate tasting link failed');
-		spy.mockRestore();
+describe('links', () => {
+	it('offers no action to hand out or regenerate links', () => {
+		expect(Object.keys(actions).sort()).toEqual(['delete', 'openOrder', 'reveal', 'updateDate']);
 	});
 });
 

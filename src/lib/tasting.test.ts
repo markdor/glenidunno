@@ -11,6 +11,7 @@ import {
 	formatTastingDate,
 	formatTastingTimestamp,
 	normalizeScoreFactors,
+	participantLabel,
 	SCORE_FACTORS_BY_WEIGHT,
 	smokeGroup
 } from './tasting';
@@ -87,6 +88,16 @@ describe('formatBottleName', () => {
 				bottler: 'Signatory'
 			})
 		).toBe('Caol Ila 12 Jahre Sherry Cask (Signatory)');
+	});
+});
+
+describe('participantLabel', () => {
+	it('is the username of an active user', () => {
+		expect(participantLabel('anna', null)).toBe('anna');
+	});
+
+	it('marks a deactivated user', () => {
+		expect(participantLabel('anna', new Date('2026-10-01T12:00:00Z'))).toBe('anna (inaktiv)');
 	});
 });
 

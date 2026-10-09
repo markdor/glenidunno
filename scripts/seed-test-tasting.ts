@@ -3,12 +3,15 @@
 // `npm run db:seed` before `npm run dev`/`npm run preview`.
 //
 // Wipes ALL existing tasting data (cascades to participants and bottles) and
-// replaces it with the fixed dataset below – the user/session/account tables
-// are left untouched, so the admin login keeps working. The tasting date is
-// always "today + 7 days" and neither manual override is set, so it's
-// reliably in phase `entry` (getTastingPhase() in tastingPhase.ts) right
-// after seeding: bottles are already filled in, but order/reveal aren't
-// opened yet – exercise those from the admin UI by hand.
+// replaces it with the fixed dataset below. Participants are users: the admin
+// from .env (ADMIN_EMAIL/ADMIN_USERNAME – so the tasting link opens after
+// logging in as the admin) plus two users under the undeliverable
+// dummy-<n>@dummy.invalid, upserted on their email like the admin bootstrap
+// does. Sessions and accounts are left untouched, so the admin login keeps
+// working. The tasting date is always "today + 7 days" and neither manual
+// override is set, so it's reliably in phase `entry` (getTastingPhase() in
+// tastingPhase.ts) right after seeding: bottles are already filled in, but
+// order/reveal aren't opened yet – exercise those from the admin UI by hand.
 //
 // Not seeded: presentation uploads (two of the original bottles had one) –
 // there's no fixture file to attach, so presentation_file/presentation_name
@@ -21,25 +24,32 @@
 
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { resolveDevEnv } from './devEnv.ts';
 
-const { dbPath, baseUrl } = resolveDevEnv();
+const { dbPath, baseUrl, adminEmail, adminUsername } = resolveDevEnv();
+
+if (!adminEmail || !adminUsername) {
+	throw new Error(
+		'ADMIN_EMAIL and ADMIN_USERNAME must be set (.env): the admin takes part in the seeded ' +
+			'tasting, so its link can be opened after logging in.'
+	);
+}
 
 if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
 
 const sqlite = new Database(dbPath);
 sqlite.pragma('journal_mode = WAL');
-sqlite.pragma('foreign_keys = ON');
 
+// Foreign keys off while migrating, like runMigrations() in
+// src/lib/server/db/migrate.ts: drizzle runs all pending migrations in one
+// transaction, where a table rebuild's DROP TABLE would otherwise cascade.
+sqlite.pragma('foreign_keys = OFF');
 migrate(drizzle(sqlite), { migrationsFolder: './drizzle' });
-
-function hashToken(token: string): string {
-	return createHash('sha256').update(token).digest('hex');
-}
+sqlite.pragma('foreign_keys = ON');
 
 function toUnixSeconds(date: Date): number {
 	return Math.floor(date.getTime() / 1000);
@@ -62,14 +72,15 @@ type SeedBottle = {
 };
 
 type SeedParticipant = {
-	name: string;
+	/** The admin from .env, or a seeded user with this username. */
+	user: 'admin' | { username: string; email: string };
 	bottles: SeedBottle[];
 };
 
 // Real content of the "Testitest" tasting, captured once and frozen here.
 const PARTICIPANTS: SeedParticipant[] = [
 	{
-		name: 'Markus',
+		user: 'admin',
 		bottles: [
 			{
 				slot: 1,
@@ -98,7 +109,7 @@ const PARTICIPANTS: SeedParticipant[] = [
 		]
 	},
 	{
-		name: 'Josh',
+		user: { username: 'Josh', email: 'dummy-1@dummy.invalid' },
 		bottles: [
 			{
 				slot: 1,
@@ -127,7 +138,7 @@ const PARTICIPANTS: SeedParticipant[] = [
 		]
 	},
 	{
-		name: 'Patrick',
+		user: { username: 'Patrick', email: 'dummy-2@dummy.invalid' },
 		bottles: [
 			{
 				slot: 1,
@@ -159,16 +170,56 @@ const PARTICIPANTS: SeedParticipant[] = [
 
 sqlite.prepare('DELETE FROM tasting').run(); // cascades to participants/bottles/write-throttle
 
+// Upsert on the email like the admin bootstrap (src/lib/server/db/bootstrap.ts),
+// so the admin row is the one the app bootstraps on start. A seeded user is
+// always active – a deactivation from earlier manual testing is lifted.
+const upsertUser = sqlite.prepare(
+	`INSERT INTO user (id, name, email, email_verified, created_at, updated_at, username, is_admin)
+	 VALUES (@id, @username, @email, 1, @now, @now, @username, @isAdmin)
+	 ON CONFLICT (email) DO UPDATE SET
+	   is_admin = max(is_admin, excluded.is_admin), deactivated_at = NULL, updated_at = excluded.updated_at
+	 RETURNING id`
+);
+
+function seedUser(user: SeedParticipant['user']): string {
+	const { username, email, isAdmin } =
+		user === 'admin'
+			? { username: adminUsername!, email: adminEmail!, isAdmin: 1 }
+			: { ...user, isAdmin: 0 };
+	const row = upsertUser.get({
+		id: randomUUID(),
+		username,
+		email,
+		isAdmin,
+		now: toUnixSeconds(now)
+	});
+	return (row as { id: string }).id;
+}
+
+// A free random <adjective>-<animal> – after the DELETE above, all are free.
+const slug = sqlite
+	.prepare(
+		`SELECT a.word || '-' || n.word FROM tasting_slug_adjective a
+		 CROSS JOIN tasting_slug_animal n
+		 WHERE a.word || '-' || n.word NOT IN (SELECT slug FROM tasting)
+		 ORDER BY random() LIMIT 1`
+	)
+	.pluck()
+	.get() as string;
+
 const tastingId = randomUUID();
 sqlite
 	.prepare(
 		`INSERT INTO tasting
-		   (id, name, tasting_date, bottles_per_participant, created_at, order_opened_at, revealed_at)
+		   (id, slug, name, tasting_date, bottles_per_participant, created_at, order_opened_at,
+		    revealed_at)
 		 VALUES
-		   (@id, @name, @tastingDate, @bottlesPerParticipant, @createdAt, @orderOpenedAt, @revealedAt)`
+		   (@id, @slug, @name, @tastingDate, @bottlesPerParticipant, @createdAt, @orderOpenedAt,
+		    @revealedAt)`
 	)
 	.run({
 		id: tastingId,
+		slug,
 		name: 'Testitest',
 		tastingDate,
 		bottlesPerParticipant: 2,
@@ -180,8 +231,8 @@ sqlite
 	});
 
 const insertParticipant = sqlite.prepare(
-	`INSERT INTO tasting_participant (id, tasting_id, name, token_hash, created_at)
-	 VALUES (@id, @tastingId, @name, @tokenHash, @createdAt)`
+	`INSERT INTO tasting_participant (id, tasting_id, user_id, created_at)
+	 VALUES (@id, @tastingId, @userId, @createdAt)`
 );
 const insertBottle = sqlite.prepare(
 	`INSERT INTO tasting_bottle
@@ -192,17 +243,13 @@ const insertBottle = sqlite.prepare(
 	    @smoke, @cask, @abv, @value, @updatedAt, NULL, NULL)`
 );
 
-const links: string[] = [];
-
 for (const participant of PARTICIPANTS) {
 	const participantId = randomUUID();
-	const token = randomBytes(24).toString('base64url');
 
 	insertParticipant.run({
 		id: participantId,
 		tastingId,
-		name: participant.name,
-		tokenHash: hashToken(token),
+		userId: seedUser(participant.user),
 		createdAt: toUnixSeconds(now)
 	});
 
@@ -223,14 +270,15 @@ for (const participant of PARTICIPANTS) {
 			updatedAt: toUnixSeconds(now)
 		});
 	}
-
-	links.push(`  ${participant.name}: ${new URL(`/tasting/${token}`, baseUrl).href}`);
 }
 
 sqlite.close();
 
 console.log(
-	`Seeded tasting "Testitest" (${tastingId}) into ${dbPath} – tasting date ${tastingDate}, phase: entry.\n`
+	`Seeded tasting "Testitest" (${tastingId}) into ${dbPath} – tasting date ${tastingDate}, phase: entry.
+`
 );
-console.log('Participant links (tokens are fresh every run, old ones stop working):');
-console.log(links.join('\n'));
+console.log(
+	`Tasting link (log in as ${adminEmail}; the slug is new on every run):
+  ${new URL(`/tasting/${slug}`, baseUrl).href}`
+);

@@ -29,6 +29,27 @@
 			"when": 1790597079855,
 			"tag": "0003_tasting_presentation",
 			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "6",
+			"when": 1791387792901,
+			"tag": "0004_tasting_users_prepare",
+			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "6",
+			"when": 1791387800736,
+			"tag": "0005_tasting_users_data",
+			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "6",
+			"when": 1791387911499,
+			"tag": "0006_tasting_users_finalize",
+			"breakpoints": true
 		}
 	]
 }

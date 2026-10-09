@@ -6,17 +6,17 @@ import {
 	exceedsBodyLimit,
 	UPLOAD_BODY_LIMIT_BYTES
 } from './bodyLimit';
-
-const PAGE = '/tasting/[token=tastingToken]';
+import { TASTING_PRESENTATION_ROUTE_ID, TASTING_ROUTE_ID as PAGE } from './tastingRoutes';
 
 describe('bodyLimitFor', () => {
-	it('allows the presentation upload only on the POST to a participant link', () => {
+	it('allows the presentation upload only on the POST to the participant page', () => {
 		expect(bodyLimitFor(PAGE, 'POST')).toBe(UPLOAD_BODY_LIMIT_BYTES);
 		expect(UPLOAD_BODY_LIMIT_BYTES).toBeGreaterThan(TASTING_PRESENTATION_MAX_BYTES);
 	});
 
 	it.each([
 		[PAGE, 'GET'],
+		[TASTING_PRESENTATION_ROUTE_ID, 'POST'],
 		['/admin/tastings/new', 'POST'],
 		['/login', 'POST'],
 		// Better Auth's /auth/* endpoints have no SvelteKit route.

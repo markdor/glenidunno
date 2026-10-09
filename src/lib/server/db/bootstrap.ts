@@ -10,11 +10,14 @@ type Db = BetterSQLite3Database<Schema>;
 /**
  * Idempotent admin bootstrap:
  *   - upserts on email
- *   - forces isAdmin = true
+ *   - forces isAdmin = true and lifts a deactivation
  *   - leaves all other fields untouched on update
  *
  * Called on every container start so the admin can't accidentally lock
- * themselves out by deleting their own entry from the admin UI.
+ * themselves out by deleting their own entry from the admin UI. Another admin
+ * may "delete" them, too – with a tasting participation that only deactivates
+ * the row, so a deactivation is lifted here just like a deleted row is
+ * re-created.
  */
 export function bootstrapAdmin(
 	db: Db,
@@ -35,9 +38,15 @@ export function bootstrapAdmin(
 	const now = new Date();
 
 	if (existing) {
-		if (!existing.isAdmin) {
-			db.update(user).set({ isAdmin: true, updatedAt: now }).where(eq(user.id, existing.id)).run();
-			logger.info({ email }, 'admin bootstrap: promoted existing user to admin');
+		if (!existing.isAdmin || existing.deactivatedAt) {
+			db.update(user)
+				.set({ isAdmin: true, deactivatedAt: null, updatedAt: now })
+				.where(eq(user.id, existing.id))
+				.run();
+			logger.info(
+				{ email, reactivated: existing.deactivatedAt !== null },
+				'admin bootstrap: made existing user an active admin'
+			);
 		} else {
 			logger.info({ email }, 'admin bootstrap: admin user already present');
 		}

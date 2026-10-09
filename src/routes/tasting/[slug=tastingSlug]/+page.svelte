@@ -29,10 +29,10 @@
 			: []
 	);
 
-	// Downloads run through this link's own token (see presentation/[bottleId]).
+	// Downloads run through this tasting's link (see presentation/[bottleId]).
 	function presentationHref(bottleId: string) {
-		return resolve('/tasting/[token=tastingToken]/presentation/[bottleId]', {
-			token: page.params.token ?? '',
+		return resolve('/tasting/[slug=tastingSlug]/presentation/[bottleId]', {
+			slug: page.params.slug ?? '',
 			bottleId
 		});
 	}
@@ -53,7 +53,7 @@
 	</header>
 
 	{#if view.phase === 'entry'}
-		<p class="font-medium">Hallo {view.participant.name} 👋</p>
+		<p class="font-medium">Hallo {view.participant.username} 👋</p>
 		<p class="rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900">
 			Schreib das Synonym auf deine verhüllte Flasche. Die Reihenfolge erscheint am
 			{formatTastingDate(view.tasting.tastingDate)} ab {TASTING_ORDER_HOUR} Uhr, die Auflösung am Tag

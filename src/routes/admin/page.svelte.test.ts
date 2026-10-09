@@ -16,7 +16,9 @@ const adminUser = {
 	email: 'admin@glenidunno.de',
 	username: 'admin',
 	isAdmin: true,
-	createdAt: new Date('2026-01-01')
+	createdAt: new Date('2026-01-01'),
+	deactivated: false,
+	hasParticipation: true
 };
 
 const kidUser = {
@@ -24,7 +26,9 @@ const kidUser = {
 	email: 'kid@glenidunno.de',
 	username: 'kid',
 	isAdmin: false,
-	createdAt: new Date('2026-02-01')
+	createdAt: new Date('2026-02-01'),
+	deactivated: false,
+	hasParticipation: false
 };
 
 function makeData(over: Partial<Record<string, unknown>> = {}) {
@@ -194,5 +198,35 @@ describe('Admin page', () => {
 
 			await expect.poll(() => deleteRequests).toHaveLength(1);
 		});
+
+		test('announces a deactivation for a user who took part in a tasting', async () => {
+			render(Page, {
+				data: makeData({ users: [adminUser, { ...kidUser, hasParticipation: true }] }),
+				form: null
+			});
+			render(ConfirmDialog);
+
+			await page.getByRole('button', { name: 'Löschen' }).click();
+			const dialog = page.getByRole('dialog');
+			await expect
+				.element(dialog.getByText(/wird deshalb deaktiviert statt gelöscht/))
+				.toBeVisible();
+			await dialog.getByRole('button', { name: 'Deaktivieren' }).click();
+
+			await expect.poll(() => deleteRequests).toHaveLength(1);
+		});
+	});
+
+	test('marks a deactivated user and offers no delete for them', async () => {
+		render(Page, {
+			data: makeData({
+				users: [adminUser, { ...kidUser, deactivated: true, hasParticipation: true }]
+			}),
+			form: null
+		});
+
+		await expect.element(page.getByText('(inaktiv)')).toBeVisible();
+		expect(page.getByRole('button', { name: 'Löschen' }).elements()).toHaveLength(0);
+		await expect.element(page.getByRole('button', { name: 'Bearbeiten' }).nth(1)).toBeVisible();
 	});
 });

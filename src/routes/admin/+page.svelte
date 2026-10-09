@@ -38,12 +38,22 @@
 	// synchronously), so the button just re-submits its form once confirmed.
 	// currentTarget is read before the await: the browser clears it once the
 	// event has finished dispatching, i.e. before an async handler resumes.
-	async function confirmDelete(event: MouseEvent, username: string) {
+	// A user who took part in a tasting is deactivated instead of deleted (their
+	// bottles stay in the tasting) – the dialog says so up front.
+	async function confirmDelete(
+		event: MouseEvent,
+		u: { username: string; hasParticipation: boolean }
+	) {
 		const formEl = (event.currentTarget as HTMLElement).closest('form');
-		const ok = await confirmDialog.ask(`Benutzer „${username}" wirklich löschen?`, {
-			variant: 'danger',
-			confirmLabel: 'Löschen'
-		});
+		const ok = u.hasParticipation
+			? await confirmDialog.ask(
+					`Benutzer „${u.username}" hat an Tastings teilgenommen und wird deshalb deaktiviert statt gelöscht: Er kann sich nicht mehr anmelden, bleibt in seinen Tastings aber als „${u.username} (inaktiv)" sichtbar.`,
+					{ variant: 'danger', confirmLabel: 'Deaktivieren' }
+				)
+			: await confirmDialog.ask(`Benutzer „${u.username}" wirklich löschen?`, {
+					variant: 'danger',
+					confirmLabel: 'Löschen'
+				});
 		if (ok) formEl?.requestSubmit();
 	}
 </script>
@@ -191,6 +201,9 @@
 							<div class="min-w-0">
 								<p class="flex items-center gap-2 font-medium">
 									{u.username}
+									{#if u.deactivated}
+										<span class="text-sm font-normal text-slate-500">(inaktiv)</span>
+									{/if}
 									{#if u.isAdmin}
 										<span
 											class="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-white uppercase"
@@ -210,12 +223,13 @@
 								>
 									Bearbeiten
 								</button>
-								{#if u.id !== data.user?.id}
+								<!-- Deactivated users have nothing left to delete (no reactivation yet). -->
+								{#if u.id !== data.user?.id && !u.deactivated}
 									<form method="POST" action="?/delete" use:enhance>
 										<input type="hidden" name="id" value={u.id} />
 										<button
 											type="button"
-											onclick={(e) => confirmDelete(e, u.username)}
+											onclick={(e) => confirmDelete(e, u)}
 											class="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
 										>
 											Löschen

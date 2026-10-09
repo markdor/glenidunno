@@ -7,7 +7,7 @@
 		presentationHref
 	}: {
 		order: OrderEntry[];
-		/** Download URL of a bottle's presentation – runs through the link's own token. */
+		/** Download URL of a bottle's presentation – runs through the tasting's link. */
 		presentationHref: (bottleId: string) => ResolvedPathname;
 	} = $props();
 </script>

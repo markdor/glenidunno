@@ -33,8 +33,8 @@ export const USERNAME_RE = /^[a-zA-Z0-9_.-]{2,40}$/;
 // generating a new migration (`npm run db:generate`).
 
 export const TASTING_NAME_LENGTH = { max: 60 } as const;
-export const TASTING_PARTICIPANT_NAME_LENGTH = { max: 40 } as const;
-export const TASTING_PARTICIPANTS = { min: 2, max: 12, default: 3 } as const;
+/** Number of users the admin picks as participants of a tasting. */
+export const TASTING_PARTICIPANTS = { min: 2, max: 12 } as const;
 export const TASTING_BOTTLES_PER_PARTICIPANT = { min: 1, max: 6, default: 2 } as const;
 
 export const TASTING_ALIAS_LENGTH = { max: 30 } as const;
@@ -60,11 +60,12 @@ export const TASTING_PRESENTATION_MAX_BYTES = 30 * 1024 * 1024;
 export const TASTING_PRESENTATION_NAME_LENGTH = { max: 255 } as const;
 
 /**
- * Format of a participant token: 24 random bytes as base64url (192 bit).
- * Used by the param matcher (src/params/tastingToken.ts), which also runs in
- * the browser.
+ * Format of a tasting's link `/tasting/<adjective>-<animal>`: two words from
+ * the lists seeded into the database (lower-case a–z only, so the hyphen is
+ * an unambiguous separator). Used by the param matcher
+ * (src/params/tastingSlug.ts), which also runs in the browser.
  */
-export const TASTING_TOKEN_RE = /^[A-Za-z0-9_-]{32}$/;
+export const TASTING_SLUG_RE = /^[a-z]+-[a-z]+$/;
 
 /** Checks for a real calendar date in `YYYY-MM-DD` form (no 2026-02-30). */
 export function isValidTastingDate(value: string): boolean {

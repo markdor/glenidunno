@@ -44,11 +44,15 @@ describe('Tasting detail page', () => {
 	});
 
 	test.each(['entry', 'order', 'revealed'])(
-		'points to the own participant link for the content in phase %s',
+		'points to the participation for the content in phase %s',
 		async (phase) => {
 			renderDetail({ phase });
 			await expect
-				.element(page.getByText(/Reihenfolge und Auflösung siehst du wie alle anderen/))
+				.element(
+					page.getByText(
+						'Hier verwaltest du nur das Tasting. Reihenfolge und Auflösung siehst du wie alle anderen als Teilnehmer des Tastings.'
+					)
+				)
 				.toBeVisible();
 			expect(page.getByRole('heading', { name: 'Reihenfolge' }).elements()).toHaveLength(0);
 			expect(page.getByRole('heading', { name: 'Auflösung' }).elements()).toHaveLength(0);
@@ -60,20 +64,19 @@ describe('Tasting detail page', () => {
 		expect(page.getByLabelText('Datum').elements()).toHaveLength(0);
 	});
 
-	test('offers a new link per participant in every phase', async () => {
+	test('shows the participants without any link mechanism', async () => {
 		renderDetail({ phase: 'order' });
-		expect(page.getByRole('button', { name: 'Link neu generieren' }).elements()).toHaveLength(2);
+		await expect.element(page.getByText('Anna')).toBeVisible();
+		expect(page.getByRole('button', { name: /Link/ }).elements()).toHaveLength(0);
+		expect(page.getByText(/\/tasting\//).elements()).toHaveLength(0);
 	});
 
-	test('shows a regenerated link once, next to its participant', async () => {
-		const url = 'https://glenidunno.test/tasting/' + 'c'.repeat(32);
-		renderDetail(
-			{ phase: 'entry' },
-			{ action: 'regenerate', regenerated: { participantId: 'p2', link: { name: 'Ben', url } } }
-		);
-
-		await expect.element(page.getByText(url)).toBeVisible();
-		await expect.element(page.getByText(/Die Links werden nur jetzt angezeigt/)).toBeVisible();
+	test('marks a deactivated participant as delivered by the load', async () => {
+		renderDetail({
+			phase: 'entry',
+			participants: [{ id: 'p1', name: 'Anna (inaktiv)', progress: { entered: 0, total: 2 } }]
+		});
+		await expect.element(page.getByText('Anna (inaktiv)')).toBeVisible();
 	});
 
 	test('shows date errors and keeps the sent date', async () => {

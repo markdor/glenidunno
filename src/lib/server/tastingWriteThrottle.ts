@@ -6,10 +6,10 @@ import type { ThrottleOptions } from './magicLinkThrottle';
 type Schema = { tastingWriteThrottle: typeof tastingWriteThrottle };
 type Db = BetterSQLite3Database<Schema>;
 
-// Save actions per participant link (starting value, tunable). Deliberately
-// no per-IP limit: 192-bit tokens can't be guessed, and without ADDRESS_HEADER
-// getClientAddress() only sees Traefik's IP, so all participants would share
-// one bucket.
+// Save actions per participant (starting value, tunable). Deliberately no
+// per-IP limit: the page needs a login plus a participation anyway, and
+// without ADDRESS_HEADER getClientAddress() only sees Traefik's IP, so all
+// participants would share one bucket.
 export const TASTING_WRITE_LIMIT: ThrottleOptions = {
 	max: 30,
 	windowMs: 10 * 60 * 1000

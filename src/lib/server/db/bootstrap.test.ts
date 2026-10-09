@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { eq } from 'drizzle-orm';
 
 vi.mock('$lib/server/logger', () => ({
 	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
 }));
 
+import { runMigrations } from './migrate';
 import * as schema from './schema';
 import { bootstrapAdmin } from './bootstrap';
 
@@ -15,9 +15,8 @@ let db: BetterSQLite3Database<typeof schema>;
 
 beforeEach(() => {
 	const sqlite = new Database(':memory:');
-	sqlite.pragma('foreign_keys = ON');
+	runMigrations(sqlite, './drizzle');
 	db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: './drizzle' });
 });
 
 describe('bootstrapAdmin', () => {
@@ -94,6 +93,29 @@ describe('bootstrapAdmin', () => {
 		expect(row?.username).toBe('rootadmin');
 		expect(row?.name).toBe('Already Admin');
 		expect(row?.updatedAt.getFullYear()).toBe(2020);
+	});
+
+	it('lifts a deactivation so the admin can never be locked out', () => {
+		// Another admin "deleted" them while they took part in a tasting.
+		db.insert(schema.user)
+			.values({
+				id: 'existing',
+				name: 'Deactivated Admin',
+				email: 'admin@test.com',
+				emailVerified: true,
+				username: 'rootadmin',
+				isAdmin: true,
+				deactivatedAt: new Date(2026, 9, 1),
+				createdAt: new Date(2020, 0, 1),
+				updatedAt: new Date(2020, 0, 1)
+			})
+			.run();
+
+		bootstrapAdmin(db, { email: 'admin@test.com', username: 'somethingelse' });
+
+		const row = db.select().from(schema.user).where(eq(schema.user.email, 'admin@test.com')).get();
+		expect(row).toMatchObject({ id: 'existing', isAdmin: true, deactivatedAt: null });
+		expect(row?.username).toBe('rootadmin');
 	});
 
 	it('skips bootstrap when admin env is not configured', () => {

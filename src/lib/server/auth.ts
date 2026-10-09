@@ -11,6 +11,7 @@ import { logger } from './logger';
 import { sendMagicLinkMail } from './mailer';
 import { handleSendMagicLink } from './magicLinkCallback';
 import { consumeEmailRateLimit, MAGIC_LINK_EMAIL_LIMIT } from './magicLinkThrottle';
+import { canStartSession } from './sessionGuard';
 
 const baseURL = env.BASE_URL ?? 'http://localhost:5173';
 
@@ -80,6 +81,16 @@ export const auth = betterAuth({
 	session: {
 		expiresIn: 60 * 60 * 24 * 30, // 30 days
 		updateAge: 60 * 60 * 24
+	},
+	databaseHooks: {
+		session: {
+			create: {
+				// false aborts the creation: no new session for a deactivated user,
+				// not even from a magic link sent before the deactivation. The
+				// decision lives in sessionGuard.ts (unit-tested).
+				before: async (newSession) => canStartSession(db, newSession.userId)
+			}
+		}
 	},
 	// Built-in rate limiter, persisted in the same SQLite DB (no extra storage).
 	rateLimit: {

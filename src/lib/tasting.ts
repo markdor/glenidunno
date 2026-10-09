@@ -221,6 +221,15 @@ export function formatBottleName(
 }
 
 /**
+ * How a participant appears in every tasting display: the username, marked
+ * as "(inaktiv)" once the admin deactivated the user (instead of deleting
+ * them, so their bottles stay in the tasting).
+ */
+export function participantLabel(username: string, deactivatedAt: Date | null): string {
+	return deactivatedAt ? `${username} (inaktiv)` : username;
+}
+
+/**
  * Formats a calendar date (`YYYY-MM-DD`) as e.g. "Sa., 24.10.2026". Parsed and
  * formatted in UTC so the day never shifts with the viewer's time zone.
  */

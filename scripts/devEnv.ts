@@ -9,6 +9,9 @@ export type DevEnv = {
 	dbPath: string;
 	mediaPath: string;
 	baseUrl: string;
+	/** The bootstrapped admin, normalized like db/bootstrap.ts does. */
+	adminEmail: string | undefined;
+	adminUsername: string | undefined;
 };
 
 /**
@@ -37,6 +40,8 @@ export function resolveDevEnv(): DevEnv {
 	return {
 		dbPath: process.env.DB_PATH ?? './glenidunno.db',
 		mediaPath: process.env.MEDIA_PATH ?? './media',
-		baseUrl: process.env.BASE_URL ?? 'http://localhost:5173'
+		baseUrl: process.env.BASE_URL ?? 'http://localhost:5173',
+		adminEmail: process.env.ADMIN_EMAIL?.trim().toLowerCase() || undefined,
+		adminUsername: process.env.ADMIN_USERNAME?.trim() || undefined
 	};
 }

@@ -15,7 +15,15 @@ describe('login load', () => {
 	});
 
 	it('passes through known error codes', () => {
-		for (const code of ['expired', 'invalid', 'used', 'INVALID_TOKEN', 'EXPIRED_TOKEN']) {
+		// failed_to_create_session: the link of a since deactivated user.
+		for (const code of [
+			'expired',
+			'invalid',
+			'used',
+			'INVALID_TOKEN',
+			'EXPIRED_TOKEN',
+			'failed_to_create_session'
+		]) {
 			const result = run(null, `http://localhost/login?error=${code}`) as { error: string | null };
 			expect(result.error).toBe(code);
 		}

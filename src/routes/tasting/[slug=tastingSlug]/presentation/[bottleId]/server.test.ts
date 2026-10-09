@@ -1,14 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('$lib/server/db', async () => {
 	const Database = (await import('better-sqlite3')).default;
 	const { drizzle } = await import('drizzle-orm/better-sqlite3');
-	const { migrate } = await import('drizzle-orm/better-sqlite3/migrator');
+	const { runMigrations } = await import('$lib/server/db/migrate');
 	const schema = await import('$lib/server/db/schema');
 	const sqlite = new Database(':memory:');
-	sqlite.pragma('foreign_keys = ON');
+	runMigrations(sqlite, './drizzle');
 	const db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: './drizzle' });
 	return { db, schema };
 });
 
@@ -23,9 +22,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { db } from '$lib/server/db';
-import { tasting, tastingBottle } from '$lib/server/db/schema';
+import { tasting, tastingBottle, user } from '$lib/server/db/schema';
 import { applyFileChanges, stageUpload } from '$lib/server/tastingMedia';
-import { createTasting, findParticipantByToken, saveBottle } from '$lib/server/tastings';
+import { createTasting, findParticipant, saveBottle } from '$lib/server/tastings';
 import { GET } from './+server';
 
 const ENTRY = new Date('2026-10-20T10:00:00Z');
@@ -33,33 +32,61 @@ const ORDER = new Date('2026-10-24T17:00:00Z');
 const REVEALED = new Date('2026-10-25T08:00:00Z');
 const deckBytes = new Uint8Array([1, 2, 3, 4]);
 
+// Anna brought the bottle, Ben tastes along, the admin only manages, Dora and
+// Emil take part in another tasting.
+const ANNA = 'u-anna';
+const BEN = 'u-ben';
+const ADMIN = 'u-admin';
+const DORA = 'u-dora';
+const EMIL = 'u-emil';
+
 let mediaDir: string;
-let tokens: string[];
+let slug: string;
 let bottleId: string;
 
-function download(token: string, id = bottleId) {
-	// locals.user is set on purpose: the public route must not care about it.
+function download(userId: string | null, id = bottleId, tastingSlug = slug) {
 	return GET({
-		params: { token, bottleId: id },
-		locals: { user: { id: 'admin', isAdmin: true }, session: null }
+		params: { slug: tastingSlug, bottleId: id },
+		locals: { user: userId ? { id: userId, isAdmin: userId === ADMIN } : null, session: null }
 	} as unknown as Parameters<typeof GET>[0]);
 }
+
+beforeAll(() => {
+	for (const [id, username] of [
+		[ANNA, 'Anna'],
+		[BEN, 'Ben'],
+		[ADMIN, 'Markus'],
+		[DORA, 'Dora'],
+		[EMIL, 'Emil']
+	]) {
+		db.insert(user)
+			.values({
+				id,
+				name: username,
+				email: `${username.toLowerCase()}@example.com`,
+				username,
+				isAdmin: id === ADMIN,
+				createdAt: ENTRY,
+				updatedAt: ENTRY
+			})
+			.run();
+	}
+});
 
 beforeEach(async () => {
 	mediaDir = await mkdtemp(join(tmpdir(), 'glenidunno-media-'));
 	mockEnv.MEDIA_PATH = mediaDir;
 	vi.setSystemTime(ENTRY);
 	db.delete(tasting).run();
-	const created = createTasting(db, {
+	slug = createTasting(db, {
 		name: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
 		bottlesPerParticipant: 1,
-		participantNames: ['Anna', 'Ben']
-	});
-	tokens = created.tokens.map((t) => t.token);
+		participantUserIds: [ANNA, BEN]
+	}).slug;
 	const result = saveBottle(
 		db,
-		findParticipantByToken(db, tokens[0])!,
+		findParticipant(db, slug, ANNA)!,
 		1,
 		{
 			alias: 'Nebel',
@@ -87,15 +114,15 @@ afterEach(async () => {
 
 const notFound = expect.objectContaining({ status: 404, body: { message: 'Not found' } });
 
-describe('presentation download through a participant link', () => {
+describe('presentation download from the participant page', () => {
 	it('is a 404 during entry – for other participants and the owner alike', async () => {
-		await expect(download(tokens[1])).rejects.toEqual(notFound);
-		await expect(download(tokens[0])).rejects.toEqual(notFound);
+		await expect(download(BEN)).rejects.toEqual(notFound);
+		await expect(download(ANNA)).rejects.toEqual(notFound);
 	});
 
 	it('serves the file from the order on, under the stored name until the reveal', async () => {
 		vi.setSystemTime(ORDER);
-		const response = await download(tokens[1]);
+		const response = await download(BEN);
 
 		expect(response.status).toBe(200);
 		const disposition = response.headers.get('content-disposition');
@@ -106,20 +133,22 @@ describe('presentation download through a participant link', () => {
 
 	it('serves the file under its original name after the reveal', async () => {
 		vi.setSystemTime(REVEALED);
-		const response = await download(tokens[1]);
+		const response = await download(BEN);
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get('content-disposition')).toContain('filename="Ardbeg.pptx"');
 		expect(new Uint8Array(await response.arrayBuffer())).toEqual(deckBytes);
 	});
 
-	it('answers unknown tokens, unknown bottles and missing files with the same 404', async () => {
+	it('answers non-participants, the admin, unknown slugs and bottles and missing files with the same 404', async () => {
 		vi.setSystemTime(REVEALED);
-		await expect(download('x'.repeat(32))).rejects.toEqual(notFound);
-		await expect(download(tokens[1], 'unknown-bottle')).rejects.toEqual(notFound);
+		await expect(download(DORA)).rejects.toEqual(notFound);
+		await expect(download(ADMIN)).rejects.toEqual(notFound);
+		await expect(download(BEN, bottleId, 'fluffy-nothing')).rejects.toEqual(notFound);
+		await expect(download(BEN, 'unknown-bottle')).rejects.toEqual(notFound);
 
 		await applyFileChanges([{ delete: 'Tasting_2026-10-24_Nebel.pptx' }]);
-		await expect(download(tokens[1])).rejects.toEqual(notFound);
+		await expect(download(BEN)).rejects.toEqual(notFound);
 	});
 
 	it('does not hand out another tasting’s presentation', async () => {
@@ -127,9 +156,14 @@ describe('presentation download through a participant link', () => {
 			name: 'Anderes',
 			tastingDate: '2026-10-24',
 			bottlesPerParticipant: 1,
-			participantNames: ['Dora', 'Emil']
+			participantUserIds: [DORA, EMIL]
 		});
 		vi.setSystemTime(REVEALED);
-		await expect(download(other.tokens[0].token)).rejects.toEqual(notFound);
+		await expect(download(DORA, bottleId, other.slug)).rejects.toEqual(notFound);
+	});
+
+	it('requires a login', async () => {
+		vi.setSystemTime(REVEALED);
+		await expect(download(null)).rejects.toMatchObject({ status: 401 });
 	});
 });

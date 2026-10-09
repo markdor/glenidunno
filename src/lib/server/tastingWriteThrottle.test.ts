@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { runMigrations } from './db/migrate';
 import * as schema from './db/schema';
 import type { ThrottleOptions } from './magicLinkThrottle';
 import { consumeTastingWriteLimit, TASTING_WRITE_LIMIT } from './tastingWriteThrottle';
@@ -12,20 +12,31 @@ const OPTS: ThrottleOptions = { max: 3, windowMs: 10 * 60 * 1000 };
 const START = new Date('2026-10-20T10:00:00Z');
 
 function addParticipant(id: string) {
+	db.insert(schema.user)
+		.values({
+			id: `u-${id}`,
+			name: id,
+			email: `${id}@example.com`,
+			username: id,
+			createdAt: START,
+			updatedAt: START
+		})
+		.run();
 	db.insert(schema.tastingParticipant)
-		.values({ id, tastingId: 't1', name: id, tokenHash: `hash-${id}`, createdAt: START })
+		.values({ id, tastingId: 't1', userId: `u-${id}`, createdAt: START })
 		.run();
 }
 
 beforeEach(() => {
 	const sqlite = new Database(':memory:');
-	// Throttle rows reference the participant, so the FK must really be enforced.
-	sqlite.pragma('foreign_keys = ON');
+	// Throttle rows reference the participant, so the FK must really be
+	// enforced – runMigrations() leaves foreign keys switched on.
+	runMigrations(sqlite, './drizzle');
 	db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: './drizzle' });
 	db.insert(schema.tasting)
 		.values({
 			id: 't1',
+			slug: 'fluffy-otter',
 			name: 'Herbst',
 			tastingDate: '2026-10-24',
 			bottlesPerParticipant: 2,

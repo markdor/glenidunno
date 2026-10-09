@@ -4,7 +4,6 @@
 	import { resolve } from '$app/paths';
 	import { confirmDialog, type ConfirmVariant } from '$lib/components/confirmDialogStore.svelte';
 	import SubHeader from '$lib/components/SubHeader.svelte';
-	import TastingLinkList from '$lib/components/TastingLinkList.svelte';
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import { formatTastingDate, TASTING_PHASE_LABEL } from '$lib/tasting';
@@ -81,8 +80,8 @@
 	<TastingManualNotice manual={detail.manual} />
 
 	<p class="rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-		Hier verwaltest du nur das Tasting. Reihenfolge und Auflösung siehst du wie alle anderen über
-		deinen eigenen Teilnehmer-Link.
+		Hier verwaltest du nur das Tasting. Reihenfolge und Auflösung siehst du wie alle anderen als
+		Teilnehmer des Tastings.
 	</p>
 
 	{#if detail.phase === 'entry'}
@@ -119,9 +118,9 @@
 	<section class="space-y-3">
 		<h2 class="text-lg font-semibold">Vorzeitig freigeben</h2>
 		<p class="text-sm text-slate-500">
-			Überstimmt die Uhrzeit sofort für alle Links: erst die Reihenfolge statt um 18 Uhr am
-			Tasting-Tag, danach die Auflösung statt um 9 Uhr am Folgetag. Alle Links zeigen danach, wann
-			du das getan hast. Lässt sich nicht rückgängig machen.
+			Überstimmt die Uhrzeit sofort für alle Teilnehmer: erst die Reihenfolge statt um 18 Uhr am
+			Tasting-Tag, danach die Auflösung statt um 9 Uhr am Folgetag. Alle Teilnehmer sehen danach,
+			wann du das getan hast. Lässt sich nicht rückgängig machen.
 		</p>
 		<div class="flex flex-wrap gap-2">
 			<form method="POST" action="?/openOrder" use:enhance>
@@ -131,7 +130,7 @@
 					onclick={(e) =>
 						confirmSubmit(
 							e,
-							'Reihenfolge jetzt für alle Links freigeben? Danach kann niemand mehr Flaschen eintragen oder ändern.',
+							'Reihenfolge jetzt für alle Teilnehmer freigeben? Danach kann niemand mehr Flaschen eintragen oder ändern.',
 							{ confirmLabel: 'Freigeben' }
 						)}
 					class={secondaryButton}
@@ -146,7 +145,7 @@
 					onclick={(e) =>
 						confirmSubmit(
 							e,
-							'Tasting jetzt für alle Links komplett auflösen? Alle sehen dann Namen, Werte und Mitbringer.',
+							'Tasting jetzt für alle Teilnehmer komplett auflösen? Alle sehen dann Namen, Werte und Mitbringer.',
 							{ confirmLabel: 'Auflösen' }
 						)}
 					class={secondaryButton}
@@ -161,22 +160,11 @@
 		<h2 class="text-lg font-semibold">Teilnehmer ({detail.participants.length})</h2>
 		<ul class="space-y-2">
 			{#each detail.participants as p (p.id)}
-				<li class="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-					<div class="flex flex-wrap items-center justify-between gap-3">
-						<div class="min-w-0">
-							<p class="truncate font-medium">{p.name}</p>
-							<p class="text-sm text-slate-500">
-								{p.progress.entered} von {p.progress.total} Flaschen
-							</p>
-						</div>
-						<form method="POST" action="?/regenerate" use:enhance>
-							<input type="hidden" name="participantId" value={p.id} />
-							<button type="submit" class={secondaryButton}>Link neu generieren</button>
-						</form>
-					</div>
-					{#if form?.regenerated?.participantId === p.id}
-						<TastingLinkList links={[form.regenerated.link]} />
-					{/if}
+				<li class="rounded-xl border border-slate-200 bg-white p-4">
+					<p class="truncate font-medium">{p.name}</p>
+					<p class="text-sm text-slate-500">
+						{p.progress.entered} von {p.progress.total} Flaschen
+					</p>
 				</li>
 			{/each}
 		</ul>
