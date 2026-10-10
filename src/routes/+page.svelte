@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
-	import { ChartColumn, CircleCheck, Plus, RotateCcwClock } from '@lucide/svelte';
+	import { ChartColumn, RotateCcwClock } from '@lucide/svelte';
+	import DashboardLastTastingCard from '$lib/components/DashboardLastTastingCard.svelte';
 	import DashboardTastingCard from '$lib/components/DashboardTastingCard.svelte';
 	import DashboardTile from '$lib/components/DashboardTile.svelte';
 	import TastingCard from '$lib/components/TastingCard.svelte';
@@ -17,20 +17,22 @@
 	<h1 class="text-2xl font-semibold tracking-tight">Hallo {data.user?.username} 👋</h1>
 
 	<div class="mt-6 space-y-4">
-		<DashboardTastingCard tasting={data.heroTasting} />
+		<!-- auto-rows-fr: both cards get the same height, even if one has more
+		     lines or shows its empty state. grid-cols-1 (minmax(0, 1fr)) rather
+		     than the implicit auto column, which a long word would widen. -->
+		<div class="grid auto-rows-fr grid-cols-1 gap-4">
+			<DashboardTastingCard tasting={data.nextTasting} />
+			<DashboardLastTastingCard tasting={data.lastTasting} />
+		</div>
 
 		{#if data.tastingSummary}
 			<TastingCard summary={data.tastingSummary} />
 		{/if}
 
 		<!-- Each section still to come gets its link with its own issue. With an
-		     odd number of tiles (three for non-admins) the last one spans both
-		     columns instead of leaving a gap. -->
+		     odd number of tiles the last one spans both columns instead of
+		     leaving a gap. -->
 		<div class="grid auto-rows-fr grid-cols-2 gap-4 [&>:last-child:nth-child(odd)]:col-span-2">
-			{#if data.user?.isAdmin}
-				<DashboardTile title="Neues Tasting" icon={Plus} href={resolve('/admin/tastings/new')} />
-			{/if}
-			<DashboardTile title="Abgeschlossene Tastings" icon={CircleCheck} />
 			<DashboardTile title="Historie" icon={RotateCcwClock} />
 			<DashboardTile title="Statistiken" icon={ChartColumn} />
 		</div>

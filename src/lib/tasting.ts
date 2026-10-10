@@ -61,19 +61,28 @@ export type TastingBottle = {
 export type Progress = { entered: number; total: number };
 
 /**
- * The start page's hero: the user's own next tasting, or the last revealed one
- * (`phase === 'revealed'`). Management data plus the slug for the link – no
- * content in any phase, not even the user's own bottles. `progress` counts the
- * user's own bottles only.
+ * The start page's hero "Nächstes Tasting": the user's own next tasting that
+ * isn't revealed yet. Management data plus the slug for the link – no content,
+ * not even the user's own bottles. `progress` counts the user's own bottles only.
  */
 export type DashboardTasting = {
 	slug: string;
 	name: string;
+	motto: string | null;
 	tastingDate: string;
-	phase: TastingPhase;
+	phase: Exclude<TastingPhase, 'revealed'>;
 	isToday: boolean;
 	progress: Progress;
 };
+
+/**
+ * The start page's "Letztes Tasting": the user's own last revealed tasting.
+ * Title, motto and date only – the reveal itself stays on the participant page.
+ */
+export type DashboardLastTasting = Pick<
+	DashboardTasting,
+	'slug' | 'name' | 'motto' | 'tastingDate'
+>;
 
 /**
  * Link to an uploaded presentation, from the `order` phase on (the slides are

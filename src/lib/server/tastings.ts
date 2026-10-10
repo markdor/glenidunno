@@ -14,6 +14,7 @@ import {
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
 	participantLabel,
+	type DashboardLastTasting,
 	type DashboardTasting,
 	type ManualPhaseChanges,
 	type OrderEntry,
@@ -23,7 +24,7 @@ import {
 	type TastingBottle,
 	type TastingPhase
 } from '$lib/tasting';
-import { isValidTastingDate } from '$lib/validation';
+import { isValidTastingDate, TASTING_MOTTO_LENGTH } from '$lib/validation';
 import type * as Schema from './db/schema';
 import {
 	tasting,
@@ -77,6 +78,20 @@ export function validateTastingDate(
 		return { tastingDate, error: 'invalid' };
 	}
 	return { tastingDate, error: null };
+}
+
+/**
+ * Field-level check of the optional motto shared by "create" and "change
+ * motto": trimmed, empty means no motto (`null`). The only length guard – the
+ * column has no CHECK constraint.
+ */
+export function validateTastingMotto(raw: string): {
+	motto: string | null;
+	error: 'invalid' | null;
+} {
+	const motto = raw.trim();
+	if (motto.length > TASTING_MOTTO_LENGTH.max) return { motto, error: 'invalid' };
+	return { motto: motto || null, error: null };
 }
 
 type BottleRow = typeof tastingBottle.$inferSelect;
@@ -211,6 +226,8 @@ function takenFileNames(
 
 export type NewTasting = {
 	name: string;
+	/** Optional, `null` (or missing) means no motto. */
+	motto?: string | null;
 	tastingDate: string;
 	bottlesPerParticipant: number;
 	/** Users taking part, in the order they are listed. */
@@ -289,6 +306,7 @@ export function createTasting(
 				id,
 				slug,
 				name: input.name,
+				motto: input.motto ?? null,
 				tastingDate: input.tastingDate,
 				bottlesPerParticipant: input.bottlesPerParticipant,
 				createdAt: now
@@ -383,21 +401,23 @@ export function getStartPageSummary(db: Db, now: Date = new Date()): StartPageSu
 }
 
 /**
- * The start page's hero for every user: their own next tasting that isn't
- * revealed yet (soonest first), otherwise their last revealed one, `null`
- * without any participation. Filtered on the user's own participations – never
- * derived from listTastings – so a slug only leaves the server for tastings the
- * user takes part in, the admin included. Management data only, in every phase.
+ * The start page's two cards for every user: `next`, their own soonest
+ * tasting that isn't revealed yet, and `last`, their own latest revealed one –
+ * each `null` if there is none. Filtered on the user's own participations –
+ * never derived from listTastings – so a slug only leaves the server for
+ * tastings the user takes part in, the admin included. Management data only,
+ * in every phase.
  */
 export function getDashboardTasting(
 	db: Db,
 	userId: string,
 	now: Date = new Date()
-): DashboardTasting | null {
+): { next: DashboardTasting | null; last: DashboardLastTasting | null } {
 	const own = db
 		.select({
 			slug: tasting.slug,
 			name: tasting.name,
+			motto: tasting.motto,
 			...phaseColumns,
 			bottlesPerParticipant: tasting.bottlesPerParticipant,
 			entered: count(tastingBottle.id)
@@ -413,28 +433,41 @@ export function getDashboardTasting(
 		.all();
 
 	// The admin's buttons can reveal a tasting ahead of an earlier one, so the
-	// phase decides per tasting instead of the date alone. Without an upcoming
-	// one all of them are revealed, and the last one is the latest.
-	const withPhase = own.map((t) => ({ t, phase: getTastingPhase(t.tastingDate, now, t) }));
-	const hero = withPhase.find(({ phase }) => phase !== 'revealed') ?? withPhase.at(-1);
-	if (!hero) return null;
-
-	const { t, phase } = hero;
-	return {
-		slug: t.slug,
-		name: t.name,
-		tastingDate: t.tastingDate,
-		phase,
-		isToday: t.tastingDate === getBerlinToday(now),
-		progress: { entered: t.entered, total: t.bottlesPerParticipant }
-	};
+	// phase decides per tasting instead of the date alone.
+	const today = getBerlinToday(now);
+	let next: DashboardTasting | null = null;
+	let last: DashboardLastTasting | null = null;
+	for (const t of own) {
+		const phase = getTastingPhase(t.tastingDate, now, t);
+		if (phase === 'revealed') {
+			// Sorted by date, so the latest revealed one is the last to get here.
+			last = { slug: t.slug, name: t.name, motto: t.motto, tastingDate: t.tastingDate };
+		} else {
+			next ??= {
+				slug: t.slug,
+				name: t.name,
+				motto: t.motto,
+				tastingDate: t.tastingDate,
+				phase,
+				isToday: t.tastingDate === today,
+				progress: { entered: t.entered, total: t.bottlesPerParticipant }
+			};
+		}
+	}
+	return { next, last };
 }
 
 /** `name` is the display label: the username, marked if deactivated. */
 export type AdminParticipant = { id: string; name: string; progress: Progress };
 
 export type AdminTastingDetail = {
-	tasting: { id: string; name: string; tastingDate: string; bottlesPerParticipant: number };
+	tasting: {
+		id: string;
+		name: string;
+		motto: string | null;
+		tastingDate: string;
+		bottlesPerParticipant: number;
+	};
 	phase: TastingPhase;
 	participants: AdminParticipant[];
 	manual: ManualPhaseChanges;
@@ -477,6 +510,7 @@ export function getAdminTastingDetail(
 		tasting: {
 			id: t.id,
 			name: t.name,
+			motto: t.motto,
 			tastingDate: t.tastingDate,
 			bottlesPerParticipant: t.bottlesPerParticipant
 		},
@@ -546,6 +580,15 @@ export function updateTastingDate(
 		}
 		return changes;
 	});
+}
+
+/**
+ * Sets or clears (`null`) the motto – in every phase: like name and date it is
+ * management data the admin sets blind. Returns false if the tasting doesn't
+ * exist.
+ */
+export function updateTastingMotto(db: Db, id: string, motto: string | null): boolean {
+	return db.update(tasting).set({ motto }).where(eq(tasting.id, id)).run().changes > 0;
 }
 
 /**

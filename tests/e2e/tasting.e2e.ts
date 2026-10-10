@@ -77,17 +77,24 @@ test.describe('Tasting – Ablauf', () => {
 			const viewport = page.viewportSize();
 			await page.setViewportSize({ width: 360, height: 800 });
 			await page.goto('/');
-			await expect(page.getByRole('link', { name: /Kommendes Tasting/ })).toContainText(
-				tastingName
-			);
+			const nextCard = page.getByRole('link', { name: /Nächstes Tasting/ });
+			await expect(nextCard).toContainText(tastingName);
 			expect(
 				await page.evaluate(
 					() => document.documentElement.scrollWidth <= document.documentElement.clientWidth
 				)
 			).toBe(true);
 
+			// Both tasting cards have one size, although the next one shows more
+			// lines (phase, progress) than the last one. Only real CSS shows that.
+			const lastCard = page.getByRole('heading', { name: 'Letztes Tasting' }).locator('..');
+			const [next, last] = await Promise.all([nextCard.boundingBox(), lastCard.boundingBox()]);
+			expect(next).not.toBeNull();
+			expect(last?.width).toBeCloseTo(next?.width ?? 0, 0);
+			expect(last?.height).toBeCloseTo(next?.height ?? 0, 0);
+
 			// The heading, not the card's center (see CLAUDE.md, E2E clicks on cards).
-			await page.getByRole('heading', { name: 'Kommendes Tasting' }).click();
+			await page.getByRole('heading', { name: 'Nächstes Tasting' }).click();
 			await expect(page).toHaveURL(/\/tasting\/[a-z]+-[a-z]+$/);
 			await expect(page.getByRole('heading', { level: 1, name: tastingName })).toBeVisible();
 

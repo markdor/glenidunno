@@ -15,7 +15,9 @@ import {
 	revealEarly,
 	TastingValidationError,
 	updateTastingDate,
-	validateTastingDate
+	updateTastingMotto,
+	validateTastingDate,
+	validateTastingMotto
 } from '$lib/server/tastings';
 
 const TASTING_NOT_FOUND =
@@ -73,6 +75,32 @@ export const actions: Actions = {
 		// Presentation files carry the date in their name (Tasting_<date>_<alias>).
 		await applyFileChanges(fileChanges);
 		return { action: 'updateDate', updated: true };
+	},
+
+	// Unlike the date, the motto can change in every phase: no 422 case.
+	updateMotto: async ({ request, locals, params }) => {
+		requireAdmin(locals);
+		const form = await request.formData();
+		const rawMotto = String(form.get('motto') ?? '');
+
+		const { motto, error: mottoError } = validateTastingMotto(rawMotto);
+		if (mottoError) {
+			return fail(400, {
+				action: 'updateMotto',
+				motto: rawMotto,
+				fieldErrors: { motto: mottoError }
+			});
+		}
+
+		let updated: boolean;
+		try {
+			updated = updateTastingMotto(db, params.id, motto);
+		} catch (err: unknown) {
+			logger.error({ err }, 'update tasting motto failed');
+			return fail(500, { action: 'updateMotto', userMessage: UNEXPECTED_ERROR_MESSAGE });
+		}
+		if (!updated) return fail(404, { action: 'updateMotto', userMessage: TASTING_NOT_FOUND });
+		return { action: 'updateMotto', updated: true };
 	},
 
 	// "18-Uhr-Button" and "9-Uhr-Button": overrule the clock for all participants.
