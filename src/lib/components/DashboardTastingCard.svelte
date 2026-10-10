@@ -6,6 +6,13 @@
 	let { tasting }: { tasting: DashboardTasting | null } = $props();
 
 	const revealed = $derived(tasting?.phase === 'revealed');
+	// The date line right above already names the day, the deadline doesn't
+	// repeat it.
+	const deadline = $derived(
+		tasting?.isToday
+			? `bis heute, ${TASTING_ORDER_HOUR} Uhr`
+			: `bis ${TASTING_ORDER_HOUR} Uhr am Tasting-Tag`
+	);
 </script>
 
 {#snippet heading(title: string)}
@@ -35,7 +42,7 @@
 
 		<p class="mt-3 text-sm">
 			{#if tasting.phase === 'entry'}
-				Flaschen eintragen bis {formatTastingDate(tasting.tastingDate)}, {TASTING_ORDER_HOUR} Uhr
+				Flaschen eintragen {deadline}
 			{:else if tasting.phase === 'order'}
 				Die Reihenfolge steht
 			{:else}

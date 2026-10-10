@@ -21,13 +21,23 @@ describe('DashboardTastingCard', () => {
 		await expect.element(card).toHaveAttribute('href', '/tasting/fluffy-otter');
 		await expect.element(page.getByRole('heading', { name: 'Kommendes Tasting' })).toBeVisible();
 		await expect.element(page.getByText('Herbst-Tasting')).toBeVisible();
-		await expect.element(page.getByText('heute')).toBeVisible();
+		await expect.element(page.getByText('heute', { exact: true })).toBeVisible();
 		await expect.element(page.getByText('Sa., 24.10.2026', { exact: true })).toBeVisible();
-		await expect
-			.element(page.getByText('Flaschen eintragen bis Sa., 24.10.2026, 18 Uhr'))
-			.toBeVisible();
+		await expect.element(page.getByText('Flaschen eintragen bis heute, 18 Uhr')).toBeVisible();
 		await expect.element(page.getByText('1 von 2 Flaschen eingetragen')).toBeVisible();
 		await expect.element(page.getByText('Zum Tasting')).toBeVisible();
+		// The deadline doesn't repeat the date of the line above.
+		expect(page.getByText(/24\.10\.2026/).elements()).toHaveLength(1);
+	});
+
+	test('names the deadline relative to the tasting day before it', async () => {
+		render(DashboardTastingCard, { tasting: { ...upcoming, isToday: false } });
+
+		await expect
+			.element(page.getByText('Flaschen eintragen bis 18 Uhr am Tasting-Tag'))
+			.toBeVisible();
+		expect(page.getByText('heute').elements()).toHaveLength(0);
+		expect(page.getByText(/24\.10\.2026/).elements()).toHaveLength(1);
 	});
 
 	test('says the order is out, without progress', async () => {
