@@ -48,6 +48,7 @@ beforeEach(() => {
 	insertUsers('Anna', 'Ben', 'Cem');
 	({ slug } = createTasting(db, {
 		name: 'Herbst-Tasting',
+		motto: 'Islay gegen den Rest',
 		tastingDate: '2026-10-24',
 		bottlesPerParticipant: 2,
 		participantUserIds: ['u-Anna', 'u-Ben', 'u-Cem']
@@ -93,39 +94,60 @@ function expectNoContent(result: unknown) {
 describe('start page load', () => {
 	it('returns no tasting data for users without a participation', () => {
 		const result = loadAs({ id: 'u', username: 'maxi', isAdmin: false });
-		expect(result).toEqual({ heroTasting: null, tastingSummary: null });
+		expect(result).toEqual({ nextTasting: null, lastTasting: null, tastingSummary: null });
 		expect(JSON.stringify(result)).not.toContain('Herbst');
 		expect(JSON.stringify(result)).not.toContain(slug);
 	});
 
-	it('gives a participant the own tasting as hero, with the own progress only', () => {
+	it('gives a participant the own tasting as the next one, with the own progress only', () => {
 		const result = loadAs({ id: 'u-Anna', username: 'Anna', isAdmin: false });
 		expect(result).toEqual({
-			heroTasting: {
+			nextTasting: {
 				slug,
 				name: 'Herbst-Tasting',
+				motto: 'Islay gegen den Rest',
 				tastingDate: '2026-10-24',
 				phase: 'entry',
 				isToday: true,
 				progress: { entered: 1, total: 2 }
+			},
+			lastTasting: null,
+			tastingSummary: null
+		});
+		expectNoContent(result);
+	});
+
+	it('moves the tasting to the last one once it is revealed, still without content', () => {
+		// Sunday 9:00 in Berlin.
+		vi.setSystemTime(new Date('2026-10-25T08:00:00Z'));
+		const result = loadAs({ id: 'u-Anna', username: 'Anna', isAdmin: false });
+		expect(result).toEqual({
+			nextTasting: null,
+			lastTasting: {
+				slug,
+				name: 'Herbst-Tasting',
+				motto: 'Islay gegen den Rest',
+				tastingDate: '2026-10-24'
 			},
 			tastingSummary: null
 		});
 		expectNoContent(result);
 	});
 
-	it('gives the admin a summary without any bottle content, but no hero without a participation', () => {
+	it('gives the admin a summary without any bottle content, but no cards without a participation', () => {
 		const result = loadAs({ id: 'a', username: 'admin', isAdmin: true });
-		expect(result).toEqual({ heroTasting: null, tastingSummary: summary });
+		// The summary carries no motto either: it stays on the two cards.
+		expect(result).toEqual({ nextTasting: null, lastTasting: null, tastingSummary: summary });
 		// The slug isn't derived from the list of all tastings.
 		expect(JSON.stringify(result)).not.toContain(slug);
 		expectNoContent(result);
 	});
 
-	it('gives a participating admin both the hero and the summary', () => {
+	it('gives a participating admin both the cards and the summary', () => {
 		const result = loadAs({ id: 'u-Ben', username: 'Ben', isAdmin: true });
 		expect(result).toEqual({
-			heroTasting: expect.objectContaining({ slug, progress: { entered: 0, total: 2 } }),
+			nextTasting: expect.objectContaining({ slug, progress: { entered: 0, total: 2 } }),
+			lastTasting: null,
 			tastingSummary: summary
 		});
 		expectNoContent(result);

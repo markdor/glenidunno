@@ -14,7 +14,8 @@ import {
 	createTasting,
 	listSelectableUsers,
 	TastingValidationError,
-	validateTastingDate
+	validateTastingDate,
+	validateTastingMotto
 } from '$lib/server/tastings';
 
 export const load: PageServerLoad = ({ locals }) => {
@@ -30,6 +31,7 @@ export const load: PageServerLoad = ({ locals }) => {
 
 type Values = {
 	name: string;
+	motto: string;
 	tastingDate: string;
 	bottlesPerParticipant: string;
 	participants: string[];
@@ -41,6 +43,9 @@ function validate(values: Values, now: Date) {
 	const name = values.name.trim();
 	if (!name) fieldErrors.name = 'required';
 	else if (name.length > TASTING_NAME_LENGTH.max) fieldErrors.name = 'invalid';
+
+	const motto = validateTastingMotto(values.motto);
+	if (motto.error) fieldErrors.motto = motto.error;
 
 	const date = validateTastingDate(values.tastingDate, now);
 	if (date.error) fieldErrors.tastingDate = date.error;
@@ -66,7 +71,13 @@ function validate(values: Values, now: Date) {
 	}
 
 	return {
-		input: { name, tastingDate: date.tastingDate, bottlesPerParticipant, participantUserIds },
+		input: {
+			name,
+			motto: motto.motto,
+			tastingDate: date.tastingDate,
+			bottlesPerParticipant,
+			participantUserIds
+		},
 		fieldErrors
 	};
 }
@@ -77,6 +88,7 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const values: Values = {
 			name: String(form.get('name') ?? ''),
+			motto: String(form.get('motto') ?? ''),
 			tastingDate: String(form.get('tastingDate') ?? ''),
 			bottlesPerParticipant: String(form.get('bottlesPerParticipant') ?? ''),
 			participants: form.getAll('participant').map(String)

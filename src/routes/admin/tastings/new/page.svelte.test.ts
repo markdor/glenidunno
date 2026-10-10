@@ -35,6 +35,19 @@ describe('New tasting page', () => {
 			.toHaveAttribute('href', '/admin');
 	});
 
+	test('offers an optional motto right below the name', async () => {
+		render(Page, { data, form: null });
+
+		const motto = page.getByLabelText('Motto');
+		await expect.element(motto).toHaveAttribute('maxlength', '120');
+		await expect.element(motto).not.toBeRequired();
+		await expect.element(motto).toHaveValue('');
+		const inputs = page.getByRole('textbox').elements();
+		expect(inputs.indexOf(motto.element())).toBe(
+			inputs.indexOf(page.getByLabelText('Name *').element()) + 1
+		);
+	});
+
 	test('ticks a user by tapping the whole row', async () => {
 		render(Page, { data, form: null });
 
@@ -50,16 +63,23 @@ describe('New tasting page', () => {
 				action: 'create',
 				values: {
 					name: '',
+					motto: 'x'.repeat(121),
 					tastingDate: '2026-10-01',
 					bottlesPerParticipant: '2',
 					participants: ['u-anna']
 				},
-				fieldErrors: { name: 'required', tastingDate: 'invalid', participants: 'invalid' }
+				fieldErrors: {
+					name: 'required',
+					motto: 'invalid',
+					tastingDate: 'invalid',
+					participants: 'invalid'
+				}
 			}
 		});
 
 		await expect.element(page.getByText('Pflichtfeld')).toBeVisible();
-		expect(page.getByText('Ungültig').elements()).toHaveLength(2);
+		expect(page.getByText('Ungültig').elements()).toHaveLength(3);
+		await expect.element(page.getByLabelText('Motto')).toHaveValue('x'.repeat(121));
 		await expect.element(page.getByRole('checkbox', { name: 'Anna' })).toBeChecked();
 		await expect.element(page.getByRole('checkbox', { name: 'Ben' })).not.toBeChecked();
 	});
@@ -74,7 +94,13 @@ describe('New tasting page', () => {
 			data,
 			form: {
 				action: 'create',
-				values: { name: 'Herbst', tastingDate: '', bottlesPerParticipant: '2', participants: [] },
+				values: {
+					name: 'Herbst',
+					motto: '',
+					tastingDate: '',
+					bottlesPerParticipant: '2',
+					participants: []
+				},
 				userMessage: 'Da ist etwas schiefgelaufen.'
 			}
 		});

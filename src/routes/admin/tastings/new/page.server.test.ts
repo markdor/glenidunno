@@ -117,6 +117,7 @@ describe('create tasting', () => {
 		const created = db.select().from(tasting).get()!;
 		expect(created).toMatchObject({
 			name: 'Herbst-Tasting',
+			motto: null,
 			tastingDate: '2026-10-24',
 			bottlesPerParticipant: 2
 		});
@@ -130,6 +131,20 @@ describe('create tasting', () => {
 				.all()
 				.map((p) => p.userId)
 		).toEqual(['u-anna', 'u-ben', 'u-cem']);
+	});
+
+	it.each([
+		{ label: 'trimmed', sent: '  Islay gegen den Rest ', stored: 'Islay gegen den Rest' },
+		{ label: 'blank as none', sent: '   ', stored: null }
+	])('stores the motto $label', async ({ sent, stored }) => {
+		await expect(create({ ...valid, motto: sent })).rejects.toMatchObject({ status: 303 });
+		expect(db.select().from(tasting).get()?.motto).toBe(stored);
+	});
+
+	it('accepts a motto of the maximum length', async () => {
+		await expect(create({ ...valid, motto: 'x'.repeat(120) })).rejects.toMatchObject({
+			status: 303
+		});
 	});
 
 	it('adds a user sent twice only once', async () => {
@@ -148,6 +163,7 @@ describe('create tasting', () => {
 	it.each([
 		{ field: 'name', value: '', code: 'required' },
 		{ field: 'name', value: 'x'.repeat(61), code: 'invalid' },
+		{ field: 'motto', value: 'x'.repeat(121), code: 'invalid' },
 		{ field: 'tastingDate', value: '', code: 'required' },
 		{ field: 'tastingDate', value: '2026-02-30', code: 'invalid' },
 		// Yesterday in Berlin.
@@ -196,9 +212,21 @@ describe('create tasting', () => {
 	});
 
 	it('echoes the raw values on a validation error', async () => {
-		const result = await create({ ...valid, name: '', participant: ['u-anna', 'u-ben'] });
+		const result = await create({
+			...valid,
+			name: '',
+			motto: ' Sherry ',
+			participant: ['u-anna', 'u-ben']
+		});
 		expect(result).toMatchObject({
-			data: { values: { name: '', tastingDate: '2026-10-24', participants: ['u-anna', 'u-ben'] } }
+			data: {
+				values: {
+					name: '',
+					motto: ' Sherry ',
+					tastingDate: '2026-10-24',
+					participants: ['u-anna', 'u-ben']
+				}
+			}
 		});
 	});
 

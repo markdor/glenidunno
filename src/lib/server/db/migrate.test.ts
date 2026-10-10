@@ -261,3 +261,22 @@ describe('migrations 0004–0006: tasting participants become users', () => {
 		);
 	});
 });
+
+describe('migration 0007: tasting motto', () => {
+	it('keeps existing tastings, without a motto', () => {
+		const sqlite = new Database(':memory:');
+		runMigrations(sqlite, realMigrationsUpTo('0006_tasting_users_finalize'));
+		sqlite
+			.prepare(
+				`INSERT INTO tasting (id, slug, name, tasting_date, bottles_per_participant, created_at)
+				 VALUES ('t-autumn', 'fluffy-otter', 'Herbst', '2026-10-24', 2, 100)`
+			)
+			.run();
+
+		runMigrations(sqlite, './drizzle');
+
+		expect(sqlite.prepare('SELECT id, name, motto FROM tasting').all()).toEqual([
+			{ id: 't-autumn', name: 'Herbst', motto: null }
+		]);
+	});
+});

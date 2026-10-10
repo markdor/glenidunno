@@ -11,6 +11,7 @@ const base = {
 	tasting: {
 		id: 't1',
 		name: 'Herbst-Tasting',
+		motto: null,
 		tastingDate: '2026-10-24',
 		bottlesPerParticipant: 2
 	},
@@ -59,6 +60,33 @@ describe('Tasting detail page', () => {
 		}
 	);
 
+	test.each(['entry', 'order', 'revealed'])(
+		'offers the motto form with the current motto in phase %s',
+		async (phase) => {
+			renderDetail({ phase, tasting: { ...base.tasting, motto: 'Islay gegen den Rest' } });
+			const motto = page.getByLabelText('Motto');
+			await expect.element(motto).toHaveValue('Islay gegen den Rest');
+			await expect.element(motto).toHaveAttribute('maxlength', '120');
+			await expect.element(motto).not.toBeRequired();
+			await expect.element(page.getByRole('button', { name: 'Motto speichern' })).toBeVisible();
+		}
+	);
+
+	test('leaves the motto field empty without a motto', async () => {
+		renderDetail({ phase: 'entry' });
+		await expect.element(page.getByLabelText('Motto')).toHaveValue('');
+	});
+
+	test('shows motto errors and keeps the sent motto', async () => {
+		const tooLong = 'x'.repeat(121);
+		renderDetail(
+			{ phase: 'order' },
+			{ action: 'updateMotto', motto: tooLong, fieldErrors: { motto: 'invalid' } }
+		);
+		await expect.element(page.getByText('Höchstens 120 Zeichen')).toBeVisible();
+		await expect.element(page.getByLabelText('Motto')).toHaveValue(tooLong);
+	});
+
 	test('offers no date form once the entry is closed', async () => {
 		renderDetail({ phase: 'order' });
 		expect(page.getByLabelText('Datum').elements()).toHaveLength(0);
@@ -86,6 +114,7 @@ describe('Tasting detail page', () => {
 		);
 		await expect.element(page.getByText('Ungültig oder in der Vergangenheit')).toBeVisible();
 		await expect.element(page.getByLabelText('Datum')).toHaveValue('2026-10-01');
+		expect(page.getByText('Höchstens 120 Zeichen').elements()).toHaveLength(0);
 	});
 
 	test('reports failures and a changed date as toasts', async () => {
@@ -98,6 +127,13 @@ describe('Tasting detail page', () => {
 		expect(
 			toast.toasts.some((t) => t.variant === 'success' && t.message === 'Datum geändert.')
 		).toBe(true);
+	});
+
+	test('confirms a changed motto with its own toast', async () => {
+		renderDetail({ phase: 'revealed' }, { action: 'updateMotto', updated: true });
+		expect(toast.toasts.map((t) => [t.variant, t.message])).toEqual([
+			['success', 'Motto geändert.']
+		]);
 	});
 
 	describe('18-Uhr and 9-Uhr buttons', () => {

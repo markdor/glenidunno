@@ -132,7 +132,11 @@ export const tasting = sqliteTable(
 		// Admin overrides of the 18:00 / 9:00 rules; null = the clock decides.
 		// Every participant sees when the admin pressed the button.
 		orderOpenedAt: integer('order_opened_at', { mode: 'timestamp' }),
-		revealedAt: integer('revealed_at', { mode: 'timestamp' })
+		revealedAt: integer('revealed_at', { mode: 'timestamp' }),
+		// Optional, null = no motto. Deliberately no CHECK on its length (the
+		// actions validate it), for the same reason as presentation_name below:
+		// a CHECK on an existing table makes drizzle-kit rebuild it.
+		motto: text('motto')
 	},
 	(t) => [
 		check('tasting_name_length', lengthUpTo(t.name, TASTING_NAME_LENGTH.max)),

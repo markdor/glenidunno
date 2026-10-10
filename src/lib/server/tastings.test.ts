@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq, ne } from 'drizzle-orm';
 import type { TastingBottle } from '$lib/tasting';
-import { TASTING_SLUG_RE } from '$lib/validation';
+import { TASTING_MOTTO_LENGTH, TASTING_SLUG_RE } from '$lib/validation';
 import { runMigrations } from './db/migrate';
 import * as schema from './db/schema';
 import { presentationExtension } from './presentationFiles';
@@ -25,7 +25,9 @@ import {
 	saveBottle,
 	TastingValidationError,
 	updateTastingDate,
+	updateTastingMotto,
 	validateTastingDate,
+	validateTastingMotto,
 	type NewTasting
 } from './tastings';
 
@@ -174,6 +176,14 @@ describe('createTasting', () => {
 			ENTRY
 		);
 		expect(getAdminTastingDetail(db, id, ENTRY)?.participants).toHaveLength(2);
+	});
+
+	it('stores the motto, none if left out', () => {
+		const withMotto = createTasting(db, newTasting({ motto: 'Islay gegen den Rest' }), ENTRY);
+		const without = createTasting(db, newTasting(), ENTRY);
+		const motto = (id: string) => getAdminTastingDetail(db, id, ENTRY)?.tasting.motto;
+		expect(motto(withMotto.id)).toBe('Islay gegen den Rest');
+		expect(motto(without.id)).toBeNull();
 	});
 });
 
@@ -366,6 +376,17 @@ describe('getAdminTastingDetail', () => {
 		expect(getAdminTastingDetail(db, 'nope', ENTRY)).toBeNull();
 	});
 
+	it('returns the management data of the tasting, but not its link', () => {
+		const { id } = createTasting(db, newTasting({ motto: 'Sherry' }), ENTRY);
+		expect(getAdminTastingDetail(db, id, ENTRY)?.tasting).toEqual({
+			id,
+			name: 'Herbst-Tasting',
+			motto: 'Sherry',
+			tastingDate: TASTING_DATE,
+			bottlesPerParticipant: 2
+		});
+	});
+
 	it('shows only participants and progress during entry', () => {
 		const ctx = setup();
 		fill(ctx);
@@ -446,6 +467,7 @@ describe('listTastings and getStartPageSummary', () => {
 describe('getDashboardTasting', () => {
 	// An admin button press on a Thursday before the tasting.
 	const PRESSED = new Date('2026-10-22T15:32:10Z');
+	const NONE = { next: null, last: null };
 
 	function revealByButton(id: string) {
 		openOrderEarly(db, id, PRESSED);
@@ -454,82 +476,115 @@ describe('getDashboardTasting', () => {
 
 	it('shows the own next tasting with management data and the own progress only', () => {
 		const ctx = setup();
+		updateTastingMotto(db, ctx.id, 'Islay gegen den Rest');
 		saveBottle(db, ctx.anna, 1, bottle(), ENTRY);
 		saveBottle(db, ctx.ben, 1, bottle({ alias: 'Torf' }), ENTRY);
 		saveBottle(db, ctx.ben, 2, bottle({ alias: 'Rauch' }), ENTRY);
 
 		expect(getDashboardTasting(db, 'u-anna', ENTRY)).toEqual({
-			slug: ctx.slug,
-			name: 'Herbst-Tasting',
-			tastingDate: TASTING_DATE,
-			phase: 'entry',
-			isToday: false,
-			progress: { entered: 1, total: 2 }
+			next: {
+				slug: ctx.slug,
+				name: 'Herbst-Tasting',
+				motto: 'Islay gegen den Rest',
+				tastingDate: TASTING_DATE,
+				phase: 'entry',
+				isToday: false,
+				progress: { entered: 1, total: 2 }
+			},
+			last: null
 		});
-		expect(getDashboardTasting(db, 'u-cem', ENTRY)?.progress).toEqual({ entered: 0, total: 2 });
+		expect(getDashboardTasting(db, 'u-cem', ENTRY).next?.progress).toEqual({
+			entered: 0,
+			total: 2
+		});
 	});
 
-	it('returns null without any participation, also for the admin', () => {
+	it('shows the own last revealed tasting with title, motto and date only', () => {
+		const ctx = setup();
+		updateTastingMotto(db, ctx.id, 'Sherry');
+		saveBottle(db, ctx.anna, 1, bottle(), ENTRY);
+
+		expect(getDashboardTasting(db, 'u-anna', REVEALED)).toEqual({
+			next: null,
+			last: { slug: ctx.slug, name: 'Herbst-Tasting', motto: 'Sherry', tastingDate: TASTING_DATE }
+		});
+	});
+
+	it('returns neither without any participation, also for the admin', () => {
 		setup();
-		expect(getDashboardTasting(db, 'u-admin', ENTRY)).toBeNull();
-		expect(getDashboardTasting(db, 'u-admin', REVEALED)).toBeNull();
+		expect(getDashboardTasting(db, 'u-admin', ENTRY)).toEqual(NONE);
+		expect(getDashboardTasting(db, 'u-admin', REVEALED)).toEqual(NONE);
 	});
 
 	it('only considers tastings the user takes part in', () => {
 		const own = setup('2026-11-14');
-		// Sooner, but without Anna.
-		createTasting(db, newTasting({ participantUserIds: ['u-ben', 'u-cem'] }), ENTRY);
-		expect(getDashboardTasting(db, 'u-anna', ENTRY)?.slug).toBe(own.slug);
+		// Sooner and revealed sooner, but without Anna.
+		const other = createTasting(db, newTasting({ participantUserIds: ['u-ben', 'u-cem'] }), ENTRY);
+
+		expect(getDashboardTasting(db, 'u-anna', ENTRY).next?.slug).toBe(own.slug);
+		expect(getDashboardTasting(db, 'u-anna', REVEALED)).toEqual({
+			next: expect.objectContaining({ slug: own.slug }),
+			last: null
+		});
+		expect(getDashboardTasting(db, 'u-ben', REVEALED).last?.slug).toBe(other.slug);
 	});
 
-	it('picks the soonest unrevealed tasting, the next one moves up once it is revealed', () => {
+	it('picks the soonest unrevealed tasting as next, a revealed one moves on to last', () => {
 		const later = setup('2026-11-14');
 		const sooner = setup(TASTING_DATE);
-		expect(getDashboardTasting(db, 'u-anna', ENTRY)?.slug).toBe(sooner.slug);
-		expect(getDashboardTasting(db, 'u-anna', REVEALED)).toMatchObject({
-			slug: later.slug,
-			phase: 'entry'
+		expect(getDashboardTasting(db, 'u-anna', ENTRY)).toEqual({
+			next: expect.objectContaining({ slug: sooner.slug }),
+			last: null
+		});
+		expect(getDashboardTasting(db, 'u-anna', REVEALED)).toEqual({
+			next: expect.objectContaining({ slug: later.slug, phase: 'entry' }),
+			last: expect.objectContaining({ slug: sooner.slug })
 		});
 	});
 
-	it('prefers an upcoming tasting over a revealed one with a later date', () => {
-		const upcoming = setup(TASTING_DATE);
-		const revealed = setup('2026-11-14');
-		revealByButton(revealed.id);
-		expect(getDashboardTasting(db, 'u-anna', PRESSED)).toMatchObject({
-			slug: upcoming.slug,
-			phase: 'entry'
+	it('keeps an earlier tasting as next while the admin button reveals a later one', () => {
+		const earlier = setup(TASTING_DATE);
+		const later = setup('2026-11-14');
+		revealByButton(later.id);
+		expect(getDashboardTasting(db, 'u-anna', PRESSED)).toEqual({
+			next: expect.objectContaining({ slug: earlier.slug, phase: 'entry' }),
+			last: expect.objectContaining({ slug: later.slug })
 		});
 	});
 
-	it('falls back to the latest revealed tasting, also one revealed by the admin button', () => {
+	it('has no next tasting once all are revealed, without falling back to the last one', () => {
 		setup('2026-10-10'); // revealed by the clock long before PRESSED
 		const latest = setup(TASTING_DATE);
 		revealByButton(latest.id);
-		expect(getDashboardTasting(db, 'u-anna', PRESSED)).toMatchObject({
-			slug: latest.slug,
-			phase: 'revealed'
+		expect(getDashboardTasting(db, 'u-anna', PRESSED)).toEqual({
+			next: null,
+			last: expect.objectContaining({ slug: latest.slug })
 		});
 	});
 
 	it('shows the order phase once the admin opened it', () => {
 		const ctx = setup();
 		openOrderEarly(db, ctx.id, PRESSED);
-		expect(getDashboardTasting(db, 'u-anna', PRESSED)?.phase).toBe('order');
+		expect(getDashboardTasting(db, 'u-anna', PRESSED)).toEqual({
+			next: expect.objectContaining({ slug: ctx.slug, phase: 'order' }),
+			last: null
+		});
 	});
 
 	it('flags a tasting taking place today in Berlin', () => {
 		setup();
 		// 22:30 UTC on Friday is already Saturday in Berlin.
-		expect(getDashboardTasting(db, 'u-anna', new Date('2026-10-23T22:30:00Z'))?.isToday).toBe(true);
-		expect(getDashboardTasting(db, 'u-anna', ENTRY)?.isToday).toBe(false);
+		expect(getDashboardTasting(db, 'u-anna', new Date('2026-10-23T22:30:00Z')).next?.isToday).toBe(
+			true
+		);
+		expect(getDashboardTasting(db, 'u-anna', ENTRY).next?.isToday).toBe(false);
 	});
 
 	it('keeps tastings on the same date in creation order', () => {
 		const first = setup();
 		const second = setup();
-		expect(getDashboardTasting(db, 'u-anna', ENTRY)?.slug).toBe(first.slug);
-		expect(getDashboardTasting(db, 'u-anna', REVEALED)?.slug).toBe(second.slug);
+		expect(getDashboardTasting(db, 'u-anna', ENTRY).next?.slug).toBe(first.slug);
+		expect(getDashboardTasting(db, 'u-anna', REVEALED).last?.slug).toBe(second.slug);
 	});
 
 	it('carries no content in any phase, not even the own bottle and presentation', () => {
@@ -541,14 +596,14 @@ describe('getDashboardTasting', () => {
 			extension: presentationExtension(deck)
 		});
 
-		for (const [now, phase] of [
-			[ENTRY, 'entry'],
-			[ORDER, 'order'],
-			[REVEALED, 'revealed']
+		for (const [now, card] of [
+			[ENTRY, 'next'],
+			[ORDER, 'next'],
+			[REVEALED, 'last']
 		] as const) {
-			const hero = getDashboardTasting(db, 'u-anna', now);
-			expect(hero?.phase).toBe(phase);
-			const serialized = JSON.stringify(hero);
+			const cards = getDashboardTasting(db, 'u-anna', now);
+			expect(cards[card]?.slug).toBe(ctx.slug);
+			const serialized = JSON.stringify(cards);
 			for (const secret of ['Nebel', 'Ardbeg', 'Uigeadail', 'whiskybase', 'pptx']) {
 				expect(serialized).not.toContain(secret);
 			}
@@ -584,6 +639,50 @@ describe('updateTastingDate', () => {
 	it('refuses once the entry phase is over', () => {
 		const { id } = setup();
 		expect(() => updateTastingDate(db, id, '2026-11-07', ORDER)).toThrow(TastingValidationError);
+	});
+});
+
+describe('validateTastingMotto', () => {
+	it('trims the motto, empty means none', () => {
+		expect(validateTastingMotto('  Islay gegen den Rest ')).toEqual({
+			motto: 'Islay gegen den Rest',
+			error: null
+		});
+		expect(validateTastingMotto('   ')).toEqual({ motto: null, error: null });
+	});
+
+	it('accepts the maximum length after trimming, one more character is invalid', () => {
+		const max = 'x'.repeat(TASTING_MOTTO_LENGTH.max);
+		expect(validateTastingMotto(` ${max} `)).toEqual({ motto: max, error: null });
+		expect(validateTastingMotto(`${max}x`).error).toBe('invalid');
+	});
+});
+
+describe('updateTastingMotto', () => {
+	it.each([
+		{ phase: 'entry', press: () => {} },
+		{ phase: 'order', press: (id: string) => openOrderEarly(db, id, ENTRY) },
+		{
+			phase: 'revealed',
+			press: (id: string) => {
+				openOrderEarly(db, id, ENTRY);
+				revealEarly(db, id, ENTRY);
+			}
+		}
+	])('sets and clears the motto in phase $phase', ({ phase, press }) => {
+		const { id } = setup();
+		press(id);
+		const detail = () => getAdminTastingDetail(db, id, ENTRY)!;
+		expect(detail().phase).toBe(phase);
+
+		expect(updateTastingMotto(db, id, 'Sherry')).toBe(true);
+		expect(detail().tasting.motto).toBe('Sherry');
+		expect(updateTastingMotto(db, id, null)).toBe(true);
+		expect(detail().tasting.motto).toBeNull();
+	});
+
+	it('returns false for an unknown tasting', () => {
+		expect(updateTastingMotto(db, 'nope', 'Sherry')).toBe(false);
 	});
 });
 

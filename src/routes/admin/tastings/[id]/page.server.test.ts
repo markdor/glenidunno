@@ -48,7 +48,7 @@ const ORDER = new Date('2026-10-24T16:00:00Z');
 const REVEALED = new Date('2026-10-25T08:00:00Z');
 
 type LoadEvent = Parameters<typeof load>[0];
-type ActionName = 'updateDate' | 'openOrder' | 'reveal' | 'delete';
+type ActionName = 'updateDate' | 'updateMotto' | 'openOrder' | 'reveal' | 'delete';
 
 let tastingId: string;
 let slug: string;
@@ -139,7 +139,7 @@ describe('admin tasting detail – access', () => {
 		expect(() => loadAs(ADMIN, 'nope')).toThrowError(expect.objectContaining({ status: 404 }));
 	});
 
-	it.each(['updateDate', 'openOrder', 'reveal', 'delete'] as const)(
+	it.each(['updateDate', 'updateMotto', 'openOrder', 'reveal', 'delete'] as const)(
 		'rejects %s for anonymous users and non-admins',
 		async (name) => {
 			await expect(act(name, {}, null)).rejects.toMatchObject({ status: 401 });
@@ -169,6 +169,17 @@ describe('admin tasting detail – projection per phase', () => {
 		// No link either: participants reach the tasting themselves.
 		expect(serialized(result)).not.toContain(slug);
 		expect(serialized(result)).not.toContain('/tasting/');
+	});
+
+	it('returns the management data of the tasting, the motto included', () => {
+		db.update(tasting).set({ motto: 'Islay gegen den Rest' }).run();
+		expect(loadAs(ADMIN).detail.tasting).toEqual({
+			id: tastingId,
+			name: 'Herbst-Tasting',
+			motto: 'Islay gegen den Rest',
+			tastingDate: '2026-10-24',
+			bottlesPerParticipant: 2
+		});
 	});
 
 	it('marks deactivated participants', () => {
@@ -278,6 +289,64 @@ describe('updateDate', () => {
 	});
 });
 
+describe('updateMotto', () => {
+	const storedMotto = () => db.select().from(tasting).get()?.motto;
+
+	it.each([
+		{ phase: 'entry', now: ENTRY },
+		{ phase: 'order', now: ORDER },
+		{ phase: 'revealed', now: REVEALED }
+	])('sets the trimmed motto in phase $phase', async ({ phase, now }) => {
+		vi.setSystemTime(now);
+		expect(loadAs(ADMIN).detail.phase).toBe(phase);
+
+		expect(await act('updateMotto', { motto: '  Islay gegen den Rest ' })).toEqual({
+			action: 'updateMotto',
+			updated: true
+		});
+		expect(storedMotto()).toBe('Islay gegen den Rest');
+	});
+
+	it.each<{ label: string; fields: Record<string, string> }>([
+		{ label: 'sent blank', fields: { motto: '   ' } },
+		{ label: 'left out', fields: {} }
+	])('clears the motto when $label', async ({ fields }) => {
+		await act('updateMotto', { motto: 'Sherry' });
+		expect(await act('updateMotto', fields)).toEqual({ action: 'updateMotto', updated: true });
+		expect(storedMotto()).toBeNull();
+	});
+
+	it('rejects a motto that is too long and echoes it', async () => {
+		const tooLong = 'x'.repeat(121);
+		expect(await act('updateMotto', { motto: tooLong })).toMatchObject({
+			status: 400,
+			data: { action: 'updateMotto', motto: tooLong, fieldErrors: { motto: 'invalid' } }
+		});
+		expect(storedMotto()).toBeNull();
+	});
+
+	it('answers 404 once the tasting is gone', async () => {
+		db.delete(tasting).run();
+		expect(await act('updateMotto', { motto: 'Sherry' })).toMatchObject({
+			status: 404,
+			data: { action: 'updateMotto', userMessage: expect.stringContaining('nicht gefunden') }
+		});
+	});
+
+	it('logs and returns 500 on an unexpected database error', async () => {
+		const err = new Error('disk full');
+		const spy = vi.spyOn(db, 'update').mockImplementationOnce(() => {
+			throw err;
+		});
+		expect(await act('updateMotto', { motto: 'Sherry' })).toMatchObject({
+			status: 500,
+			data: { action: 'updateMotto', userMessage: 'Da ist etwas schiefgelaufen.' }
+		});
+		expect(logger.error).toHaveBeenCalledWith({ err }, 'update tasting motto failed');
+		spy.mockRestore();
+	});
+});
+
 describe('openOrder and reveal (18-Uhr and 9-Uhr buttons)', () => {
 	it('opens the order ahead of time and records when', async () => {
 		expect(await act('openOrder')).toEqual({ action: 'openOrder', phaseChanged: true });
@@ -345,7 +414,13 @@ describe('openOrder and reveal (18-Uhr and 9-Uhr buttons)', () => {
 
 describe('links', () => {
 	it('offers no action to hand out or regenerate links', () => {
-		expect(Object.keys(actions).sort()).toEqual(['delete', 'openOrder', 'reveal', 'updateDate']);
+		expect(Object.keys(actions).sort()).toEqual([
+			'delete',
+			'openOrder',
+			'reveal',
+			'updateDate',
+			'updateMotto'
+		]);
 	});
 });
 

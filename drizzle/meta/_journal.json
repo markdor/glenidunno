@@ -50,6 +50,13 @@
 			"when": 1791387911499,
 			"tag": "0006_tasting_users_finalize",
 			"breakpoints": true
+		},
+		{
+			"idx": 7,
+			"version": "6",
+			"when": 1791627777489,
+			"tag": "0007_tasting_motto",
+			"breakpoints": true
 		}
 	]
 }

@@ -7,6 +7,7 @@
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import { formatTastingDate, TASTING_PHASE_LABEL } from '$lib/tasting';
+	import { TASTING_MOTTO_LENGTH } from '$lib/validation';
 
 	let { data, form } = $props();
 
@@ -20,7 +21,10 @@
 	});
 
 	$effect(() => {
-		if (form?.updated) untrack(() => toast.show('success', 'Datum geändert.'));
+		if (form?.updated) {
+			const message = form.action === 'updateMotto' ? 'Motto geändert.' : 'Datum geändert.';
+			untrack(() => toast.show('success', message));
+		}
 	});
 
 	$effect(() => {
@@ -49,10 +53,19 @@
 		invalid: 'Ungültig oder in der Vergangenheit'
 	};
 
+	// Each form reports only its own field: `in` tells them apart (and narrows
+	// the union of both actions' fieldErrors).
+	const fieldErrors = $derived(form?.fieldErrors);
+
 	const dateError = $derived.by(() => {
-		const code = form?.fieldErrors?.tastingDate;
+		const code = fieldErrors && 'tastingDate' in fieldErrors ? fieldErrors.tastingDate : null;
 		return code ? (errorText[code] ?? 'Ungültig') : null;
 	});
+
+	// The motto is optional, so the only error is the length.
+	const mottoError = $derived(
+		fieldErrors && 'motto' in fieldErrors ? `Höchstens ${TASTING_MOTTO_LENGTH.max} Zeichen` : null
+	);
 
 	const secondaryButton =
 		'rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent';
@@ -83,6 +96,35 @@
 		Hier verwaltest du nur das Tasting. Reihenfolge und Auflösung siehst du wie alle anderen als
 		Teilnehmer des Tastings.
 	</p>
+
+	<!-- In every phase: like name and date the motto is management data. -->
+	<section class="space-y-3">
+		<h2 class="text-lg font-semibold">Motto ändern</h2>
+		<form
+			method="POST"
+			action="?/updateMotto"
+			use:enhance={() => {
+				return async ({ update }) => update({ reset: false });
+			}}
+			class="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4"
+		>
+			<div class="min-w-0 flex-1 basis-60 space-y-1">
+				<label for="m-motto" class="block text-sm font-medium text-slate-700">Motto</label>
+				<input
+					id="m-motto"
+					name="motto"
+					maxlength={TASTING_MOTTO_LENGTH.max}
+					placeholder="leer lassen für kein Motto"
+					value={form?.motto ?? detail.tasting.motto ?? ''}
+					class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 placeholder:text-slate-400"
+				/>
+			</div>
+			<button type="submit" class={secondaryButton}>Motto speichern</button>
+			{#if mottoError}
+				<p class="w-full text-xs text-red-600">{mottoError}</p>
+			{/if}
+		</form>
+	</section>
 
 	{#if detail.phase === 'entry'}
 		<section class="space-y-3">

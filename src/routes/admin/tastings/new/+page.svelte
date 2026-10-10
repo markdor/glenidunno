@@ -6,6 +6,7 @@
 	import { toast } from '$lib/components/toastStore.svelte';
 	import {
 		TASTING_BOTTLES_PER_PARTICIPANT,
+		TASTING_MOTTO_LENGTH,
 		TASTING_NAME_LENGTH,
 		TASTING_PARTICIPANTS
 	} from '$lib/validation';
@@ -67,6 +68,21 @@
 			/>
 			{#if fieldError('name')}
 				<p class="text-xs text-red-600">{fieldError('name')}</p>
+			{/if}
+		</div>
+
+		<div class="space-y-1">
+			<label for="t-motto" class="block text-sm font-medium text-slate-700">Motto</label>
+			<input
+				id="t-motto"
+				name="motto"
+				maxlength={TASTING_MOTTO_LENGTH.max}
+				placeholder="optional, z. B. Islay gegen den Rest"
+				value={form?.values?.motto ?? ''}
+				class="{inputClass} placeholder:text-slate-400"
+			/>
+			{#if fieldError('motto')}
+				<p class="text-xs text-red-600">{fieldError('motto')}</p>
 			{/if}
 		</div>
 
