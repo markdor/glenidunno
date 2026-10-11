@@ -10,7 +10,7 @@ describe('getSecurityHeaders', () => {
 		}
 	);
 
-	it.each([null, '/', '/admin', '/admin/tastings', '/admin/tastings/[id]', '/login'])(
+	it.each([null, '/', '/admin', '/admin/tastings', '/admin/tastings/[id]', '/login', '/[...rest]'])(
 		'adds nothing for %s',
 		(routeId) => {
 			expect(getSecurityHeaders(routeId)).toEqual({});

@@ -21,6 +21,9 @@ import {
 } from '$lib/server/tastings';
 import { load } from './+page.server';
 
+/** Every missing page and missing admin right gets exactly this response. */
+const NOT_FOUND_REDIRECT = { status: 303, location: '/?notice=not-found' };
+
 /** Participants are users now. */
 function insertUsers(...usernames: string[]) {
 	for (const username of usernames) {
@@ -62,9 +65,9 @@ describe('admin tastings list load', () => {
 		expect(() => loadAs(null)).toThrowError(expect.objectContaining({ status: 401 }));
 	});
 
-	it('throws 403 for a non-admin', () => {
+	it('redirects a non-admin to the dashboard', () => {
 		expect(() => loadAs({ id: 'u', username: 'u', isAdmin: false })).toThrowError(
-			expect.objectContaining({ status: 403 })
+			expect.objectContaining(NOT_FOUND_REDIRECT)
 		);
 	});
 

@@ -5,7 +5,7 @@ import { isValidEmail, USERNAME_RE } from '$lib/validation';
 import { db } from '$lib/server/db';
 import { session, tastingParticipant, user } from '$lib/server/db/schema';
 import { requireAdmin } from '$lib/server/authGuards';
-import { UNEXPECTED_ERROR_MESSAGE } from '$lib/server/errorMessages';
+import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
 import { logger } from '$lib/server/logger';
 
 export const load: ServerLoad = ({ locals }) => {

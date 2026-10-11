@@ -22,6 +22,9 @@ import { tasting, tastingParticipant, user } from '$lib/server/db/schema';
 import { logger } from '$lib/server/logger';
 import { actions, load } from './+page.server';
 
+/** Every missing page and missing admin right gets exactly this response. */
+const NOT_FOUND_REDIRECT = { status: 303, location: '/?notice=not-found' };
+
 const ADMIN = { id: 'admin-id', username: 'admin', isAdmin: true };
 // 22:30 UTC on the 20th is already the 21st in Berlin.
 const NOW = new Date('2026-10-20T22:30:00Z');
@@ -90,10 +93,10 @@ describe('new tasting load', () => {
 		} as unknown as Parameters<typeof load>[0]);
 	}
 
-	it('throws 401 without a session and 403 for a non-admin', () => {
+	it('throws 401 without a session and redirects a non-admin to the dashboard', () => {
 		expect(() => loadAs(null)).toThrowError(expect.objectContaining({ status: 401 }));
 		expect(() => loadAs({ id: 'u', isAdmin: false })).toThrowError(
-			expect.objectContaining({ status: 403 })
+			expect.objectContaining(NOT_FOUND_REDIRECT)
 		);
 	});
 
@@ -231,9 +234,9 @@ describe('create tasting', () => {
 	});
 
 	it('rejects a non-admin before touching the form', async () => {
-		await expect(create(valid, { id: 'u', isAdmin: false })).rejects.toMatchObject({
-			status: 403
-		});
+		await expect(create(valid, { id: 'u', isAdmin: false })).rejects.toMatchObject(
+			NOT_FOUND_REDIRECT
+		);
 		await expect(create(valid, null)).rejects.toMatchObject({ status: 401 });
 	});
 

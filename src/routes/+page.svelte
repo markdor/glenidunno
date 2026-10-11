@@ -1,11 +1,31 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { ChartColumn, RotateCcwClock } from '@lucide/svelte';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import DashboardLastTastingCard from '$lib/components/DashboardLastTastingCard.svelte';
 	import DashboardTastingCard from '$lib/components/DashboardTastingCard.svelte';
 	import DashboardTile from '$lib/components/DashboardTile.svelte';
 	import TastingCard from '$lib/components/TastingCard.svelte';
+	import { toast } from '$lib/components/toastStore.svelte';
+	import { NOTICES } from '$lib/notices';
 
 	let { data } = $props();
+
+	$effect(() => {
+		const notice = data.notice;
+		if (!notice) return;
+		// untrack: see login/+page.svelte for why this is needed around toast.show().
+		untrack(() => {
+			toast.show('info', NOTICES[notice]);
+			// Drops ?notice from the URL so a reload doesn't repeat the toast. A
+			// real navigation rather than replaceState(): that one throws in dev
+			// before the router has started (this effect runs during hydration),
+			// and as shallow routing it keeps ?notice as the page URL, so the back
+			// button would bring the toast back.
+			void goto(resolve('/'), { replaceState: true, noScroll: true, keepFocus: true });
+		});
+	});
 </script>
 
 <svelte:head>

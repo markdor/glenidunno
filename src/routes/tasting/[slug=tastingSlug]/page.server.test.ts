@@ -38,6 +38,9 @@ import {
 } from '$lib/server/tastings';
 import { actions, load } from './+page.server';
 
+/** Every missing page and missing admin right gets exactly this response. */
+const NOT_FOUND_REDIRECT = { status: 303, location: '/?notice=not-found' };
+
 // Tasting on Saturday 24.10.2026: entry until 16:00 UTC (18:00 CEST),
 // reveal from Sunday 08:00 UTC (9:00 CET).
 const ENTRY = new Date('2026-10-20T10:00:00Z');
@@ -245,8 +248,8 @@ describe('participant page load', () => {
 		});
 	});
 
-	it('answers an unknown slug, a non-participant, the admin and a deleted tasting with the same 404', () => {
-		const expected = expect.objectContaining({ status: 404, body: { message: 'Not found' } });
+	it('answers an unknown slug, a non-participant, the admin and a deleted tasting with the same redirect', () => {
+		const expected = expect.objectContaining(NOT_FOUND_REDIRECT);
 		expect(() => loadFor(ANNA, 'fluffy-nothing')).toThrowError(expected);
 		expect(() => loadFor(OUTSIDER)).toThrowError(expected);
 		// The admin manages the tasting, but only participants see it.
@@ -293,10 +296,15 @@ describe('participant page save', () => {
 		{ label: 'a user who doesn’t take part', userId: OUTSIDER, tastingSlug: undefined },
 		{ label: 'the admin without participation', userId: ADMIN, tastingSlug: undefined },
 		{ label: 'an unknown slug', userId: ANNA, tastingSlug: 'fluffy-nothing' }
-	])('answers $label with 404 and writes nothing', async ({ userId, tastingSlug }) => {
-		await expect(save(userId, validBottle, tastingSlug)).rejects.toMatchObject({ status: 404 });
-		expect(db.select().from(tastingBottle).all()).toEqual([]);
-	});
+	])(
+		'answers $label with the not-found redirect and writes nothing',
+		async ({ userId, tastingSlug }) => {
+			await expect(save(userId, validBottle, tastingSlug)).rejects.toMatchObject(
+				NOT_FOUND_REDIRECT
+			);
+			expect(db.select().from(tastingBottle).all()).toEqual([]);
+		}
+	);
 
 	it('refuses to save from 18:00 on the tasting day and asks the client to reload', async () => {
 		vi.setSystemTime(LAST_ENTRY_SECOND);
