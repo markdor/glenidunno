@@ -1,4 +1,4 @@
-import { error, fail } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import type { TastingBottle } from '$lib/tasting';
 import {
@@ -11,9 +11,9 @@ import {
 	TASTING_DISTILLERY_LENGTH,
 	TASTING_SCALE
 } from '$lib/validation';
-import { requireUser } from '$lib/server/authGuards';
+import { redirectNotFound, requireUser } from '$lib/server/authGuards';
 import { db } from '$lib/server/db';
-import { UNEXPECTED_ERROR_MESSAGE } from '$lib/server/errorMessages';
+import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
 import { logger } from '$lib/server/logger';
 import {
 	applyFileChanges,
@@ -36,17 +36,17 @@ import {
 // slug plus the logged-in user, never from form data. GET has no side effects
 // – messengers and mail scanners fetch links for previews.
 
-function participantOr404(locals: App.Locals, slug: string): Participant {
+function requireParticipant(locals: App.Locals, slug: string): Participant {
 	const user = requireUser(locals);
 	// Unknown slug and a user who doesn't take part – the admin included – end
-	// in the very same 404.
+	// in the very same redirect as every other missing page.
 	const participant = findParticipant(db, slug, user.id);
-	if (!participant) error(404, 'Not found');
+	if (!participant) redirectNotFound();
 	return participant;
 }
 
 export const load: PageServerLoad = ({ locals, params }) => {
-	const participant = participantOr404(locals, params.slug);
+	const participant = requireParticipant(locals, params.slug);
 	return { view: getParticipantView(db, participant) };
 };
 
@@ -141,7 +141,7 @@ function parseBottle(raw: RawBottle): {
 
 export const actions: Actions = {
 	save: async ({ request, locals, params }) => {
-		const holder = participantOr404(locals, params.slug);
+		const holder = requireParticipant(locals, params.slug);
 
 		// Before the (possibly 30 MB) body is parsed at all.
 		if (!consumeTastingWriteLimit(db, holder.id)) {

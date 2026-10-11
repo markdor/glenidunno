@@ -1,8 +1,8 @@
-import { error, fail, redirect } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
-import { requireAdmin } from '$lib/server/authGuards';
-import { UNEXPECTED_ERROR_MESSAGE } from '$lib/server/errorMessages';
+import { redirectNotFound, requireAdmin } from '$lib/server/authGuards';
+import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
 import { logger } from '$lib/server/logger';
 import type { FileChange } from '$lib/server/presentationFiles';
 import { applyFileChanges } from '$lib/server/tastingMedia';
@@ -41,7 +41,7 @@ export const load: PageServerLoad = ({ locals, params }) => {
 	const now = new Date();
 	// Management data only, never bottle content – in every phase.
 	const detail = getAdminTastingDetail(db, params.id, now);
-	if (!detail) error(404, 'Not found');
+	if (!detail) redirectNotFound();
 	return { detail, today: getBerlinToday(now) };
 };
 

@@ -25,6 +25,9 @@ import { logger } from '$lib/server/logger';
 import { createTasting } from '$lib/server/tastings';
 import { actions, load } from './+page.server';
 
+/** Every missing page and missing admin right gets exactly this response. */
+const NOT_FOUND_REDIRECT = { status: 303, location: '/?notice=not-found' };
+
 const ADMIN = { id: 'admin-id', username: 'admin', isAdmin: true };
 
 function makeEvent(form: Record<string, string>, currentUser: unknown = ADMIN): RequestEvent {
@@ -92,9 +95,9 @@ describe('admin load', () => {
 		expect(() => load(loadEvent(null))).toThrowError(expect.objectContaining({ status: 401 }));
 	});
 
-	it('throws 403 for a non-admin', () => {
+	it('redirects a non-admin to the dashboard', () => {
 		expect(() => load(loadEvent({ id: 'x', username: 'u', isAdmin: false }))).toThrowError(
-			expect.objectContaining({ status: 403 })
+			expect.objectContaining(NOT_FOUND_REDIRECT)
 		);
 	});
 
@@ -440,6 +443,6 @@ describe('admin guards on actions', () => {
 			actions.create(
 				makeEvent({ email: 'x@glenidunno.de', username: 'x' }, { id: 'u', isAdmin: false })
 			)
-		).rejects.toMatchObject({ status: 403 });
+		).rejects.toMatchObject(NOT_FOUND_REDIRECT);
 	});
 });

@@ -19,7 +19,9 @@ describe('bodyLimitFor', () => {
 		[TASTING_PRESENTATION_ROUTE_ID, 'POST'],
 		['/admin/tastings/new', 'POST'],
 		['/login', 'POST'],
-		// Better Auth's /auth/* endpoints have no SvelteKit route.
+		// Unknown paths – Better Auth's /auth/* endpoints included – match the
+		// catch-all route; requests without a route ID stay covered too.
+		['/[...rest]', 'POST'],
 		[null, 'POST']
 	])('keeps %s (%s) at the default limit', (routeId, method) => {
 		expect(bodyLimitFor(routeId, method)).toBe(DEFAULT_BODY_LIMIT_BYTES);

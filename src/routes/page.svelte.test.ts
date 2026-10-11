@@ -1,8 +1,19 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
+import { toast } from '$lib/components/toastStore.svelte';
 import type { DashboardLastTasting, DashboardTasting } from '$lib/tasting';
+
+// The real goto() needs a running SvelteKit client.
+vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
+
+import { goto } from '$app/navigation';
 import Page from './+page.svelte';
+
+beforeEach(() => {
+	vi.mocked(goto).mockClear();
+	for (const t of [...toast.toasts]) toast.dismiss(t.id);
+});
 
 const user = { id: '1', username: 'maxi', isAdmin: false };
 const admin = { id: '2', username: 'admin', isAdmin: true };
@@ -22,8 +33,8 @@ const lastTasting: DashboardLastTasting = {
 	motto: null,
 	tastingDate: '2026-07-11'
 };
-const noTastings = { nextTasting: null, lastTasting: null };
-const bothTastings = { nextTasting, lastTasting };
+const noTastings = { nextTasting: null, lastTasting: null, notice: null };
+const bothTastings = { nextTasting, lastTasting, notice: null };
 const emptySummary = { upcomingCount: 0, preview: [] };
 
 const COMING_SOON = ['Historie', 'Statistiken'];
@@ -106,5 +117,21 @@ describe('Start page', () => {
 		await expect.element(page.getByRole('heading', { name: 'Nächstes Tasting' })).toBeVisible();
 		await expect.element(page.getByText('Noch kein Tasting aufgelöst.')).toBeVisible();
 		expect(hrefs()).toEqual(['/admin/tastings']);
+	});
+
+	test('shows the not-found notice as an info toast and drops it from the URL', async () => {
+		render(Page, { data: { user, ...noTastings, notice: 'not-found', tastingSummary: null } });
+		await expect
+			.poll(() => toast.toasts.map((t) => [t.variant, t.message]))
+			.toEqual([['info', 'Diese Seite gibt es nicht (mehr).']]);
+		expect(goto).toHaveBeenCalledOnce();
+		expect(goto).toHaveBeenCalledWith('/', { replaceState: true, noScroll: true, keepFocus: true });
+	});
+
+	test('shows no toast and keeps the URL without a notice', async () => {
+		render(Page, { data: { user, ...bothTastings, tastingSummary: null } });
+		await expect.element(page.getByRole('heading', { name: /Hallo maxi/ })).toBeVisible();
+		expect(toast.toasts).toEqual([]);
+		expect(goto).not.toHaveBeenCalled();
 	});
 });

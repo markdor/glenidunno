@@ -35,8 +35,11 @@ function insertUsers(...usernames: string[]) {
 
 type Arg = Parameters<typeof load>[0];
 
-function loadAs(currentUser: unknown) {
-	return load({ locals: { user: currentUser, session: null } } as unknown as Arg);
+function loadAs(currentUser: unknown, path = '/') {
+	return load({
+		locals: { user: currentUser, session: null },
+		url: new URL(path, 'http://localhost')
+	} as unknown as Arg);
 }
 
 let slug: string;
@@ -94,7 +97,12 @@ function expectNoContent(result: unknown) {
 describe('start page load', () => {
 	it('returns no tasting data for users without a participation', () => {
 		const result = loadAs({ id: 'u', username: 'maxi', isAdmin: false });
-		expect(result).toEqual({ nextTasting: null, lastTasting: null, tastingSummary: null });
+		expect(result).toEqual({
+			nextTasting: null,
+			lastTasting: null,
+			tastingSummary: null,
+			notice: null
+		});
 		expect(JSON.stringify(result)).not.toContain('Herbst');
 		expect(JSON.stringify(result)).not.toContain(slug);
 	});
@@ -112,7 +120,8 @@ describe('start page load', () => {
 				progress: { entered: 1, total: 2 }
 			},
 			lastTasting: null,
-			tastingSummary: null
+			tastingSummary: null,
+			notice: null
 		});
 		expectNoContent(result);
 	});
@@ -129,7 +138,8 @@ describe('start page load', () => {
 				motto: 'Islay gegen den Rest',
 				tastingDate: '2026-10-24'
 			},
-			tastingSummary: null
+			tastingSummary: null,
+			notice: null
 		});
 		expectNoContent(result);
 	});
@@ -137,7 +147,12 @@ describe('start page load', () => {
 	it('gives the admin a summary without any bottle content, but no cards without a participation', () => {
 		const result = loadAs({ id: 'a', username: 'admin', isAdmin: true });
 		// The summary carries no motto either: it stays on the two cards.
-		expect(result).toEqual({ nextTasting: null, lastTasting: null, tastingSummary: summary });
+		expect(result).toEqual({
+			nextTasting: null,
+			lastTasting: null,
+			tastingSummary: summary,
+			notice: null
+		});
 		// The slug isn't derived from the list of all tastings.
 		expect(JSON.stringify(result)).not.toContain(slug);
 		expectNoContent(result);
@@ -148,12 +163,30 @@ describe('start page load', () => {
 		expect(result).toEqual({
 			nextTasting: expect.objectContaining({ slug, progress: { entered: 0, total: 2 } }),
 			lastTasting: null,
-			tastingSummary: summary
+			tastingSummary: summary,
+			notice: null
 		});
 		expectNoContent(result);
 	});
 
 	it('refuses requests without a user', () => {
 		expect(() => loadAs(null)).toThrow(expect.objectContaining({ status: 401 }));
+	});
+});
+
+describe('start page notice', () => {
+	const maxi = { id: 'u', username: 'maxi', isAdmin: false };
+
+	it('passes through the not-found notice after a redirect', () => {
+		expect(loadAs(maxi, '/?notice=not-found')).toMatchObject({ notice: 'not-found' });
+	});
+
+	it.each([
+		'/?notice=forbidden',
+		'/?notice=toString',
+		'/?notice=Diese%20Seite',
+		'/?error=not-found'
+	])('drops anything not whitelisted (%s)', (path) => {
+		expect(loadAs(maxi, path)).toMatchObject({ notice: null });
 	});
 });

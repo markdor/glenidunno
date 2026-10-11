@@ -7,7 +7,7 @@ import {
 } from '$lib/validation';
 import { db } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/authGuards';
-import { UNEXPECTED_ERROR_MESSAGE } from '$lib/server/errorMessages';
+import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
 import { logger } from '$lib/server/logger';
 import { getBerlinToday } from '$lib/server/tastingPhase';
 import {

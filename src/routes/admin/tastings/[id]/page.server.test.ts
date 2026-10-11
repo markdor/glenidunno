@@ -38,6 +38,9 @@ import { createTasting, findParticipant, saveBottle, type Participant } from '$l
 import type { TastingBottle } from '$lib/tasting';
 import { actions, load } from './+page.server';
 
+/** Every missing page and missing admin right gets exactly this response. */
+const NOT_FOUND_REDIRECT = { status: 303, location: '/?notice=not-found' };
+
 const ADMIN = { id: 'admin-id', username: 'admin', isAdmin: true };
 const USER = { id: 'user-id', username: 'user', isAdmin: false };
 
@@ -130,20 +133,21 @@ afterEach(() => {
 });
 
 describe('admin tasting detail – access', () => {
-	it('throws 401 without a session and 403 for a non-admin', () => {
+	it('throws 401 without a session and redirects a non-admin to the dashboard', () => {
 		expect(() => loadAs(null)).toThrowError(expect.objectContaining({ status: 401 }));
-		expect(() => loadAs(USER)).toThrowError(expect.objectContaining({ status: 403 }));
+		expect(() => loadAs(USER)).toThrowError(expect.objectContaining(NOT_FOUND_REDIRECT));
 	});
 
-	it('throws 404 for an unknown tasting', () => {
-		expect(() => loadAs(ADMIN, 'nope')).toThrowError(expect.objectContaining({ status: 404 }));
+	it('redirects an unknown tasting the same way as a non-admin', () => {
+		expect(() => loadAs(ADMIN, 'nope')).toThrowError(expect.objectContaining(NOT_FOUND_REDIRECT));
 	});
 
 	it.each(['updateDate', 'updateMotto', 'openOrder', 'reveal', 'delete'] as const)(
 		'rejects %s for anonymous users and non-admins',
 		async (name) => {
 			await expect(act(name, {}, null)).rejects.toMatchObject({ status: 401 });
-			await expect(act(name, {}, USER)).rejects.toMatchObject({ status: 403 });
+			// location matters: a successful delete is a 303 as well.
+			await expect(act(name, {}, USER)).rejects.toMatchObject(NOT_FOUND_REDIRECT);
 			expect(db.select().from(tasting).all()).toHaveLength(1);
 		}
 	);

@@ -9,8 +9,8 @@ const TASTING_ROUTE_IDS: ReadonlySet<string> = new Set([
 
 /**
  * Extra response headers per route ID, applied in hooks.server.ts after
- * resolve() so they also cover __data.json, action responses and the 404 of
- * a tasting the user doesn't take part in.
+ * resolve() so they also cover __data.json, action responses and the
+ * redirect for a tasting the user doesn't take part in.
  *
  * - Participant page and its presentation downloads: no caching – the data
  *   is personal and changes with the phase, a cached page would not show the

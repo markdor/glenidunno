@@ -159,14 +159,58 @@ test.describe('Tasting – Zugriff ohne Login', () => {
 });
 
 test.describe('Tasting – Zugriff mit Login', () => {
-	test('ein unbekannter Tasting-Link liefert 404 ohne Caching', async ({ request }) => {
+	const NOT_FOUND_LOCATION = '/?notice=not-found';
+	const NOT_FOUND_TEXT = 'Diese Seite gibt es nicht (mehr).';
+	// The bare dashboard: no ?notice left behind.
+	const DASHBOARD_URL = /^https?:\/\/[^/]+\/$/;
+
+	// Unknown slug, old token link, unknown path and unknown admin ID: one
+	// response for all of them, so it doesn't reveal which case applied.
+	for (const path of [
+		UNKNOWN_SLUG_LINK,
+		OLD_TOKEN_LINK,
+		'/gibt-es-nicht',
+		'/admin/tastings/00000000-0000-4000-8000-000000000000'
+	]) {
+		test(`${path} leitet mit derselben Antwort aufs Dashboard um`, async ({ request }) => {
+			const res = await request.get(path, { maxRedirects: 0 });
+			expect(res.status()).toBe(303);
+			expect(res.headers()['location']).toBe(NOT_FOUND_LOCATION);
+		});
+	}
+
+	test('die Umleitung von der Teilnehmerseite wird nicht gecacht', async ({ request }) => {
 		const res = await request.get(UNKNOWN_SLUG_LINK, { maxRedirects: 0 });
-		expect(res.status()).toBe(404);
 		expect(res.headers()['cache-control']).toBe('no-store');
 	});
 
-	test('ein alter Token-Link liefert 404', async ({ request }) => {
-		const res = await request.get(OLD_TOKEN_LINK, { maxRedirects: 0 });
-		expect(res.status()).toBe(404);
+	test('das Dashboard zeigt den Hinweis einmal und entfernt ihn aus der URL', async ({ page }) => {
+		const notice = page.getByRole('status').filter({ hasText: NOT_FOUND_TEXT });
+
+		await test.step('Direktaufruf eines alten Token-Links', async () => {
+			await page.goto(OLD_TOKEN_LINK);
+			await expect(notice).toBeVisible();
+			// Without the parameter a reload doesn't show the toast again.
+			await expect(page).toHaveURL(DASHBOARD_URL);
+			await notice.getByRole('button', { name: 'Schließen' }).click();
+			await expect(notice).toHaveCount(0);
+		});
+
+		await test.step('Client-Navigation auf einen unbekannten Pfad', async () => {
+			// A full page load would drop this marker.
+			await page.evaluate(() => {
+				(window as unknown as { noReload: boolean }).noReload = true;
+				const link = document.createElement('a');
+				link.href = '/gibt-es-nicht';
+				link.textContent = 'Kaputter Link';
+				document.querySelector('main')!.append(link);
+			});
+			await page.getByRole('link', { name: 'Kaputter Link' }).click();
+			await expect(notice).toBeVisible();
+			await expect(page).toHaveURL(DASHBOARD_URL);
+			expect(
+				await page.evaluate(() => (window as unknown as { noReload?: boolean }).noReload)
+			).toBe(true);
+		});
 	});
 });
