@@ -21,6 +21,7 @@ import {
 	listSelectableUsers,
 	listTastings,
 	openOrderEarly,
+	removeBottle,
 	revealEarly,
 	saveBottle,
 	TastingValidationError,
@@ -303,6 +304,91 @@ describe('saveBottle', () => {
 				userMessage: 'Diese Flasche gibt es in diesem Tasting nicht.'
 			})
 		);
+	});
+});
+
+describe('removeBottle', () => {
+	// A staged upload as tastingMedia.stageUpload() returns it.
+	const DECK: PendingUpload = { tempFile: '.upload-1', name: 'Vortrag.pptx', extension: '.pptx' };
+	// The tasting is on 24.10.2026.
+	const TORF_FILE = 'Tasting_2026-10-24_Torf.pptx';
+
+	function slotsOf(participantId: string) {
+		return db
+			.select({ slot: schema.tastingBottle.slot })
+			.from(schema.tastingBottle)
+			.where(eq(schema.tastingBottle.participantId, participantId))
+			.all()
+			.map((b) => b.slot)
+			.sort();
+	}
+
+	it('removes a further bottle and hands back its presentation file for deletion', () => {
+		const { anna } = setup();
+		saveBottle(db, anna, 1, bottle({ alias: 'Nebel' }), ENTRY);
+		saveBottle(db, anna, 3, bottle({ alias: 'Torf' }), ENTRY, DECK);
+		saveBottle(db, anna, 4, bottle({ alias: 'Rauch' }), ENTRY);
+
+		expect(removeBottle(db, anna, 3, ENTRY)).toEqual([{ delete: TORF_FILE }]);
+		expect(removeBottle(db, anna, 4, ENTRY)).toEqual([]);
+		expect(slotsOf(anna.id)).toEqual([1]);
+	});
+
+	it('takes an empty slot as removed already', () => {
+		const { anna } = setup();
+		expect(removeBottle(db, anna, 5, ENTRY)).toEqual([]);
+	});
+
+	it('removes only the holder’s own bottle', () => {
+		const { anna, ben } = setup();
+		saveBottle(db, ben, 3, bottle({ alias: 'Torf' }), ENTRY, DECK);
+
+		expect(removeBottle(db, anna, 3, ENTRY)).toEqual([]);
+		expect(slotsOf(ben.id)).toEqual([3]);
+	});
+
+	it('frees the alias and the file name again', () => {
+		const { anna, ben } = setup();
+		saveBottle(db, anna, 3, bottle({ alias: 'Torf' }), ENTRY, DECK);
+		removeBottle(db, anna, 3, ENTRY);
+
+		expect(
+			saveBottle(db, ben, 1, bottle({ alias: 'torf' }), ENTRY, { ...DECK, tempFile: '.upload-2' })
+		).toEqual({
+			status: 'saved',
+			fileChanges: [{ move: '.upload-2', to: 'Tasting_2026-10-24_torf.pptx' }]
+		});
+		expect(saveBottle(db, anna, 3, bottle({ alias: 'Torf' }), ENTRY, DECK)).toEqual({
+			status: 'alias-taken'
+		});
+	});
+
+	it.each([1, 2, 0, 7, 1.5, NaN])('refuses to remove slot %s', (slot) => {
+		const { anna } = setup();
+		saveBottle(db, anna, 1, bottle({ alias: 'Nebel' }), ENTRY);
+		saveBottle(db, anna, 2, bottle({ alias: 'Torf' }), ENTRY);
+
+		expect(() => removeBottle(db, anna, slot, ENTRY)).toThrow(
+			expect.objectContaining({
+				name: 'TastingValidationError',
+				userMessage: 'Diese Flasche lässt sich nicht entfernen.'
+			})
+		);
+		expect(slotsOf(anna.id)).toEqual([1, 2]);
+	});
+
+	it('refuses from 18:00 on and once the admin opened the order', () => {
+		const ctx = setup();
+		saveBottle(db, ctx.anna, 3, bottle({ alias: 'Torf' }), ENTRY, DECK);
+		const closed = expect.objectContaining({
+			name: 'TastingValidationError',
+			userMessage: 'Die Eingabe ist geschlossen, die Flasche wurde nicht entfernt.'
+		});
+
+		expect(() => removeBottle(db, ctx.anna, 3, ORDER)).toThrow(closed);
+		openOrderEarly(db, ctx.id, ENTRY);
+		expect(() => removeBottle(db, ctx.anna, 3, ENTRY)).toThrow(closed);
+		expect(listPresentationFiles(db, ctx.id)).toEqual([TORF_FILE]);
 	});
 });
 

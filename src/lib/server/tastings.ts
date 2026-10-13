@@ -892,6 +892,54 @@ export function saveBottle(
 export type SaveBottleResult =
 	{ status: 'saved'; fileChanges: FileChange[] } | { status: 'alias-taken' };
 
+/**
+ * Removes a further bottle (slot 3–6) of the participant, the base slots stay.
+ * Like saveBottle the phase and the slot are checked in the same transaction
+ * as the delete, and the bottle is only ever addressed by participant and
+ * slot. Its alias and file name are free again afterwards. Returns the
+ * presentation file the caller deletes after the commit; an empty slot (e.g.
+ * removed in another tab already) is no error.
+ *
+ * Throws TastingValidationError if the entry phase is over or the slot can't
+ * be removed.
+ */
+export function removeBottle(
+	db: Db,
+	holder: Pick<Participant, 'id' | 'tastingId'>,
+	slot: number,
+	now: Date = new Date()
+): FileChange[] {
+	return db.transaction((tx) => {
+		const t = tx.select(phaseColumns).from(tasting).where(eq(tasting.id, holder.tastingId)).get();
+		// Also catches the admin's 18:00 / 9:00 button pressed while the page was open.
+		if (!t || getTastingPhase(t.tastingDate, now, t) !== 'entry') {
+			throw new TastingValidationError(
+				`remove rejected: tasting ${holder.tastingId} is past the entry phase`,
+				'Die Eingabe ist geschlossen, die Flasche wurde nicht entfernt.'
+			);
+		}
+		if (
+			!Number.isInteger(slot) ||
+			slot <= TASTING_BOTTLE_SLOTS.base ||
+			slot > TASTING_BOTTLE_SLOTS.max
+		) {
+			throw new TastingValidationError(
+				`remove rejected: slot ${slot} can't be removed`,
+				'Diese Flasche lässt sich nicht entfernen.'
+			);
+		}
+
+		const own = and(eq(tastingBottle.participantId, holder.id), eq(tastingBottle.slot, slot));
+		const file = tx
+			.select({ file: tastingBottle.presentationFile })
+			.from(tastingBottle)
+			.where(own)
+			.get()?.file;
+		tx.delete(tastingBottle).where(own).run();
+		return file ? [{ delete: file }] : [];
+	});
+}
+
 // Case-insensitive, see fileNameKey.
 function sameFile(a: string, b: string): boolean {
 	return fileNameKey(a) === fileNameKey(b);
