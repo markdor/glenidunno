@@ -23,7 +23,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TASTING_PRESENTATION_MAX_BYTES } from '$lib/validation';
+import { TASTING_BOTTLING_LENGTH, TASTING_PRESENTATION_MAX_BYTES } from '$lib/validation';
 import { db } from '$lib/server/db';
 import { tasting, tastingBottle, tastingWriteThrottle, user } from '$lib/server/db/schema';
 import { logger } from '$lib/server/logger';
@@ -384,7 +384,7 @@ describe('participant page save', () => {
 		{ field: 'alias', value: 'x'.repeat(31), code: 'invalid' },
 		{ field: 'distillery', value: '  ', code: 'required' },
 		{ field: 'bottler', value: 'x'.repeat(61), code: 'invalid' },
-		{ field: 'bottling', value: 'x'.repeat(81), code: 'invalid' },
+		{ field: 'bottling', value: 'x'.repeat(TASTING_BOTTLING_LENGTH.max + 1), code: 'invalid' },
 		{ field: 'age', value: '0', code: 'invalid' },
 		{ field: 'age', value: '81', code: 'invalid' },
 		{ field: 'age', value: '12.5', code: 'invalid' },
@@ -411,6 +411,7 @@ describe('participant page save', () => {
 		const result = await save(ANNA, {
 			...validBottle,
 			alias: 'x'.repeat(30),
+			bottling: 'x'.repeat(120),
 			age: '80',
 			abv: '46.30',
 			smoke: '0',
@@ -418,6 +419,7 @@ describe('participant page save', () => {
 		});
 		expect(result).toMatchObject({ saved: true });
 		expect(db.select().from(tastingBottle).get()).toMatchObject({
+			bottling: 'x'.repeat(120),
 			age: 80,
 			abv: 46.3,
 			smoke: 0,
@@ -704,5 +706,108 @@ describe('participant page remove', () => {
 		});
 		expect(logger.error).toHaveBeenCalledWith({ err }, 'tasting remove failed');
 		spy.mockRestore();
+	});
+});
+
+describe('participant page with archived bottles', () => {
+	/** An archived bottle as the history import writes it – the page has no way to. */
+	function insertArchivedBottle(userId: string, slot: number, alias: string) {
+		db.insert(tastingBottle)
+			.values({
+				id: `b-${alias}`,
+				participantId: findParticipant(db, slug, userId)!.id,
+				slot,
+				alias,
+				distillery: 'Aberlour',
+				abv: 40,
+				archived: true,
+				updatedAt: ENTRY
+			})
+			.run();
+	}
+
+	const archived = (alias: string, broughtBy: string) => ({
+		id: `b-${alias}`,
+		alias,
+		distillery: 'Aberlour',
+		bottler: null,
+		bottling: null,
+		age: null,
+		whiskybaseUrl: null,
+		abv: 40,
+		broughtBy,
+		presentation: null
+	});
+
+	it('reveals them by bringer and slot, without factors, score and position', () => {
+		insertArchivedBottle(BEN, 1, 'Moor');
+		insertArchivedBottle(ANNA, 2, 'Zeder');
+		insertArchivedBottle(ANNA, 1, 'Ahorn');
+
+		vi.setSystemTime(REVEALED);
+		const result = loadFor(BEN);
+		expect(result.view).toEqual({
+			phase: 'revealed',
+			tasting: { name: 'Herbst-Tasting', tastingDate: '2026-10-24' },
+			manual: { orderOpenedAt: null, revealedAt: null },
+			archived: true,
+			bottles: [archived('Ahorn', 'Anna'), archived('Zeder', 'Anna'), archived('Moor', 'Ben')]
+		});
+		// What __data.json carries to the browser.
+		const serialized = JSON.stringify(result);
+		for (const hidden of ['smoke', 'cask', '"value"', 'score', 'position']) {
+			expect(serialized).not.toContain(hidden);
+		}
+	});
+
+	it.each([
+		{ phase: 'entry', now: ENTRY },
+		{ phase: 'order', now: ORDER }
+	])('shows the error page in the $phase phase and logs the tasting', ({ phase, now }) => {
+		insertArchivedBottle(BEN, 1, 'Moor');
+
+		vi.setSystemTime(now);
+		expect(() => loadFor(ANNA)).toThrowError(
+			expect.objectContaining({ status: 500, body: { message: 'Da ist etwas schiefgelaufen.' } })
+		);
+		expect(logger.error).toHaveBeenCalledWith(
+			{
+				err: expect.objectContaining({
+					message: `tasting ${tastingId} has archived bottles in phase ${phase}`
+				}),
+				tastingId
+			},
+			'tasting page load failed'
+		);
+	});
+
+	it('refuses to save and to remove, keeping bottles and files', async () => {
+		const deck = (name: string) => new File([new Uint8Array([1, 2, 3])], name);
+		await save(ANNA, { ...validBottle, slot: '3', presentation: deck('Vortrag.pptx') });
+		insertArchivedBottle(BEN, 1, 'Moor');
+		const before = db.select().from(tastingBottle).all();
+
+		expect(
+			await save(ANNA, { ...validBottle, distillery: 'Other', presentation: deck('Neu.pptx') })
+		).toMatchObject({
+			status: 422,
+			data: {
+				action: 'save',
+				reload: true,
+				userMessage: 'Die Eingabe ist geschlossen, deine Änderung wurde nicht gespeichert.'
+			}
+		});
+		expect(await remove(ANNA, '3')).toMatchObject({
+			status: 422,
+			data: {
+				action: 'remove',
+				slot: 3,
+				reload: true,
+				userMessage: 'Die Eingabe ist geschlossen, die Flasche wurde nicht entfernt.'
+			}
+		});
+		expect(db.select().from(tastingBottle).all()).toEqual(before);
+		// The staged upload is gone as well.
+		expect(await readdir(mediaDir)).toEqual(['Tasting_2026-10-24_Nebel.pptx']);
 	});
 });

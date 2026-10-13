@@ -121,9 +121,12 @@
 		<TastingManualNotice manual={view.manual} />
 		<section class="space-y-3">
 			<h2 class="text-lg font-semibold">Auflösung</h2>
-			<TastingReveal bottles={view.bottles} {presentationHref} />
+			<TastingReveal reveal={view} {presentationHref} />
 		</section>
-		<TastingScoreChart bottles={view.bottles} />
-		<TastingScoreExplainer />
+		<!-- Archived bottles have no factors: no score to chart, no order to explain. -->
+		{#if !view.archived}
+			<TastingScoreChart bottles={view.bottles} />
+			<TastingScoreExplainer />
+		{/if}
 	{/if}
 </div>

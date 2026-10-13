@@ -7,6 +7,7 @@ import {
 	TASTING_AGE,
 	TASTING_ALIAS_LENGTH,
 	TASTING_BOTTLE_SLOTS,
+	TASTING_BOTTLING_LENGTH,
 	TASTING_SCALE
 } from '$lib/validation';
 import { runMigrations } from './migrate';
@@ -69,11 +70,21 @@ describe('tasting CHECK constraints', () => {
 		);
 		expect(sqlByName).toMatchObject({
 			tasting_bottle_alias_length: `length("tasting_bottle"."alias") BETWEEN 1 AND ${TASTING_ALIAS_LENGTH.max}`,
+			tasting_bottle_bottling_length: `length("tasting_bottle"."bottling") BETWEEN 1 AND ${TASTING_BOTTLING_LENGTH.max}`,
 			tasting_bottle_age_range: `"tasting_bottle"."age" BETWEEN ${TASTING_AGE.min} AND ${TASTING_AGE.max}`,
 			tasting_bottle_abv_range: `"tasting_bottle"."abv" BETWEEN ${TASTING_ABV.min} AND ${TASTING_ABV.max}`,
 			tasting_bottle_smoke_range: `"tasting_bottle"."smoke" BETWEEN ${TASTING_SCALE.min} AND ${TASTING_SCALE.max}`,
 			tasting_bottle_slot_range: `"tasting_bottle"."slot" BETWEEN 1 AND ${TASTING_BOTTLE_SLOTS.max}`
 		});
+	});
+
+	it('tie the factors to the archive flag: none for archived bottles, all three otherwise', () => {
+		const archivedFactors = checksOf(schema.tastingBottle).find(
+			(c) => c.name === 'tasting_bottle_archived_factors'
+		);
+		expect(archivedFactors?.sql).toBe(
+			'("tasting_bottle"."archived" = 0 AND "tasting_bottle"."smoke" IS NOT NULL AND "tasting_bottle"."cask" IS NOT NULL AND "tasting_bottle"."value" IS NOT NULL) OR ("tasting_bottle"."archived" = 1 AND "tasting_bottle"."smoke" IS NULL AND "tasting_bottle"."cask" IS NULL AND "tasting_bottle"."value" IS NULL)'
+		);
 	});
 
 	it('leave the number of bottles to the participants', () => {
@@ -164,6 +175,42 @@ describe('migrated tasting tables', () => {
 		{ field: 'slot', value: TASTING_BOTTLE_SLOTS.max + 1 }
 	])('rejects $field = $value', ({ field, value }) => {
 		expect(() => insertBottle({ [field]: value })).toThrow(/CHECK constraint failed/);
+	});
+
+	// Literally 120, not the constant: catches a migration lagging behind validation.ts.
+	it('accepts a bottling of 120 characters, but not 121', () => {
+		insertBottle({ bottling: 'x'.repeat(120) });
+		expect(() => insertBottle({ id: 'b2', slot: 2, bottling: 'x'.repeat(121) })).toThrow(
+			/CHECK constraint failed: tasting_bottle_bottling_length/
+		);
+	});
+
+	it('accepts an archived bottle without smoke, cask and value', () => {
+		insertBottle({ archived: true, smoke: null, cask: null, value: null });
+		expect(db.select().from(schema.tastingBottle).get()).toMatchObject({
+			archived: true,
+			smoke: null,
+			cask: null,
+			value: null,
+			abv: 46.3
+		});
+	});
+
+	it.each([
+		{ label: 'an archived bottle with its factors', overrides: { archived: true } },
+		{
+			label: 'an archived bottle with one factor left',
+			overrides: { archived: true, smoke: null, cask: null }
+		},
+		{
+			label: 'a bottle without factors that isn’t archived',
+			overrides: { smoke: null, cask: null, value: null }
+		},
+		{ label: 'a bottle missing one factor', overrides: { cask: null } }
+	])('rejects $label', ({ overrides }) => {
+		expect(() => insertBottle(overrides)).toThrow(
+			/CHECK constraint failed: tasting_bottle_archived_factors/
+		);
 	});
 
 	it('rejects a second bottle in the same slot', () => {

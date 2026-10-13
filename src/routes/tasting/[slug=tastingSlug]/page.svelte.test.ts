@@ -217,6 +217,7 @@ describe('Tasting participant page', () => {
 		renderView({
 			phase: 'revealed',
 			tasting,
+			archived: false,
 			bottles: [
 				{
 					position: 1,
@@ -244,6 +245,36 @@ describe('Tasting participant page', () => {
 			.toBeVisible();
 	});
 
+	test('shows archived bottles without the score chart and the explainer', async () => {
+		renderView({
+			phase: 'revealed',
+			tasting,
+			archived: true,
+			bottles: [
+				{
+					id: 'b1',
+					alias: 'Nebelhorn',
+					distillery: 'Aberlour',
+					bottler: null,
+					bottling: null,
+					age: null,
+					whiskybaseUrl: null,
+					abv: 40,
+					broughtBy: 'Josh',
+					presentation: null
+				}
+			]
+		});
+
+		await expect.element(page.getByRole('heading', { name: 'Auflösung' })).toBeVisible();
+		await expect.element(page.getByRole('heading', { name: 'Nebelhorn' })).toBeVisible();
+		await expect.element(page.getByText('40,0 % vol.')).toBeVisible();
+		expect(page.getByRole('img').elements()).toHaveLength(0);
+		expect(
+			page.getByRole('heading', { name: 'Wie kommt die Reihenfolge zustande?' }).elements()
+		).toHaveLength(0);
+	});
+
 	test.each([
 		{
 			phase: 'order',
@@ -253,7 +284,7 @@ describe('Tasting participant page', () => {
 		},
 		{
 			phase: 'revealed',
-			view: { bottles: [] },
+			view: { archived: false, bottles: [] },
 			manual: { orderOpenedAt: null, revealedAt: new Date('2026-10-24T20:05:00Z') },
 			notice: 'Der Admin hat das Tasting am Sa., 24.10.2026 um 22:05 Uhr vorzeitig aufgelöst.'
 		}
@@ -281,6 +312,7 @@ describe('Tasting participant page', () => {
 		renderView({
 			phase: 'revealed',
 			tasting,
+			archived: false,
 			bottles: [
 				{
 					position: 1,

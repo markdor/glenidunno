@@ -2,6 +2,7 @@ import { describe, test, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import type { ResolvedPathname } from '$app/types';
+import type { ArchivedRevealedBottle, RevealedBottle } from '$lib/tasting';
 import TastingReveal from './TastingReveal.svelte';
 
 const presentationHref = (bottleId: string) =>
@@ -39,9 +40,17 @@ const independent = {
 	presentation: { bottleId: 'b2', name: 'Caol Ila.pptx' }
 };
 
+function renderPoured(bottles: RevealedBottle[]) {
+	return render(TastingReveal, { presentationHref, reveal: { archived: false, bottles } });
+}
+
+function renderArchived(bottles: ArchivedRevealedBottle[]) {
+	return render(TastingReveal, { presentationHref, reveal: { archived: true, bottles } });
+}
+
 describe('TastingReveal', () => {
 	test('shows every bottle with alias, names, bringer, values and score', async () => {
-		render(TastingReveal, { presentationHref, bottles: [nas, independent] });
+		renderPoured([nas, independent]);
 
 		await expect.element(page.getByRole('heading', { name: '1. Blume' })).toBeVisible();
 		await expect.element(page.getByText('Caol Ila', { exact: true })).toBeVisible();
@@ -54,13 +63,13 @@ describe('TastingReveal', () => {
 	});
 
 	test('shows an empty bottler as original bottling and a missing age as NAS', async () => {
-		render(TastingReveal, { presentationHref, bottles: [nas] });
+		renderPoured([nas]);
 		await expect.element(page.getByText('Originalabfüllung')).toBeVisible();
 		await expect.element(page.getByText('NAS')).toBeVisible();
 	});
 
 	test('opens the Whiskybase link in a new tab without referrer', async () => {
-		render(TastingReveal, { presentationHref, bottles: [nas, independent] });
+		renderPoured([nas, independent]);
 		const links = page.getByRole('link', { name: 'Auf Whiskybase ansehen' });
 		expect(links.elements()).toHaveLength(1);
 		await expect.element(links).toHaveAttribute('href', independent.whiskybaseUrl);
@@ -69,7 +78,7 @@ describe('TastingReveal', () => {
 	});
 
 	test('links an uploaded presentation as a download', async () => {
-		render(TastingReveal, { presentationHref, bottles: [nas, independent] });
+		renderPoured([nas, independent]);
 		const links = page.getByRole('link', { name: /^Präsentation:/ });
 		expect(links.elements()).toHaveLength(1);
 		await expect.element(links).toHaveTextContent('Präsentation: Caol Ila.pptx');
@@ -78,7 +87,59 @@ describe('TastingReveal', () => {
 	});
 
 	test('says so when nobody entered a bottle', async () => {
-		render(TastingReveal, { presentationHref, bottles: [] });
+		renderPoured([]);
 		await expect.element(page.getByText('Es wurden keine Flaschen eingetragen.')).toBeVisible();
+	});
+
+	describe('archived bottles', () => {
+		const archived = {
+			id: 'b3',
+			alias: 'Nebelhorn',
+			distillery: 'Aberlour',
+			bottler: null,
+			bottling: "A'bunadh",
+			age: null,
+			whiskybaseUrl: 'https://www.whiskybase.com/whiskies/whisky/3',
+			abv: 46,
+			broughtBy: 'Josh',
+			presentation: { bottleId: 'b3', name: 'Josh.pptx' }
+		};
+
+		test('show the ABV instead of the values, without score and position', async () => {
+			renderArchived([archived, { ...archived, id: 'b4', alias: 'Moor', presentation: null }]);
+
+			await expect.element(page.getByText('46,0 % vol.').first()).toBeVisible();
+			expect(page.getByText('Alkohol', { exact: true }).elements()).toHaveLength(2);
+			expect(page.getByText('Werte').elements()).toHaveLength(0);
+			expect(page.getByText('Score').elements()).toHaveLength(0);
+			// Just the alias, no "1." for screen readers either.
+			expect(
+				page
+					.getByRole('heading')
+					.elements()
+					.map((h) => h.textContent?.trim())
+			).toEqual(['Nebelhorn', 'Moor']);
+			const list = page.getByRole('list', { name: 'Auflösung' }).element();
+			// The position circle is the only aria-hidden part of a card.
+			expect(list.querySelector('[aria-hidden="true"]')).toBeNull();
+			// Without a pouring order the list isn't an ordered one.
+			expect(list.tagName).toBe('UL');
+		});
+
+		test('keep names, bringer and links', async () => {
+			renderArchived([archived]);
+
+			await expect.element(page.getByText('Aberlour')).toBeVisible();
+			await expect.element(page.getByText("A'bunadh")).toBeVisible();
+			await expect.element(page.getByText('NAS')).toBeVisible();
+			await expect.element(page.getByText('Originalabfüllung')).toBeVisible();
+			await expect.element(page.getByText('Josh', { exact: true })).toBeVisible();
+			await expect
+				.element(page.getByRole('link', { name: 'Auf Whiskybase ansehen' }))
+				.toHaveAttribute('href', archived.whiskybaseUrl);
+			await expect
+				.element(page.getByRole('link', { name: 'Präsentation: Josh.pptx' }))
+				.toHaveAttribute('href', presentationHref('b3'));
+		});
 	});
 });

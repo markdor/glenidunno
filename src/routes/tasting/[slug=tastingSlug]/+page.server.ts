@@ -1,4 +1,4 @@
-import { fail } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import type { TastingBottle } from '$lib/tasting';
 import {
@@ -49,7 +49,14 @@ function requireParticipant(locals: App.Locals, slug: string): Participant {
 
 export const load: PageServerLoad = ({ locals, params }) => {
 	const participant = requireParticipant(locals, params.slug);
-	return { view: getParticipantView(db, participant) };
+	try {
+		return { view: getParticipantView(db, participant) };
+	} catch (err: unknown) {
+		// E.g. archived bottles before the reveal: the error page instead of any
+		// content. error() is an expected error, so SvelteKit doesn't log again.
+		logger.error({ err, tastingId: participant.tastingId }, 'tasting page load failed');
+		error(500, UNEXPECTED_ERROR_MESSAGE);
+	}
 };
 
 /**

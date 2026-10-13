@@ -1,0 +1,1 @@
+ALTER TABLE `tasting_bottle` ADD `archived` integer DEFAULT false NOT NULL;
