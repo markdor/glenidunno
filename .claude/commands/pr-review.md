@@ -55,7 +55,7 @@ Prüfe den Diff systematisch gegen jede Dimension. Nutze konkret aus CLAUDE.md a
 
 3. **UX-Konsistenz**
    - Mobile-first, großzügige Touch-Targets, Desktop nur nachrangig.
-   - Eukalyptus-/Salbei-Farbschema (`layout.css`) eingehalten, keine neuen Ad-hoc-Farben; semantische Akzente (Amber für Hinweise, Brand-Grün) nur für Status.
+   - Creme-/Braun-Farbschema aus den Logo-Farben (`layout.css`: überschriebene `slate`-Skala, `brand` = Bernstein für die Hauptaktion) eingehalten, keine neuen Ad-hoc-Farben; semantische Akzente nur für Status (red für Fehler, emerald für Erfolg, sky für Info – nicht amber, das wäre von Bernstein nicht unterscheidbar).
    - UI-Texte auf Deutsch, Code/Kommentare auf Englisch.
 
 4. **Clean Code**
