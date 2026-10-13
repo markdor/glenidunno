@@ -12,8 +12,7 @@ const base = {
 		id: 't1',
 		name: 'Herbst-Tasting',
 		motto: null,
-		tastingDate: '2026-10-24',
-		bottlesPerParticipant: 2
+		tastingDate: '2026-10-24'
 	},
 	participants: [
 		{ id: 'p1', name: 'Anna', progress: { entered: 1, total: 2 } },

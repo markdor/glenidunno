@@ -57,7 +57,11 @@ export type TastingBottle = {
 // View types of the phase-dependent projection (src/lib/server/tastings.ts),
 // shared with the components that render them.
 
-/** Entry progress of a participant or a whole tasting. */
+/**
+ * Entry progress of a participant or a whole tasting. A participant's target
+ * is max(TASTING_BOTTLE_SLOTS.base, own bottles), a tasting's the sum of its
+ * participants' targets.
+ */
 export type Progress = { entered: number; total: number };
 
 /**

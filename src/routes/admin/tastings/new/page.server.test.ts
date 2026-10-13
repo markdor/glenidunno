@@ -49,7 +49,6 @@ function create(fields: Record<string, string | string[]>, currentUser: unknown 
 const valid = {
 	name: 'Herbst-Tasting',
 	tastingDate: '2026-10-24',
-	bottlesPerParticipant: '2',
 	participant: ['u-anna', 'u-ben', 'u-cem']
 };
 
@@ -121,8 +120,7 @@ describe('create tasting', () => {
 		expect(created).toMatchObject({
 			name: 'Herbst-Tasting',
 			motto: null,
-			tastingDate: '2026-10-24',
-			bottlesPerParticipant: 2
+			tastingDate: '2026-10-24'
 		});
 		expect(created.slug).toMatch(TASTING_SLUG_RE);
 		expect(redirect).toMatchObject({ status: 303, location: `/admin/tastings/${created.id}` });
@@ -171,9 +169,6 @@ describe('create tasting', () => {
 		{ field: 'tastingDate', value: '2026-02-30', code: 'invalid' },
 		// Yesterday in Berlin.
 		{ field: 'tastingDate', value: '2026-10-20', code: 'invalid' },
-		{ field: 'bottlesPerParticipant', value: '0', code: 'invalid' },
-		{ field: 'bottlesPerParticipant', value: '7', code: 'invalid' },
-		{ field: 'bottlesPerParticipant', value: 'zwei', code: 'invalid' },
 		{ field: 'participant', value: [], code: 'required', errorField: 'participants' },
 		{ field: 'participant', value: ['u-anna'], code: 'invalid', errorField: 'participants' },
 		// The same user twice is still only one participant.

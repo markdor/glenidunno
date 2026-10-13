@@ -11,6 +11,20 @@ import { toast } from '$lib/components/toastStore.svelte';
 
 const tasting = { name: 'Herbst-Tasting', tastingDate: '2026-10-24' };
 
+const savedBottle = {
+	slot: 1,
+	alias: 'Nebel',
+	distillery: 'Ardbeg',
+	bottler: null,
+	bottling: null,
+	age: null,
+	whiskybaseUrl: null,
+	smoke: 5,
+	cask: 2,
+	abv: 46,
+	value: 3
+};
+
 // No admin button pressed unless a test says otherwise.
 const noManual = { orderOpenedAt: null, revealedAt: null };
 
@@ -35,23 +49,9 @@ describe('Tasting participant page', () => {
 	test('shows one card per bottle during entry, filled with the own bottles', async () => {
 		renderView({
 			phase: 'entry',
-			tasting: { ...tasting, bottlesPerParticipant: 2 },
+			tasting,
 			participant: { username: 'Anna' },
-			bottles: [
-				{
-					slot: 2,
-					alias: 'Nebel',
-					distillery: 'Ardbeg',
-					bottler: null,
-					bottling: null,
-					age: null,
-					whiskybaseUrl: null,
-					smoke: 5,
-					cask: 2,
-					abv: 46,
-					value: 3
-				}
-			]
+			bottles: [{ ...savedBottle, slot: 2 }]
 		});
 
 		await expect.element(page.getByText('Hallo Anna 👋')).toBeVisible();
@@ -63,11 +63,127 @@ describe('Tasting participant page', () => {
 		await expect.element(second.getByLabelText('Synonym *')).toHaveValue('Nebel');
 	});
 
+	test('shows slots 1 and 2 plus every slot with a saved bottle, in order', async () => {
+		renderView({
+			phase: 'entry',
+			tasting,
+			participant: { username: 'Anna' },
+			bottles: [5, 3].map((slot) => ({ ...savedBottle, slot, alias: `Flasche ${slot}` }))
+		});
+
+		await expect
+			.poll(() =>
+				page
+					.getByRole('heading', { level: 2 })
+					.elements()
+					.map((h) => h.textContent)
+			)
+			.toEqual(['Flasche 1', 'Flasche 2', 'Flasche 3', 'Flasche 5']);
+		await expect
+			.element(page.getByRole('form', { name: 'Flasche 3' }).getByLabelText('Synonym *'))
+			.toHaveValue('Flasche 3');
+	});
+
+	describe('further bottles', () => {
+		const entry = { phase: 'entry', tasting, participant: { username: 'Anna' } };
+		const add = page.getByRole('button', { name: 'Weitere Flasche' });
+
+		test('adds slots up to 6, then the button is gone', async () => {
+			renderView({ ...entry, bottles: [] });
+
+			for (const slot of [3, 4, 5, 6]) {
+				await add.click();
+				await expect
+					.element(page.getByRole('form', { name: `Flasche ${slot}` }).getByLabelText('Synonym *'))
+					.toHaveValue('');
+			}
+			await expect.element(add).not.toBeInTheDocument();
+			expect(page.getByRole('form').elements()).toHaveLength(6);
+		});
+
+		test('offers no further slot with six saved bottles', async () => {
+			renderView({
+				...entry,
+				bottles: [1, 2, 3, 4, 5, 6].map((slot) => ({ ...savedBottle, slot, alias: `F${slot}` }))
+			});
+
+			await expect.element(page.getByRole('form', { name: 'Flasche 6' })).toBeVisible();
+			expect(add.elements()).toHaveLength(0);
+		});
+
+		test('fills the smallest free slot first', async () => {
+			renderView({
+				...entry,
+				bottles: [1, 2, 4].map((slot) => ({ ...savedBottle, slot, alias: `F${slot}` }))
+			});
+
+			await add.click();
+			await expect
+				.poll(() =>
+					page
+						.getByRole('heading', { level: 2 })
+						.elements()
+						.map((h) => h.textContent)
+				)
+				.toEqual(['Flasche 1', 'Flasche 2', 'Flasche 3', 'Flasche 4']);
+		});
+
+		// The alias was taken: the failed save of slot 3 stays in `form`.
+		const takenAlias = {
+			action: 'save',
+			slot: 3,
+			values: { alias: 'Nebel' },
+			fieldErrors: { alias: 'taken' }
+		};
+		const card = (slot: number) => page.getByRole('form', { name: `Flasche ${slot}` });
+
+		test('starts a re-added slot empty instead of with its failed save', async () => {
+			renderView({ ...entry, bottles: [] }, takenAlias);
+
+			await add.click();
+			await expect.element(card(3).getByLabelText('Synonym *')).toHaveValue('Nebel');
+			await expect.element(card(3).getByText(/Schon vergeben/)).toBeVisible();
+
+			await page.getByRole('button', { name: 'Flasche 3 entfernen' }).click();
+			await expect.element(card(3)).not.toBeInTheDocument();
+			await add.click();
+
+			await expect.element(card(3).getByLabelText('Synonym *')).toHaveValue('');
+			expect(
+				card(3)
+					.getByText(/Schon vergeben/)
+					.elements()
+			).toHaveLength(0);
+		});
+
+		test('keeps the errors of another card when hiding a slot', async () => {
+			renderView({ ...entry, bottles: [] }, takenAlias);
+
+			await add.click();
+			await add.click();
+			await page.getByRole('button', { name: 'Flasche 4 entfernen' }).click();
+
+			await expect.element(card(4)).not.toBeInTheDocument();
+			await expect.element(card(3).getByText(/Schon vergeben/)).toBeVisible();
+			await expect.element(card(3).getByLabelText('Synonym *')).toHaveValue('Nebel');
+		});
+
+		test('hides an added card again without asking', async () => {
+			renderView({ ...entry, bottles: [] });
+
+			await add.click();
+			await page.getByRole('button', { name: 'Flasche 3 entfernen' }).click();
+
+			await expect.element(page.getByRole('form', { name: 'Flasche 3' })).not.toBeInTheDocument();
+			await expect.element(add).toBeVisible();
+		});
+	});
+
 	test('passes field errors only to the card they belong to', async () => {
 		renderView(
 			{
 				phase: 'entry',
-				tasting: { ...tasting, bottlesPerParticipant: 2 },
+				tasting,
 				participant: { username: 'Anna' },
 				bottles: []
 			},

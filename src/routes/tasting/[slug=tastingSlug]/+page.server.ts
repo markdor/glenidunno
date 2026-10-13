@@ -22,9 +22,11 @@ import {
 	type PendingUpload
 } from '$lib/server/tastingMedia';
 import { consumeTastingWriteLimit } from '$lib/server/tastingWriteThrottle';
+import type { FileChange } from '$lib/server/presentationFiles';
 import {
 	findParticipant,
 	getParticipantView,
+	removeBottle,
 	saveBottle,
 	TastingValidationError,
 	type Participant,
@@ -139,16 +141,17 @@ function parseBottle(raw: RawBottle): {
 	};
 }
 
+// Save and remove share the participant's write limit.
+const WRITE_LIMIT_MESSAGE =
+	'Zu viele Speichervorgänge. Warte ein paar Minuten und versuch es dann erneut.';
+
 export const actions: Actions = {
 	save: async ({ request, locals, params }) => {
 		const holder = requireParticipant(locals, params.slug);
 
 		// Before the (possibly 30 MB) body is parsed at all.
 		if (!consumeTastingWriteLimit(db, holder.id)) {
-			return fail(429, {
-				action: 'save',
-				userMessage: 'Zu viele Speichervorgänge. Warte ein paar Minuten und versuch es dann erneut.'
-			});
+			return fail(429, { action: 'save', userMessage: WRITE_LIMIT_MESSAGE });
 		}
 
 		const form = await request.formData();
@@ -191,5 +194,34 @@ export const actions: Actions = {
 		}
 		await applyFileChanges(result.fileChanges);
 		return { action: 'save', slot, saved: true };
+	},
+
+	// Removes a further bottle (slot 3–6). The bottle is found by participant
+	// (slug + login) and slot only, never by an id from the form.
+	remove: async ({ request, locals, params }) => {
+		const holder = requireParticipant(locals, params.slug);
+
+		// Before the body is parsed, like save.
+		if (!consumeTastingWriteLimit(db, holder.id)) {
+			return fail(429, { action: 'remove', userMessage: WRITE_LIMIT_MESSAGE });
+		}
+
+		const form = await request.formData();
+		const slot = Number(form.get('slot'));
+		let fileChanges: FileChange[];
+		try {
+			fileChanges = removeBottle(db, holder, slot);
+		} catch (err: unknown) {
+			if (err instanceof TastingValidationError) {
+				logger.info({ reason: err.message }, 'tasting remove rejected');
+				return fail(422, { action: 'remove', slot, userMessage: err.userMessage, reload: true });
+			}
+			logger.error({ err }, 'tasting remove failed');
+			return fail(500, { action: 'remove', slot, userMessage: UNEXPECTED_ERROR_MESSAGE });
+		}
+
+		// Only after the commit: a refused request deletes nothing.
+		await applyFileChanges(fileChanges);
+		return { action: 'remove', slot, removed: true };
 	}
 };

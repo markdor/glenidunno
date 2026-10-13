@@ -39,7 +39,6 @@ beforeEach(() => {
 			slug: 'fluffy-otter',
 			name: 'Herbst',
 			tastingDate: '2026-10-24',
-			bottlesPerParticipant: 2,
 			createdAt: START
 		})
 		.run();

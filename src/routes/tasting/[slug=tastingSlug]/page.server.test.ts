@@ -90,6 +90,26 @@ function save(userId: string, fields: Record<string, string | File>, tastingSlug
 	} as unknown as ActionEvent);
 }
 
+function remove(
+	userId: string,
+	slot: string,
+	tastingSlug = slug,
+	extra: Record<string, string> = {}
+) {
+	const fd = new FormData();
+	fd.append('slot', slot);
+	for (const [k, v] of Object.entries(extra)) fd.append(k, v);
+	const request = new Request(`http://localhost/tasting/${tastingSlug}?/remove`, {
+		method: 'POST',
+		body: fd
+	});
+	return actions.remove({
+		request,
+		params: { slug: tastingSlug },
+		locals: locals(userId)
+	} as unknown as ActionEvent);
+}
+
 beforeAll(() => {
 	for (const [id, username] of [
 		[ANNA, 'Anna'],
@@ -135,7 +155,6 @@ beforeEach(async () => {
 	const created = createTasting(db, {
 		name: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
-		bottlesPerParticipant: 2,
 		participantUserIds: [ANNA, BEN]
 	});
 	tastingId = created.id;
@@ -322,11 +341,21 @@ describe('participant page save', () => {
 		expect(db.select().from(tastingBottle).get()?.distillery).toBe('Ardbeg');
 	});
 
-	it('rejects a slot beyond bottlesPerParticipant', async () => {
-		expect(await save(ANNA, { ...validBottle, slot: '3' })).toMatchObject({
+	it('saves a further bottle into slot 3', async () => {
+		expect(await save(ANNA, { ...validBottle, slot: '3' })).toEqual({
+			action: 'save',
+			slot: 3,
+			saved: true
+		});
+		expect(loadFor(ANNA).view).toMatchObject({ bottles: [{ slot: 3, alias: 'Nebel' }] });
+	});
+
+	it('rejects a slot beyond 6', async () => {
+		expect(await save(ANNA, { ...validBottle, slot: '7' })).toMatchObject({
 			status: 422,
 			data: { userMessage: 'Diese Flasche gibt es in diesem Tasting nicht.' }
 		});
+		expect(db.select().from(tastingBottle).all()).toEqual([]);
 	});
 
 	it('rejects an alias that someone else already uses, ignoring case', async () => {
@@ -557,5 +586,123 @@ describe('participant page save with a presentation', () => {
 		expect(loadFor(BEN).view).toMatchObject({
 			bottles: [{ presentation: { bottleId: bottleRow().id, name: 'Ardbeg.pptx' } }]
 		});
+	});
+});
+
+describe('participant page remove', () => {
+	const deck = () => new File([new Uint8Array([1, 2, 3])], 'Vortrag.pptx');
+	const storedFiles = () => readdir(mediaDir);
+	const bottles = () => db.select().from(tastingBottle).all();
+	// validBottle uses the alias "Nebel", the tasting is on 24.10.2026.
+	const DECK_FILE = 'Tasting_2026-10-24_Nebel.pptx';
+	const CLOSED = 'Die Eingabe ist geschlossen, die Flasche wurde nicht entfernt.';
+
+	it('removes a further bottle with its presentation, freeing alias and file name', async () => {
+		await save(ANNA, { ...validBottle, slot: '3', presentation: deck() });
+		expect(await storedFiles()).toEqual([DECK_FILE]);
+
+		expect(await remove(ANNA, '3')).toEqual({ action: 'remove', slot: 3, removed: true });
+		expect(bottles()).toEqual([]);
+		expect(await storedFiles()).toEqual([]);
+
+		expect(await save(BEN, { ...validBottle, presentation: deck() })).toMatchObject({
+			saved: true
+		});
+		expect(await storedFiles()).toEqual([DECK_FILE]);
+	});
+
+	it.each(['1', '2'])('refuses to remove slot %s and asks the client to reload', async (slot) => {
+		await save(ANNA, { ...validBottle, slot, presentation: deck() });
+
+		expect(await remove(ANNA, slot)).toMatchObject({
+			status: 422,
+			data: {
+				action: 'remove',
+				slot: Number(slot),
+				reload: true,
+				userMessage: 'Diese Flasche lässt sich nicht entfernen.'
+			}
+		});
+		expect(bottles()).toHaveLength(1);
+		expect(await storedFiles()).toEqual([DECK_FILE]);
+	});
+
+	it('refuses to remove from 18:00 on and keeps bottle and file', async () => {
+		await save(ANNA, { ...validBottle, slot: '3', presentation: deck() });
+
+		vi.setSystemTime(ORDER);
+		expect(await remove(ANNA, '3')).toMatchObject({
+			status: 422,
+			data: { action: 'remove', slot: 3, reload: true, userMessage: CLOSED }
+		});
+		expect(bottles()).toHaveLength(1);
+		expect(await storedFiles()).toEqual([DECK_FILE]);
+	});
+
+	it('leaves the bottles of the other participants alone', async () => {
+		await save(BEN, { ...validBottle, slot: '3', presentation: deck() });
+
+		expect(await remove(ANNA, '3')).toEqual({ action: 'remove', slot: 3, removed: true });
+		expect(bottles()).toMatchObject([{ participantId: findParticipant(db, slug, BEN)!.id }]);
+		expect(await storedFiles()).toEqual([DECK_FILE]);
+	});
+
+	it('takes the bottle only from slug, login and slot, never from other form fields', async () => {
+		await save(BEN, { ...validBottle, slot: '3', presentation: deck() });
+		const benBottle = bottles()[0];
+
+		expect(
+			await remove(ANNA, '3', slug, {
+				bottleId: benBottle.id,
+				id: benBottle.id,
+				participantId: benBottle.participantId,
+				participant_id: benBottle.participantId,
+				userId: BEN,
+				user_id: BEN
+			})
+		).toEqual({ action: 'remove', slot: 3, removed: true });
+		expect(bottles()).toEqual([benBottle]);
+		expect(await storedFiles()).toEqual([DECK_FILE]);
+	});
+
+	it.each([
+		{ label: 'a user who doesn’t take part', userId: OUTSIDER, tastingSlug: undefined },
+		{ label: 'the admin without participation', userId: ADMIN, tastingSlug: undefined },
+		{ label: 'an unknown slug', userId: ANNA, tastingSlug: 'fluffy-nothing' }
+	])(
+		'answers $label with the not-found redirect and removes nothing',
+		async ({ userId, tastingSlug }) => {
+			await save(ANNA, { ...validBottle, slot: '3' });
+			await expect(remove(userId, '3', tastingSlug)).rejects.toMatchObject(NOT_FOUND_REDIRECT);
+			expect(bottles()).toHaveLength(1);
+		}
+	);
+
+	it('shares the participant’s write limit with save', async () => {
+		await save(ANNA, { ...validBottle, slot: '3' });
+		for (let i = 1; i < TASTING_WRITE_LIMIT.max; i++) {
+			expect(await remove(ANNA, '4')).toMatchObject({ removed: true });
+		}
+
+		expect(await remove(ANNA, '3')).toMatchObject({
+			status: 429,
+			data: { action: 'remove', userMessage: expect.stringContaining('Zu viele') }
+		});
+		expect(await save(ANNA, validBottle)).toMatchObject({ status: 429 });
+		expect(bottles()).toHaveLength(1);
+	});
+
+	it('logs and returns 500 on an unexpected database error', async () => {
+		const err = new Error('disk full');
+		const spy = vi.spyOn(db, 'transaction').mockImplementationOnce(() => {
+			throw err;
+		});
+
+		expect(await remove(ANNA, '3')).toMatchObject({
+			status: 500,
+			data: { action: 'remove', slot: 3, userMessage: 'Da ist etwas schiefgelaufen.' }
+		});
+		expect(logger.error).toHaveBeenCalledWith({ err }, 'tasting remove failed');
+		spy.mockRestore();
 	});
 });

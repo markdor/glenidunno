@@ -6,7 +6,8 @@ import type { ThrottleOptions } from './magicLinkThrottle';
 type Schema = { tastingWriteThrottle: typeof tastingWriteThrottle };
 type Db = BetterSQLite3Database<Schema>;
 
-// Save actions per participant (starting value, tunable). Deliberately no
+// Writes per participant: the save and remove actions of the participant page
+// share one quota (starting value, tunable). Deliberately no
 // per-IP limit: the page needs a login plus a participation anyway, and
 // without ADDRESS_HEADER getClientAddress() only sees Traefik's IP, so all
 // participants would share one bucket.
@@ -17,8 +18,9 @@ export const TASTING_WRITE_LIMIT: ThrottleOptions = {
 
 /**
  * Rolling fixed-window counter per participant, persisted in SQLite (same
- * scheme as consumeEmailRateLimit). Returns true if the save is within the
- * limit (and records it), false once the quota of the window is used up.
+ * scheme as consumeEmailRateLimit). Returns true if the write (save or remove)
+ * is within the limit (and records it), false once the quota of the window is
+ * used up.
  */
 export function consumeTastingWriteLimit(
 	db: Db,

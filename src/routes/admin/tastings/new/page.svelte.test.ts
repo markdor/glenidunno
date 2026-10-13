@@ -19,11 +19,12 @@ beforeEach(() => {
 });
 
 describe('New tasting page', () => {
-	test('offers every active user as a checkbox, none ticked, and two bottles per person', async () => {
+	test('offers every active user as a checkbox, none ticked, and no number of bottles', async () => {
 		render(Page, { data, form: null });
 
 		await expect.element(page.getByLabelText('Datum *')).toHaveAttribute('min', '2026-10-21');
-		await expect.element(page.getByLabelText('Flaschen pro Person *')).toHaveValue(2);
+		// The participants add their bottles themselves.
+		expect(page.getByLabelText(/Flaschen/).elements()).toHaveLength(0);
 		const boxes = page.getByRole('checkbox');
 		expect(boxes.elements()).toHaveLength(3);
 		for (const box of boxes.elements()) expect((box as HTMLInputElement).checked).toBe(false);
@@ -65,7 +66,6 @@ describe('New tasting page', () => {
 					name: '',
 					motto: 'x'.repeat(121),
 					tastingDate: '2026-10-01',
-					bottlesPerParticipant: '2',
 					participants: ['u-anna']
 				},
 				fieldErrors: {
@@ -98,7 +98,6 @@ describe('New tasting page', () => {
 					name: 'Herbst',
 					motto: '',
 					tastingDate: '',
-					bottlesPerParticipant: '2',
 					participants: []
 				},
 				userMessage: 'Da ist etwas schiefgelaufen.'

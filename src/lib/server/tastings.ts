@@ -1,16 +1,5 @@
 import { randomInt, randomUUID } from 'node:crypto';
-import {
-	and,
-	asc,
-	count,
-	countDistinct,
-	desc,
-	eq,
-	inArray,
-	isNotNull,
-	isNull,
-	sql
-} from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
 	participantLabel,
@@ -24,7 +13,7 @@ import {
 	type TastingBottle,
 	type TastingPhase
 } from '$lib/tasting';
-import { isValidTastingDate, TASTING_MOTTO_LENGTH } from '$lib/validation';
+import { isValidTastingDate, TASTING_BOTTLE_SLOTS, TASTING_MOTTO_LENGTH } from '$lib/validation';
 import type * as Schema from './db/schema';
 import {
 	tasting,
@@ -191,6 +180,14 @@ const phaseColumns = {
 	revealedAt: tasting.revealedAt
 };
 
+/**
+ * Entry progress of one participant: every participant brings at least the
+ * base number of bottles, a further one raises only their own target.
+ */
+function participantProgress(entered: number): Progress {
+	return { entered, total: Math.max(TASTING_BOTTLE_SLOTS.base, entered) };
+}
+
 /** Current phase of a tasting, `null` if it doesn't exist. */
 function currentPhase(db: Executor, id: string, now: Date): TastingPhase | null {
 	const t = db.select(phaseColumns).from(tasting).where(eq(tasting.id, id)).get();
@@ -229,7 +226,6 @@ export type NewTasting = {
 	/** Optional, `null` (or missing) means no motto. */
 	motto?: string | null;
 	tastingDate: string;
-	bottlesPerParticipant: number;
 	/** Users taking part, in the order they are listed. */
 	participantUserIds: string[];
 };
@@ -308,7 +304,6 @@ export function createTasting(
 				name: input.name,
 				motto: input.motto ?? null,
 				tastingDate: input.tastingDate,
-				bottlesPerParticipant: input.bottlesPerParticipant,
 				createdAt: now
 			})
 			.run();
@@ -343,40 +338,40 @@ export type TastingListItem = {
 	progress: Progress;
 };
 
-/** Management data only: name, date, phase and entry progress. */
+/**
+ * Management data only: name, date, phase and entry progress. The progress
+ * adds up the participants' own targets, so a participant's third bottle
+ * doesn't raise the target of the others.
+ */
 export function listTastings(db: Db, now: Date = new Date()): TastingListItem[] {
-	const counts = new Map(
-		db
-			.select({
-				tastingId: tastingParticipant.tastingId,
-				participants: countDistinct(tastingParticipant.id),
-				bottles: count(tastingBottle.id)
-			})
-			.from(tastingParticipant)
-			.leftJoin(tastingBottle, eq(tastingBottle.participantId, tastingParticipant.id))
-			.groupBy(tastingParticipant.tastingId)
-			.all()
-			.map((c) => [c.tastingId, c])
-	);
+	const progress = new Map<string, Progress>();
+	const perParticipant = db
+		.select({
+			tastingId: tastingParticipant.tastingId,
+			entered: count(tastingBottle.id)
+		})
+		.from(tastingParticipant)
+		.leftJoin(tastingBottle, eq(tastingBottle.participantId, tastingParticipant.id))
+		.groupBy(tastingParticipant.id)
+		.all();
+	for (const { tastingId, entered } of perParticipant) {
+		const sum = progress.get(tastingId) ?? { entered: 0, total: 0 };
+		const own = participantProgress(entered);
+		progress.set(tastingId, { entered: sum.entered + own.entered, total: sum.total + own.total });
+	}
 
 	return db
 		.select()
 		.from(tasting)
 		.orderBy(desc(tasting.tastingDate), desc(tasting.createdAt))
 		.all()
-		.map((t) => {
-			const c = counts.get(t.id);
-			return {
-				id: t.id,
-				name: t.name,
-				tastingDate: t.tastingDate,
-				phase: getTastingPhase(t.tastingDate, now, t),
-				progress: {
-					entered: c?.bottles ?? 0,
-					total: (c?.participants ?? 0) * t.bottlesPerParticipant
-				}
-			};
-		});
+		.map((t) => ({
+			id: t.id,
+			name: t.name,
+			tastingDate: t.tastingDate,
+			phase: getTastingPhase(t.tastingDate, now, t),
+			progress: progress.get(t.id) ?? { entered: 0, total: 0 }
+		}));
 }
 
 export type StartPageSummary = {
@@ -419,7 +414,6 @@ export function getDashboardTasting(
 			name: tasting.name,
 			motto: tasting.motto,
 			...phaseColumns,
-			bottlesPerParticipant: tasting.bottlesPerParticipant,
 			entered: count(tastingBottle.id)
 		})
 		.from(tastingParticipant)
@@ -450,7 +444,7 @@ export function getDashboardTasting(
 				tastingDate: t.tastingDate,
 				phase,
 				isToday: t.tastingDate === today,
-				progress: { entered: t.entered, total: t.bottlesPerParticipant }
+				progress: participantProgress(t.entered)
 			};
 		}
 	}
@@ -466,7 +460,6 @@ export type AdminTastingDetail = {
 		name: string;
 		motto: string | null;
 		tastingDate: string;
-		bottlesPerParticipant: number;
 	};
 	phase: TastingPhase;
 	participants: AdminParticipant[];
@@ -503,17 +496,11 @@ export function getAdminTastingDetail(
 		.map((p) => ({
 			id: p.id,
 			name: participantLabel(p.username, p.deactivatedAt),
-			progress: { entered: p.entered, total: t.bottlesPerParticipant }
+			progress: participantProgress(p.entered)
 		}));
 
 	return {
-		tasting: {
-			id: t.id,
-			name: t.name,
-			motto: t.motto,
-			tastingDate: t.tastingDate,
-			bottlesPerParticipant: t.bottlesPerParticipant
-		},
+		tasting: { id: t.id, name: t.name, motto: t.motto, tastingDate: t.tastingDate },
 		phase: getTastingPhase(t.tastingDate, now, t),
 		participants,
 		manual: { orderOpenedAt: t.orderOpenedAt, revealedAt: t.revealedAt }
@@ -699,7 +686,6 @@ export type Participant = ManualPhaseChanges & {
 	tastingId: string;
 	tastingName: string;
 	tastingDate: string;
-	bottlesPerParticipant: number;
 };
 
 /**
@@ -716,7 +702,6 @@ export function findParticipant(db: Db, slug: string, userId: string): Participa
 				tastingId: tasting.id,
 				tastingName: tasting.name,
 				tastingDate: tasting.tastingDate,
-				bottlesPerParticipant: tasting.bottlesPerParticipant,
 				orderOpenedAt: tasting.orderOpenedAt,
 				revealedAt: tasting.revealedAt
 			})
@@ -734,7 +719,7 @@ export type OwnBottle = TastingBottle & { slot: number; presentationName: string
 export type ParticipantView =
 	| {
 			phase: 'entry';
-			tasting: { name: string; tastingDate: string; bottlesPerParticipant: number };
+			tasting: { name: string; tastingDate: string };
 			participant: { username: string };
 			bottles: OwnBottle[];
 	  }
@@ -780,7 +765,7 @@ export function getParticipantView(
 				}));
 			return {
 				phase,
-				tasting: { ...tastingInfo, bottlesPerParticipant: holder.bottlesPerParticipant },
+				tasting: tastingInfo,
 				participant: { username: holder.username },
 				bottles
 			};
@@ -833,11 +818,7 @@ export function saveBottle(
 	presentation?: PendingUpload | null
 ): SaveBottleResult {
 	return db.transaction((tx): SaveBottleResult => {
-		const t = tx
-			.select({ ...phaseColumns, bottlesPerParticipant: tasting.bottlesPerParticipant })
-			.from(tasting)
-			.where(eq(tasting.id, holder.tastingId))
-			.get();
+		const t = tx.select(phaseColumns).from(tasting).where(eq(tasting.id, holder.tastingId)).get();
 		// Also catches the admin's 18:00 / 9:00 button pressed while the page was open.
 		if (!t || getTastingPhase(t.tastingDate, now, t) !== 'entry') {
 			throw new TastingValidationError(
@@ -846,7 +827,7 @@ export function saveBottle(
 			);
 		}
 		// Number.isInteger also catches NaN from a tampered form field.
-		if (!Number.isInteger(slot) || slot < 1 || slot > t.bottlesPerParticipant) {
+		if (!Number.isInteger(slot) || slot < 1 || slot > TASTING_BOTTLE_SLOTS.max) {
 			throw new TastingValidationError(
 				`save rejected: slot ${slot} out of range`,
 				'Diese Flasche gibt es in diesem Tasting nicht.'
@@ -910,6 +891,54 @@ export function saveBottle(
 
 export type SaveBottleResult =
 	{ status: 'saved'; fileChanges: FileChange[] } | { status: 'alias-taken' };
+
+/**
+ * Removes a further bottle (slot 3–6) of the participant, the base slots stay.
+ * Like saveBottle the phase and the slot are checked in the same transaction
+ * as the delete, and the bottle is only ever addressed by participant and
+ * slot. Its alias and file name are free again afterwards. Returns the
+ * presentation file the caller deletes after the commit; an empty slot (e.g.
+ * removed in another tab already) is no error.
+ *
+ * Throws TastingValidationError if the entry phase is over or the slot can't
+ * be removed.
+ */
+export function removeBottle(
+	db: Db,
+	holder: Pick<Participant, 'id' | 'tastingId'>,
+	slot: number,
+	now: Date = new Date()
+): FileChange[] {
+	return db.transaction((tx) => {
+		const t = tx.select(phaseColumns).from(tasting).where(eq(tasting.id, holder.tastingId)).get();
+		// Also catches the admin's 18:00 / 9:00 button pressed while the page was open.
+		if (!t || getTastingPhase(t.tastingDate, now, t) !== 'entry') {
+			throw new TastingValidationError(
+				`remove rejected: tasting ${holder.tastingId} is past the entry phase`,
+				'Die Eingabe ist geschlossen, die Flasche wurde nicht entfernt.'
+			);
+		}
+		if (
+			!Number.isInteger(slot) ||
+			slot <= TASTING_BOTTLE_SLOTS.base ||
+			slot > TASTING_BOTTLE_SLOTS.max
+		) {
+			throw new TastingValidationError(
+				`remove rejected: slot ${slot} can't be removed`,
+				'Diese Flasche lässt sich nicht entfernen.'
+			);
+		}
+
+		const own = and(eq(tastingBottle.participantId, holder.id), eq(tastingBottle.slot, slot));
+		const file = tx
+			.select({ file: tastingBottle.presentationFile })
+			.from(tastingBottle)
+			.where(own)
+			.get()?.file;
+		tx.delete(tastingBottle).where(own).run();
+		return file ? [{ delete: file }] : [];
+	});
+}
 
 // Case-insensitive, see fileNameKey.
 function sameFile(a: string, b: string): boolean {

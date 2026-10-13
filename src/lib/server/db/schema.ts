@@ -14,8 +14,8 @@ import {
 	TASTING_ABV,
 	TASTING_AGE,
 	TASTING_ALIAS_LENGTH,
+	TASTING_BOTTLE_SLOTS,
 	TASTING_BOTTLER_LENGTH,
-	TASTING_BOTTLES_PER_PARTICIPANT,
 	TASTING_BOTTLING_LENGTH,
 	TASTING_DISTILLERY_LENGTH,
 	TASTING_NAME_LENGTH,
@@ -127,7 +127,6 @@ export const tasting = sqliteTable(
 		slug: text('slug').notNull().unique(),
 		name: text('name').notNull(),
 		tastingDate: text('tasting_date').notNull(),
-		bottlesPerParticipant: integer('bottles_per_participant').notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 		// Admin overrides of the 18:00 / 9:00 rules; null = the clock decides.
 		// Every participant sees when the admin pressed the button.
@@ -138,17 +137,7 @@ export const tasting = sqliteTable(
 		// a CHECK on an existing table makes drizzle-kit rebuild it.
 		motto: text('motto')
 	},
-	(t) => [
-		check('tasting_name_length', lengthUpTo(t.name, TASTING_NAME_LENGTH.max)),
-		check(
-			'tasting_bottles_per_participant_range',
-			inRange(
-				t.bottlesPerParticipant,
-				TASTING_BOTTLES_PER_PARTICIPANT.min,
-				TASTING_BOTTLES_PER_PARTICIPANT.max
-			)
-		)
-	]
+	(t) => [check('tasting_name_length', lengthUpTo(t.name, TASTING_NAME_LENGTH.max))]
 );
 
 // Word lists for the tasting links /tasting/<adjective>-<animal>, seeded by a
@@ -209,7 +198,7 @@ export const tastingBottle = sqliteTable(
 	},
 	(t) => [
 		uniqueIndex('tasting_bottle_participant_slot_unique').on(t.participantId, t.slot),
-		check('tasting_bottle_slot_range', inRange(t.slot, 1, TASTING_BOTTLES_PER_PARTICIPANT.max)),
+		check('tasting_bottle_slot_range', inRange(t.slot, 1, TASTING_BOTTLE_SLOTS.max)),
 		check('tasting_bottle_alias_length', lengthUpTo(t.alias, TASTING_ALIAS_LENGTH.max)),
 		check(
 			'tasting_bottle_distillery_length',

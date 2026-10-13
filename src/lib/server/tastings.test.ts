@@ -21,6 +21,7 @@ import {
 	listSelectableUsers,
 	listTastings,
 	openOrderEarly,
+	removeBottle,
 	revealEarly,
 	saveBottle,
 	TastingValidationError,
@@ -76,7 +77,6 @@ function newTasting(overrides: Partial<NewTasting> = {}): NewTasting {
 	return {
 		name: 'Herbst-Tasting',
 		tastingDate: TASTING_DATE,
-		bottlesPerParticipant: 2,
 		participantUserIds: PARTICIPANT_IDS,
 		...overrides
 	};
@@ -209,7 +209,6 @@ describe('findParticipant', () => {
 			tastingId: id,
 			tastingName: 'Herbst-Tasting',
 			tastingDate: TASTING_DATE,
-			bottlesPerParticipant: 2,
 			orderOpenedAt: null,
 			revealedAt: null
 		});
@@ -280,7 +279,24 @@ describe('saveBottle', () => {
 		expect(db.select().from(schema.tastingBottle).get()?.distillery).toBe('Ardbeg');
 	});
 
-	it.each([0, 3, 1.5, NaN])('refuses slot %s outside 1..bottlesPerParticipant', (slot) => {
+	it('takes the slots up to 6 in every tasting', () => {
+		const { anna } = setup();
+		for (const slot of [3, 4, 5, 6]) {
+			expect(saveBottle(db, anna, slot, bottle({ alias: `Flasche ${slot}` }), ENTRY)).toMatchObject(
+				{ status: 'saved' }
+			);
+		}
+		expect(
+			db
+				.select({ slot: schema.tastingBottle.slot })
+				.from(schema.tastingBottle)
+				.all()
+				.map((b) => b.slot)
+				.sort()
+		).toEqual([3, 4, 5, 6]);
+	});
+
+	it.each([0, 7, 1.5, NaN])('refuses slot %s outside 1..6', (slot) => {
 		const { anna } = setup();
 		expect(() => saveBottle(db, anna, slot, bottle(), ENTRY)).toThrow(
 			expect.objectContaining({
@@ -288,6 +304,91 @@ describe('saveBottle', () => {
 				userMessage: 'Diese Flasche gibt es in diesem Tasting nicht.'
 			})
 		);
+	});
+});
+
+describe('removeBottle', () => {
+	// A staged upload as tastingMedia.stageUpload() returns it.
+	const DECK: PendingUpload = { tempFile: '.upload-1', name: 'Vortrag.pptx', extension: '.pptx' };
+	// The tasting is on 24.10.2026.
+	const TORF_FILE = 'Tasting_2026-10-24_Torf.pptx';
+
+	function slotsOf(participantId: string) {
+		return db
+			.select({ slot: schema.tastingBottle.slot })
+			.from(schema.tastingBottle)
+			.where(eq(schema.tastingBottle.participantId, participantId))
+			.all()
+			.map((b) => b.slot)
+			.sort();
+	}
+
+	it('removes a further bottle and hands back its presentation file for deletion', () => {
+		const { anna } = setup();
+		saveBottle(db, anna, 1, bottle({ alias: 'Nebel' }), ENTRY);
+		saveBottle(db, anna, 3, bottle({ alias: 'Torf' }), ENTRY, DECK);
+		saveBottle(db, anna, 4, bottle({ alias: 'Rauch' }), ENTRY);
+
+		expect(removeBottle(db, anna, 3, ENTRY)).toEqual([{ delete: TORF_FILE }]);
+		expect(removeBottle(db, anna, 4, ENTRY)).toEqual([]);
+		expect(slotsOf(anna.id)).toEqual([1]);
+	});
+
+	it('takes an empty slot as removed already', () => {
+		const { anna } = setup();
+		expect(removeBottle(db, anna, 5, ENTRY)).toEqual([]);
+	});
+
+	it('removes only the holder’s own bottle', () => {
+		const { anna, ben } = setup();
+		saveBottle(db, ben, 3, bottle({ alias: 'Torf' }), ENTRY, DECK);
+
+		expect(removeBottle(db, anna, 3, ENTRY)).toEqual([]);
+		expect(slotsOf(ben.id)).toEqual([3]);
+	});
+
+	it('frees the alias and the file name again', () => {
+		const { anna, ben } = setup();
+		saveBottle(db, anna, 3, bottle({ alias: 'Torf' }), ENTRY, DECK);
+		removeBottle(db, anna, 3, ENTRY);
+
+		expect(
+			saveBottle(db, ben, 1, bottle({ alias: 'torf' }), ENTRY, { ...DECK, tempFile: '.upload-2' })
+		).toEqual({
+			status: 'saved',
+			fileChanges: [{ move: '.upload-2', to: 'Tasting_2026-10-24_torf.pptx' }]
+		});
+		expect(saveBottle(db, anna, 3, bottle({ alias: 'Torf' }), ENTRY, DECK)).toEqual({
+			status: 'alias-taken'
+		});
+	});
+
+	it.each([1, 2, 0, 7, 1.5, NaN])('refuses to remove slot %s', (slot) => {
+		const { anna } = setup();
+		saveBottle(db, anna, 1, bottle({ alias: 'Nebel' }), ENTRY);
+		saveBottle(db, anna, 2, bottle({ alias: 'Torf' }), ENTRY);
+
+		expect(() => removeBottle(db, anna, slot, ENTRY)).toThrow(
+			expect.objectContaining({
+				name: 'TastingValidationError',
+				userMessage: 'Diese Flasche lässt sich nicht entfernen.'
+			})
+		);
+		expect(slotsOf(anna.id)).toEqual([1, 2]);
+	});
+
+	it('refuses from 18:00 on and once the admin opened the order', () => {
+		const ctx = setup();
+		saveBottle(db, ctx.anna, 3, bottle({ alias: 'Torf' }), ENTRY, DECK);
+		const closed = expect.objectContaining({
+			name: 'TastingValidationError',
+			userMessage: 'Die Eingabe ist geschlossen, die Flasche wurde nicht entfernt.'
+		});
+
+		expect(() => removeBottle(db, ctx.anna, 3, ORDER)).toThrow(closed);
+		openOrderEarly(db, ctx.id, ENTRY);
+		expect(() => removeBottle(db, ctx.anna, 3, ENTRY)).toThrow(closed);
+		expect(listPresentationFiles(db, ctx.id)).toEqual([TORF_FILE]);
 	});
 });
 
@@ -310,7 +411,7 @@ describe('getParticipantView', () => {
 		expect(view).toMatchObject({
 			phase: 'entry',
 			participant: { username: 'Anna' },
-			tasting: { bottlesPerParticipant: 2 }
+			tasting: { name: 'Herbst-Tasting', tastingDate: TASTING_DATE }
 		});
 		const serialized = JSON.stringify(view);
 		expect(serialized).toContain('Nebel');
@@ -353,6 +454,29 @@ describe('getParticipantView', () => {
 		expect(view.bottles[1]).not.toHaveProperty('breakdown');
 	});
 
+	it('pours and reveals the bottles from slots 3 to 6 as well', () => {
+		const ctx = setup();
+		fill(ctx);
+		saveBottle(db, ctx.anna, 3, bottle({ alias: 'Torf', smoke: 4 }), ENTRY);
+		saveBottle(db, ctx.anna, 6, bottle({ alias: 'Sherry', smoke: 0, cask: 5 }), ENTRY);
+
+		const order = getParticipantView(db, ctx.ben, ORDER);
+		expect(order.phase === 'order' && order.order.map((b) => b.alias).sort()).toEqual([
+			'Blume',
+			'Nebel',
+			'Sherry',
+			'Torf'
+		]);
+		const revealed = getParticipantView(db, ctx.ben, REVEALED);
+		expect(
+			revealed.phase === 'revealed' &&
+				revealed.bottles
+					.filter((b) => b.broughtBy === 'Anna')
+					.map((b) => b.alias)
+					.sort()
+		).toEqual(['Nebel', 'Sherry', 'Torf']);
+	});
+
 	it('marks the bringer of a bottle as inactive once deactivated', () => {
 		const ctx = setup();
 		fill(ctx);
@@ -382,8 +506,7 @@ describe('getAdminTastingDetail', () => {
 			id,
 			name: 'Herbst-Tasting',
 			motto: 'Sherry',
-			tastingDate: TASTING_DATE,
-			bottlesPerParticipant: 2
+			tastingDate: TASTING_DATE
 		});
 	});
 
@@ -401,6 +524,19 @@ describe('getAdminTastingDetail', () => {
 		for (const secret of ['Nebel', 'Torf', 'Ardbeg', 'Lagavulin', 'whiskybase']) {
 			expect(serialized).not.toContain(secret);
 		}
+	});
+
+	it('raises only the own target of a participant with a further bottle', () => {
+		const ctx = setup();
+		fill(ctx);
+		saveBottle(db, ctx.anna, 3, bottle({ alias: 'Rauch' }), ENTRY);
+		saveBottle(db, ctx.ben, 1, bottle({ alias: 'Blume' }), ENTRY);
+
+		expect(getAdminTastingDetail(db, ctx.id, ENTRY)?.participants.map((p) => p.progress)).toEqual([
+			{ entered: 3, total: 3 },
+			{ entered: 1, total: 2 },
+			{ entered: 0, total: 2 }
+		]);
 	});
 
 	it('marks deactivated participants', () => {
@@ -441,6 +577,33 @@ describe('listTastings and getStartPageSummary', () => {
 			[earlier.id, 'entry', { entered: 1, total: 6 }]
 		]);
 		expect(JSON.stringify(list)).not.toContain('Nebel');
+	});
+
+	it.each([
+		{ entered: [2, 2, 3], progress: { entered: 7, total: 7 } },
+		{ entered: [1, 1, 3], progress: { entered: 5, total: 7 } },
+		{ entered: [0, 0, 6], progress: { entered: 6, total: 10 } }
+	])('sums up each participant’s own target for $entered bottles', ({ entered, progress }) => {
+		const ctx = setup();
+		[ctx.anna, ctx.ben, ctx.cem].forEach((holder, i) => {
+			for (let slot = 1; slot <= entered[i]; slot++) {
+				saveBottle(db, holder, slot, bottle({ alias: `${holder.username} ${slot}` }), ENTRY);
+			}
+		});
+		expect(listTastings(db, ENTRY)[0].progress).toEqual(progress);
+	});
+
+	it('shows no target for a tasting without participants', () => {
+		db.insert(schema.tasting)
+			.values({
+				id: 't-empty',
+				slug: 'shy-owl',
+				name: 'Leer',
+				tastingDate: TASTING_DATE,
+				createdAt: ENTRY
+			})
+			.run();
+		expect(listTastings(db, ENTRY)[0].progress).toEqual({ entered: 0, total: 0 });
 	});
 
 	it('counts and previews only unrevealed tastings, soonest first, flagging today', () => {
@@ -495,6 +658,17 @@ describe('getDashboardTasting', () => {
 		});
 		expect(getDashboardTasting(db, 'u-cem', ENTRY).next?.progress).toEqual({
 			entered: 0,
+			total: 2
+		});
+
+		// A further bottle raises the own target, not the one of the others.
+		saveBottle(db, ctx.ben, 3, bottle({ alias: 'Asche' }), ENTRY);
+		expect(getDashboardTasting(db, 'u-ben', ENTRY).next?.progress).toEqual({
+			entered: 3,
+			total: 3
+		});
+		expect(getDashboardTasting(db, 'u-anna', ENTRY).next?.progress).toEqual({
+			entered: 1,
 			total: 2
 		});
 	});

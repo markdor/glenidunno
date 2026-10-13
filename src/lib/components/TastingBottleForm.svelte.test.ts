@@ -1,14 +1,15 @@
-import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import type { SubmitFunction } from '@sveltejs/kit';
 
-// enhance is replaced so the submit callback can be driven directly – the
+// enhance is replaced so the submit callbacks can be driven directly – the
 // real one would need a running SvelteKit client for update()/invalidateAll().
-const captured = vi.hoisted(() => ({ submit: null as SubmitFunction | null }));
+// Kept per form action: the card of a further bottle has a remove form, too.
+const captured = vi.hoisted(() => ({ submit: {} as Record<string, SubmitFunction> }));
 vi.mock('$app/forms', () => ({
-	enhance: (_form: HTMLFormElement, submit: SubmitFunction) => {
-		captured.submit = submit;
+	enhance: (form: HTMLFormElement, submit: SubmitFunction) => {
+		captured.submit[form.getAttribute('action')!] = submit;
 		return { destroy() {} };
 	}
 }));
@@ -16,6 +17,7 @@ vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn() }));
 
 import { invalidateAll } from '$app/navigation';
 import TastingBottleForm from './TastingBottleForm.svelte';
+import { confirmDialog } from './confirmDialogStore.svelte';
 import { toast } from './toastStore.svelte';
 
 const saved = {
@@ -34,13 +36,15 @@ const saved = {
 beforeEach(() => {
 	for (const t of [...toast.toasts]) toast.dismiss(t.id);
 	vi.clearAllMocks();
-	captured.submit = null;
+	captured.submit = {};
 });
 
-async function runSubmit(result: Record<string, unknown>) {
+async function runSubmit(result: Record<string, unknown>, action = '?/save') {
 	const update = vi.fn(async () => {});
-	const formElement = document.querySelector('form')!;
-	const after = await captured.submit!({ formElement } as unknown as Parameters<SubmitFunction>[0]);
+	const formElement = document.querySelector<HTMLFormElement>(`form[action="${action}"]`)!;
+	const after = await captured.submit[action]({
+		formElement
+	} as unknown as Parameters<SubmitFunction>[0]);
 	await (after as (opts: unknown) => Promise<void>)({ result, update, formElement });
 	return update;
 }
@@ -228,8 +232,8 @@ describe('TastingBottleForm', () => {
 			render(TastingBottleForm, { slot: 1, bottle: null });
 			const input = chooseFile(new File([new Uint8Array(10)], 'deck.pptx'));
 
-			const formElement = document.querySelector('form')!;
-			const after = await captured.submit!({
+			const formElement = document.querySelector<HTMLFormElement>('form[action="?/save"]')!;
+			const after = await captured.submit['?/save']({
 				formElement
 			} as unknown as Parameters<SubmitFunction>[0]);
 			const button = page.getByRole('button', { name: 'Wird gespeichert …' });
@@ -242,6 +246,114 @@ describe('TastingBottleForm', () => {
 			});
 			await expect.element(page.getByRole('button', { name: 'Flasche 1 speichern' })).toBeEnabled();
 			expect(input.files).toHaveLength(0);
+		});
+	});
+
+	describe('removing a further bottle', () => {
+		let requestSubmit: MockInstance<HTMLFormElement['requestSubmit']>;
+		const ticks = () => new Promise((resolve) => setTimeout(resolve));
+
+		beforeEach(() => {
+			// The mocked enhance doesn't catch the submit, a real one would navigate.
+			requestSubmit = vi
+				.spyOn(HTMLFormElement.prototype, 'requestSubmit')
+				.mockImplementation(() => {});
+		});
+
+		afterEach(() => {
+			requestSubmit.mockRestore();
+			if (confirmDialog.request) confirmDialog.cancel();
+		});
+
+		test.each([1, 2])('offers no removal for slot %s', async (slot) => {
+			render(TastingBottleForm, { slot, bottle: saved });
+
+			await expect.element(page.getByRole('heading', { name: `Flasche ${slot}` })).toBeVisible();
+			expect(page.getByRole('button', { name: /entfernen/i }).elements()).toHaveLength(0);
+			expect(document.querySelector('form[action="?/remove"]')).toBeNull();
+		});
+
+		test('hides an unsaved card right away, without asking', async () => {
+			const onremove = vi.fn();
+			render(TastingBottleForm, { slot: 3, bottle: null, onremove });
+
+			await page.getByRole('button', { name: 'Flasche 3 entfernen' }).click();
+
+			expect(onremove).toHaveBeenCalledWith(3);
+			expect(confirmDialog.request).toBeNull();
+			expect(requestSubmit).not.toHaveBeenCalled();
+		});
+
+		test('asks before removing a saved bottle and sends nothing when cancelled', async () => {
+			const onremove = vi.fn();
+			render(TastingBottleForm, { slot: 3, bottle: saved, onremove });
+
+			await page.getByRole('button', { name: 'Flasche 3 entfernen' }).click();
+			expect(confirmDialog.request).toMatchObject({
+				message: 'Flasche 3 entfernen? Synonym, Angaben und Präsentation werden gelöscht.',
+				variant: 'danger',
+				confirmLabel: 'Entfernen'
+			});
+			confirmDialog.cancel();
+			await ticks();
+
+			expect(requestSubmit).not.toHaveBeenCalled();
+			expect(onremove).not.toHaveBeenCalled();
+		});
+
+		test('sends the remove form for its slot once confirmed', async () => {
+			render(TastingBottleForm, { slot: 5, bottle: saved });
+
+			await page.getByRole('button', { name: 'Flasche 5 entfernen' }).click();
+			confirmDialog.confirm();
+			await ticks();
+
+			const removeForm = document.querySelector<HTMLFormElement>('form[action="?/remove"]')!;
+			expect(requestSubmit).toHaveBeenCalledOnce();
+			expect(requestSubmit.mock.contexts[0]).toBe(removeForm);
+			expect(new FormData(removeForm).get('slot')).toBe('5');
+		});
+
+		test('confirms the removal and hides the card', async () => {
+			const onremove = vi.fn();
+			render(TastingBottleForm, { slot: 4, bottle: saved, onremove });
+
+			const update = await runSubmit(
+				{ type: 'success', status: 200, data: { removed: true } },
+				'?/remove'
+			);
+
+			expect(update).toHaveBeenCalledWith({ reset: false });
+			expect(toast.toasts.map((t) => [t.variant, t.message])).toContainEqual([
+				'success',
+				'Flasche 4 entfernt.'
+			]);
+			expect(onremove).toHaveBeenCalledWith(4);
+			expect(invalidateAll).not.toHaveBeenCalled();
+		});
+
+		test('reloads the page once the entry phase has ended', async () => {
+			const onremove = vi.fn();
+			render(TastingBottleForm, { slot: 3, bottle: saved, onremove });
+
+			await runSubmit({ type: 'failure', status: 422, data: { reload: true } }, '?/remove');
+
+			expect(invalidateAll).toHaveBeenCalledOnce();
+			expect(onremove).not.toHaveBeenCalled();
+			expect(toast.toasts.filter((t) => t.variant === 'success')).toHaveLength(0);
+		});
+
+		test('keeps the card on other failures', async () => {
+			const onremove = vi.fn();
+			render(TastingBottleForm, { slot: 3, bottle: saved, onremove });
+
+			await runSubmit(
+				{ type: 'failure', status: 429, data: { userMessage: 'Zu viele' } },
+				'?/remove'
+			);
+
+			expect(invalidateAll).not.toHaveBeenCalled();
+			expect(onremove).not.toHaveBeenCalled();
 		});
 	});
 });

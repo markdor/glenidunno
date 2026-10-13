@@ -53,7 +53,6 @@ beforeEach(() => {
 		name: 'Herbst-Tasting',
 		motto: 'Islay gegen den Rest',
 		tastingDate: '2026-10-24',
-		bottlesPerParticipant: 2,
 		participantUserIds: ['u-Anna', 'u-Ben', 'u-Cem']
 	}));
 	saveBottle(db, findParticipant(db, slug, 'u-Anna')!, 1, {

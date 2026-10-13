@@ -117,7 +117,6 @@ beforeEach(() => {
 	const created = createTasting(db, {
 		name: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
-		bottlesPerParticipant: 2,
 		participantUserIds: ['u-anna', 'u-ben']
 	});
 	tastingId = created.id;
@@ -181,8 +180,7 @@ describe('admin tasting detail – projection per phase', () => {
 			id: tastingId,
 			name: 'Herbst-Tasting',
 			motto: 'Islay gegen den Rest',
-			tastingDate: '2026-10-24',
-			bottlesPerParticipant: 2
+			tastingDate: '2026-10-24'
 		});
 	});
 

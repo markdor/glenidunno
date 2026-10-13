@@ -6,7 +6,7 @@ import {
 	TASTING_ABV,
 	TASTING_AGE,
 	TASTING_ALIAS_LENGTH,
-	TASTING_BOTTLES_PER_PARTICIPANT,
+	TASTING_BOTTLE_SLOTS,
 	TASTING_SCALE
 } from '$lib/validation';
 import { runMigrations } from './migrate';
@@ -72,8 +72,12 @@ describe('tasting CHECK constraints', () => {
 			tasting_bottle_age_range: `"tasting_bottle"."age" BETWEEN ${TASTING_AGE.min} AND ${TASTING_AGE.max}`,
 			tasting_bottle_abv_range: `"tasting_bottle"."abv" BETWEEN ${TASTING_ABV.min} AND ${TASTING_ABV.max}`,
 			tasting_bottle_smoke_range: `"tasting_bottle"."smoke" BETWEEN ${TASTING_SCALE.min} AND ${TASTING_SCALE.max}`,
-			tasting_bottle_slot_range: `"tasting_bottle"."slot" BETWEEN 1 AND ${TASTING_BOTTLES_PER_PARTICIPANT.max}`
+			tasting_bottle_slot_range: `"tasting_bottle"."slot" BETWEEN 1 AND ${TASTING_BOTTLE_SLOTS.max}`
 		});
+	});
+
+	it('leave the number of bottles to the participants', () => {
+		expect(checksOf(schema.tasting).map((c) => c.name)).toEqual(['tasting_name_length']);
 	});
 
 	it('declare the (participant, slot) pair unique', () => {
@@ -116,7 +120,6 @@ describe('migrated tasting tables', () => {
 				slug: 'fluffy-otter',
 				name: 'Herbst',
 				tastingDate: '2026-10-24',
-				bottlesPerParticipant: 2,
 				createdAt: new Date()
 			})
 			.run();
@@ -157,7 +160,8 @@ describe('migrated tasting tables', () => {
 		{ field: 'abv', value: TASTING_ABV.max + 0.1 },
 		{ field: 'age', value: 0 },
 		{ field: 'alias', value: '' },
-		{ field: 'slot', value: 0 }
+		{ field: 'slot', value: 0 },
+		{ field: 'slot', value: TASTING_BOTTLE_SLOTS.max + 1 }
 	])('rejects $field = $value', ({ field, value }) => {
 		expect(() => insertBottle({ [field]: value })).toThrow(/CHECK constraint failed/);
 	});
@@ -196,7 +200,6 @@ describe('migrated tasting tables', () => {
 					slug: 'fluffy-otter',
 					name: 'Winter',
 					tastingDate: '2026-12-12',
-					bottlesPerParticipant: 2,
 					createdAt: new Date()
 				})
 				.run()
