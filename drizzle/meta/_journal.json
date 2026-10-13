@@ -64,6 +64,20 @@
 			"when": 1791835622003,
 			"tag": "0008_tasting_drop_bottles_per_participant",
 			"breakpoints": true
+		},
+		{
+			"idx": 9,
+			"version": "6",
+			"when": 1791917946887,
+			"tag": "0009_tasting_bottle_archived",
+			"breakpoints": true
+		},
+		{
+			"idx": 10,
+			"version": "6",
+			"when": 1791918027698,
+			"tag": "0010_tasting_bottle_archive_rebuild",
+			"breakpoints": true
 		}
 	]
 }

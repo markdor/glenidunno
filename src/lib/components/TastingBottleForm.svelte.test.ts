@@ -81,6 +81,11 @@ describe('TastingBottleForm', () => {
 		await expect.element(page.getByRole('slider', { name: 'Fass *' })).toHaveValue('3');
 	});
 
+	test('takes a bottling of up to 120 characters', async () => {
+		render(TastingBottleForm, { slot: 1, bottle: null });
+		await expect.element(page.getByLabelText('Abfüllung')).toHaveAttribute('maxlength', '120');
+	});
+
 	test('explains the fields right at the field instead of a tooltip', async () => {
 		render(TastingBottleForm, { slot: 1, bottle: null });
 

@@ -3,12 +3,14 @@ import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from 'driz
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
 	participantLabel,
+	type ArchivedRevealedBottle,
 	type DashboardLastTasting,
 	type DashboardTasting,
 	type ManualPhaseChanges,
 	type OrderEntry,
 	type PresentationRef,
 	type Progress,
+	type Reveal,
 	type RevealedBottle,
 	type TastingBottle,
 	type TastingPhase
@@ -85,8 +87,18 @@ export function validateTastingMotto(raw: string): {
 
 type BottleRow = typeof tastingBottle.$inferSelect;
 
+/**
+ * A bottle entered in the app, not an archived one from the tasting history:
+ * the CHECK tasting_bottle_archived_factors keeps its smoke, cask and value set.
+ */
+type ActiveBottleRow = BottleRow & { archived: false; smoke: number; cask: number; value: number };
+
+function isActiveBottle(row: BottleRow): row is ActiveBottleRow {
+	return !row.archived && row.smoke !== null && row.cask !== null && row.value !== null;
+}
+
 /** Maps a DB row to the domain bottle – drops ids, slot and timestamps. */
-export function toDomain(row: BottleRow): TastingBottle {
+export function toDomain(row: ActiveBottleRow): TastingBottle {
 	return {
 		alias: row.alias,
 		distillery: row.distillery,
@@ -140,8 +152,43 @@ function toReveal(poured: ReadonlyArray<PouredBottle>) {
 	}));
 }
 
-/** All bottles of a tasting with their participant, in pouring order. */
-function pouredBottles(db: Db, tastingId: string) {
+type BottleWithBringer = { bottle: BottleRow; username: string; deactivatedAt: Date | null };
+
+/**
+ * The reveal of a tasting with archived bottles: without smoke, cask and value
+ * there is neither a score nor an order, so the bottles are listed by bringer
+ * (compared here, SQLite only compares bytes) and slot. Picked explicitly – a
+ * spread would put the NULL factors into the payload.
+ */
+function toArchivedReveal(rows: ReadonlyArray<BottleWithBringer>): ArchivedRevealedBottle[] {
+	return [...rows]
+		.sort((a, b) => a.username.localeCompare(b.username, 'de-DE') || a.bottle.slot - b.bottle.slot)
+		.map(({ bottle, username, deactivatedAt }): ArchivedRevealedBottle => ({
+			id: bottle.id,
+			alias: bottle.alias,
+			distillery: bottle.distillery,
+			bottler: bottle.bottler,
+			bottling: bottle.bottling,
+			age: bottle.age,
+			whiskybaseUrl: bottle.whiskybaseUrl,
+			abv: bottle.abv,
+			broughtBy: participantLabel(username, deactivatedAt),
+			presentation: presentationRef(bottle)
+		}));
+}
+
+/**
+ * All bottles of a tasting with their participant, in pouring order. As soon
+ * as one of them is archived (imported from the tasting history without
+ * smoke, cask and value), there is no order: then all of them come as
+ * archived bottles, see toArchivedReveal().
+ */
+function pouredBottles(
+	db: Db,
+	tastingId: string
+):
+	| { archived: false; bottles: PouredBottle[] }
+	| { archived: true; bottles: ArchivedRevealedBottle[] } {
 	const rows = db
 		.select({
 			bottle: tastingBottle,
@@ -154,13 +201,20 @@ function pouredBottles(db: Db, tastingId: string) {
 		.where(eq(tastingParticipant.tastingId, tastingId))
 		.orderBy(asc(tastingBottle.id))
 		.all();
-	return sortForPouring(
-		rows.map(({ bottle, username, deactivatedAt }) => ({
-			...toDomain(bottle),
-			broughtBy: participantLabel(username, deactivatedAt),
-			presentation: presentationRef(bottle)
-		}))
+	const active = rows.flatMap(({ bottle, username, deactivatedAt }) =>
+		isActiveBottle(bottle)
+			? [
+					{
+						...toDomain(bottle),
+						broughtBy: participantLabel(username, deactivatedAt),
+						presentation: presentationRef(bottle)
+					}
+				]
+			: []
 	);
+	return active.length === rows.length
+		? { archived: false, bottles: sortForPouring(active) }
+		: { archived: true, bottles: toArchivedReveal(rows) };
 }
 
 function presentationRef(bottle: BottleRow): PresentationRef | null {
@@ -192,6 +246,22 @@ function participantProgress(entered: number): Progress {
 function currentPhase(db: Executor, id: string, now: Date): TastingPhase | null {
 	const t = db.select(phaseColumns).from(tasting).where(eq(tasting.id, id)).get();
 	return t ? getTastingPhase(t.tastingDate, now, t) : null;
+}
+
+/**
+ * Whether one of the tasting's bottles is archived – reads nothing else, so
+ * the entry phase can ask without querying the other participants' bottles.
+ */
+function hasArchivedBottles(db: Executor, tastingId: string): boolean {
+	return (
+		db
+			.select({ id: tastingBottle.id })
+			.from(tastingBottle)
+			.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+			.where(and(eq(tastingParticipant.tastingId, tastingId), eq(tastingBottle.archived, true)))
+			.limit(1)
+			.get() !== undefined
+	);
 }
 
 /**
@@ -729,17 +799,27 @@ export type ParticipantView =
 			manual: ManualPhaseChanges;
 			order: OrderEntry[];
 	  }
-	| {
+	| ({
 			phase: 'revealed';
 			tasting: { name: string; tastingDate: string };
 			manual: ManualPhaseChanges;
-			bottles: RevealedBottle[];
-	  };
+	  } & Reveal);
+
+/**
+ * Archived bottles come with the history import, whose tastings are all
+ * revealed already. Before the reveal such a tasting has no order to show
+ * (no factors), so its page fails closed: an error instead of any content.
+ */
+function archivedBeforeReveal(tastingId: string, phase: TastingPhase): Error {
+	return new Error(`tasting ${tastingId} has archived bottles in phase ${phase}`);
+}
 
 /**
  * What the participant page shows. Before 18:00 only the participant's own
  * bottles are even queried; afterwards the order with each bottle's total
- * score, and after the reveal everything.
+ * score, and after the reveal everything. A tasting with archived bottles
+ * has no order: its reveal comes without score and position, before the
+ * reveal it throws (archivedBeforeReveal).
  */
 export function getParticipantView(
 	db: Db,
@@ -752,12 +832,17 @@ export function getParticipantView(
 	const phase = getTastingPhase(holder.tastingDate, now, manual);
 	switch (phase) {
 		case 'entry': {
+			if (hasArchivedBottles(db, holder.tastingId)) {
+				throw archivedBeforeReveal(holder.tastingId, phase);
+			}
 			const bottles = db
 				.select()
 				.from(tastingBottle)
 				.where(eq(tastingBottle.participantId, holder.id))
 				.orderBy(asc(tastingBottle.slot))
 				.all()
+				// None of them is archived (checked above), this narrows the type.
+				.filter(isActiveBottle)
 				.map((row) => ({
 					slot: row.slot,
 					...toDomain(row),
@@ -770,20 +855,23 @@ export function getParticipantView(
 				bottles
 			};
 		}
-		case 'order':
-			return {
-				phase,
-				tasting: tastingInfo,
-				manual,
-				order: toOrder(pouredBottles(db, holder.tastingId))
-			};
-		case 'revealed':
-			return {
-				phase,
-				tasting: tastingInfo,
-				manual,
-				bottles: toReveal(pouredBottles(db, holder.tastingId))
-			};
+		case 'order': {
+			const poured = pouredBottles(db, holder.tastingId);
+			if (poured.archived) throw archivedBeforeReveal(holder.tastingId, phase);
+			return { phase, tasting: tastingInfo, manual, order: toOrder(poured.bottles) };
+		}
+		case 'revealed': {
+			const poured = pouredBottles(db, holder.tastingId);
+			return poured.archived
+				? { phase, tasting: tastingInfo, manual, archived: true, bottles: poured.bottles }
+				: {
+						phase,
+						tasting: tastingInfo,
+						manual,
+						archived: false,
+						bottles: toReveal(poured.bottles)
+					};
+		}
 	}
 }
 
@@ -806,8 +894,8 @@ function aliasKey(alias: string): string {
  * the caller applies to MEDIA_PATH after the commit.
  *
  * Returns status 'alias-taken' if another bottle of the tasting uses the
- * alias; throws TastingValidationError if the entry phase is over or the slot
- * doesn't exist.
+ * alias; throws TastingValidationError if the entry phase is over, the tasting
+ * has archived bottles or the slot doesn't exist.
  */
 export function saveBottle(
 	db: Db,
@@ -818,12 +906,21 @@ export function saveBottle(
 	presentation?: PendingUpload | null
 ): SaveBottleResult {
 	return db.transaction((tx): SaveBottleResult => {
+		const closed = 'Die Eingabe ist geschlossen, deine Änderung wurde nicht gespeichert.';
 		const t = tx.select(phaseColumns).from(tasting).where(eq(tasting.id, holder.tastingId)).get();
 		// Also catches the admin's 18:00 / 9:00 button pressed while the page was open.
 		if (!t || getTastingPhase(t.tastingDate, now, t) !== 'entry') {
 			throw new TastingValidationError(
 				`save rejected: tasting ${holder.tastingId} is past the entry phase`,
-				'Die Eingabe ist geschlossen, deine Änderung wurde nicht gespeichert.'
+				closed
+			);
+		}
+		// Fail closed, see archivedBeforeReveal(). Same text: the UI never
+		// mentions the archive.
+		if (hasArchivedBottles(tx, holder.tastingId)) {
+			throw new TastingValidationError(
+				`save rejected: tasting ${holder.tastingId} has archived bottles`,
+				closed
 			);
 		}
 		// Number.isInteger also catches NaN from a tampered form field.
@@ -900,8 +997,8 @@ export type SaveBottleResult =
  * presentation file the caller deletes after the commit; an empty slot (e.g.
  * removed in another tab already) is no error.
  *
- * Throws TastingValidationError if the entry phase is over or the slot can't
- * be removed.
+ * Throws TastingValidationError if the entry phase is over, the tasting has
+ * archived bottles or the slot can't be removed.
  */
 export function removeBottle(
 	db: Db,
@@ -910,12 +1007,20 @@ export function removeBottle(
 	now: Date = new Date()
 ): FileChange[] {
 	return db.transaction((tx) => {
+		const closed = 'Die Eingabe ist geschlossen, die Flasche wurde nicht entfernt.';
 		const t = tx.select(phaseColumns).from(tasting).where(eq(tasting.id, holder.tastingId)).get();
 		// Also catches the admin's 18:00 / 9:00 button pressed while the page was open.
 		if (!t || getTastingPhase(t.tastingDate, now, t) !== 'entry') {
 			throw new TastingValidationError(
 				`remove rejected: tasting ${holder.tastingId} is past the entry phase`,
-				'Die Eingabe ist geschlossen, die Flasche wurde nicht entfernt.'
+				closed
+			);
+		}
+		// An archived bottle is never removed, its presentation file neither.
+		if (hasArchivedBottles(tx, holder.tastingId)) {
+			throw new TastingValidationError(
+				`remove rejected: tasting ${holder.tastingId} has archived bottles`,
+				closed
 			);
 		}
 		if (

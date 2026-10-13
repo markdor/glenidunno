@@ -35,6 +35,11 @@ function realMigrationsUpTo(lastTag: string): string {
 	return dir;
 }
 
+/** Bottle rows from before migration 0009, which adds the archive flag – off for all of them. */
+function notArchived(bottles: unknown[]): unknown[] {
+	return bottles.map((bottle) => ({ ...(bottle as object), archived: 0 }));
+}
+
 /** A throwaway migrations folder in drizzle-kit's layout (SQL files + journal). */
 function migrationsFolder(migrations: string[][]): string {
 	const dir = tempMigrationsDir();
@@ -185,7 +190,7 @@ describe('migrations 0004–0006: tasting participants become users', () => {
 	});
 
 	it('keeps bottles, presentations, throttle rows, dates and manual timestamps', () => {
-		expect(rows('SELECT * FROM tasting_bottle ORDER BY id')).toEqual(before.bottles);
+		expect(rows('SELECT * FROM tasting_bottle ORDER BY id')).toEqual(notArchived(before.bottles));
 		expect(rows('SELECT * FROM tasting_write_throttle')).toEqual(before.throttle);
 		expect(rows(`SELECT ${TASTING_COLUMNS} FROM tasting ORDER BY id`)).toEqual(before.tastings);
 	});
@@ -336,6 +341,7 @@ describe('migration 0008: no fixed number of bottles per participant', () => {
 			...Object.fromEntries(TABLES.map((t) => [t, rows(`SELECT * FROM ${t} ORDER BY rowid`)])),
 			tasting: rows(`SELECT ${TASTING_COLUMNS} FROM tasting`)
 		};
+		before.tasting_bottle = notArchived(before.tasting_bottle);
 
 		runMigrations(sqlite, './drizzle');
 
@@ -362,5 +368,78 @@ describe('migration 0008: no fixed number of bottles per participant', () => {
 			/UNIQUE constraint failed/
 		);
 		expect(rows('SELECT name FROM sqlite_temp_master')).toEqual([]);
+	});
+});
+
+describe('migrations 0009–0010: archived bottles', () => {
+	let sqlite: Database.Database;
+
+	function rows(query: string): unknown[] {
+		return sqlite.prepare(query).all();
+	}
+
+	/** Rows as the version without archived bottles (state 0008) wrote them. */
+	function seed() {
+		sqlite
+			.prepare(
+				`INSERT INTO user (id, name, email, email_verified, created_at, updated_at, username, is_admin)
+				 VALUES ('u-anna', 'Anna', 'anna@example.com', 1, 1, 1, 'Anna', 0)`
+			)
+			.run();
+		sqlite
+			.prepare(
+				`INSERT INTO tasting (id, slug, name, tasting_date, created_at)
+				 VALUES ('t-autumn', 'fluffy-otter', 'Herbst', '2026-10-24', 100)`
+			)
+			.run();
+		sqlite
+			.prepare("INSERT INTO tasting_participant VALUES ('p-anna', 't-autumn', 'u-anna', 100)")
+			.run();
+
+		const bottle = sqlite.prepare(
+			`INSERT INTO tasting_bottle (id, participant_id, slot, alias, distillery, bottling, smoke,
+			   cask, abv, value, updated_at, presentation_file, presentation_name)
+			 VALUES (?, 'p-anna', ?, ?, 'Ardbeg', ?, ?, 2, 46.3, ?, 300, ?, ?)`
+		);
+		bottle.run('b-nebel', 1, 'Nebel', 'x'.repeat(80), 0, 0, null, null);
+		bottle.run('b-torf', 3, 'Torf', null, 5, 5, 'Tasting_2026-10-24_Torf.pptx', 'Vortrag.pptx');
+	}
+
+	beforeEach(() => {
+		sqlite = new Database(':memory:');
+		runMigrations(sqlite, realMigrationsUpTo('0008_tasting_drop_bottles_per_participant'));
+		seed();
+	});
+
+	it('keeps every bottle with its factors and presentation, none of them archived', () => {
+		const before = rows('SELECT * FROM tasting_bottle ORDER BY id');
+
+		runMigrations(sqlite, './drizzle');
+
+		expect(rows('SELECT * FROM tasting_bottle ORDER BY id')).toEqual(notArchived(before));
+		expect(sqlite.pragma('foreign_key_check')).toEqual([]);
+		expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
+	});
+
+	it('keeps the unique slot and the cascade, and checks the factors of existing bottles', () => {
+		runMigrations(sqlite, './drizzle');
+
+		expect(() =>
+			sqlite
+				.prepare(
+					`INSERT INTO tasting_bottle (id, participant_id, slot, alias, distillery, smoke, cask,
+					   abv, value, updated_at)
+					 VALUES ('b-twin', 'p-anna', 1, 'Zwilling', 'Ardbeg', 1, 1, 40, 1, 300)`
+				)
+				.run()
+		).toThrow(/UNIQUE constraint failed/);
+		// Archived with its factors still set.
+		expect(() =>
+			sqlite.prepare("UPDATE tasting_bottle SET archived = 1 WHERE id = 'b-nebel'").run()
+		).toThrow(/CHECK constraint failed: tasting_bottle_archived_factors/);
+		expect(rows("SELECT name FROM sqlite_master WHERE name GLOB '__new_*'")).toEqual([]);
+
+		sqlite.prepare("DELETE FROM tasting WHERE id = 't-autumn'").run();
+		expect(rows('SELECT id FROM tasting_bottle')).toEqual([]);
 	});
 });

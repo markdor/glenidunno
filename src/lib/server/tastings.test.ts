@@ -88,6 +88,28 @@ function setup(tastingDate = TASTING_DATE) {
 	return { id, slug, anna, ben, cem };
 }
 
+/** An archived bottle as the history import writes it – the app has no way to. */
+function insertArchivedBottle(
+	participantId: string,
+	slot: number,
+	alias: string,
+	overrides: Partial<typeof schema.tastingBottle.$inferInsert> = {}
+) {
+	db.insert(schema.tastingBottle)
+		.values({
+			id: `b-${alias}`,
+			participantId,
+			slot,
+			alias,
+			distillery: 'Aberlour',
+			abv: 40,
+			archived: true,
+			updatedAt: ENTRY,
+			...overrides
+		})
+		.run();
+}
+
 beforeEach(() => {
 	const sqlite = new Database(':memory:');
 	runMigrations(sqlite, './drizzle');
@@ -305,6 +327,26 @@ describe('saveBottle', () => {
 			})
 		);
 	});
+
+	it('refuses to save into a tasting with an archived bottle and changes nothing', () => {
+		const { id, anna, ben } = setup();
+		saveBottle(db, anna, 1, bottle(), ENTRY);
+		insertArchivedBottle(ben.id, 1, 'Moor');
+		const before = db.select().from(schema.tastingBottle).all();
+
+		for (const slot of [1, 2]) {
+			expect(() =>
+				saveBottle(db, anna, slot, bottle({ alias: 'Neu', distillery: 'Other' }), ENTRY)
+			).toThrow(
+				expect.objectContaining({
+					name: 'TastingValidationError',
+					message: `save rejected: tasting ${id} has archived bottles`,
+					userMessage: 'Die Eingabe ist geschlossen, deine Änderung wurde nicht gespeichert.'
+				})
+			);
+		}
+		expect(db.select().from(schema.tastingBottle).all()).toEqual(before);
+	});
 });
 
 describe('removeBottle', () => {
@@ -390,6 +432,29 @@ describe('removeBottle', () => {
 		expect(() => removeBottle(db, ctx.anna, 3, ENTRY)).toThrow(closed);
 		expect(listPresentationFiles(db, ctx.id)).toEqual([TORF_FILE]);
 	});
+
+	it('refuses to remove from a tasting with an archived bottle, its own neither', () => {
+		const ctx = setup();
+		saveBottle(db, ctx.anna, 3, bottle({ alias: 'Torf' }), ENTRY, DECK);
+		const moorFile = 'Tasting_2026-10-24_Moor.pptx';
+		insertArchivedBottle(ctx.anna.id, 4, 'Moor', {
+			presentationFile: moorFile,
+			presentationName: 'Moor.pptx'
+		});
+		const before = db.select().from(schema.tastingBottle).all();
+
+		for (const slot of [3, 4]) {
+			expect(() => removeBottle(db, ctx.anna, slot, ENTRY)).toThrow(
+				expect.objectContaining({
+					name: 'TastingValidationError',
+					message: `remove rejected: tasting ${ctx.id} has archived bottles`,
+					userMessage: 'Die Eingabe ist geschlossen, die Flasche wurde nicht entfernt.'
+				})
+			);
+		}
+		expect(db.select().from(schema.tastingBottle).all()).toEqual(before);
+		expect(listPresentationFiles(db, ctx.id).sort()).toEqual([moorFile, TORF_FILE]);
+	});
 });
 
 describe('getParticipantView', () => {
@@ -439,8 +504,8 @@ describe('getParticipantView', () => {
 		const ctx = setup();
 		fill(ctx);
 		const view = getParticipantView(db, ctx.cem, REVEALED);
-		expect(view.phase).toBe('revealed');
-		if (view.phase !== 'revealed') return;
+		expect(view).toMatchObject({ phase: 'revealed', archived: false });
+		if (view.phase !== 'revealed' || view.archived) return;
 		expect(view.bottles.map((b) => [b.position, b.alias, b.broughtBy])).toEqual([
 			[1, 'Blume', 'Ben'],
 			[2, 'Nebel', 'Anna']
@@ -487,6 +552,83 @@ describe('getParticipantView', () => {
 			'Ben (inaktiv)',
 			'Anna'
 		]);
+	});
+
+	describe('with archived bottles', () => {
+		it('reveals them by bringer and slot, without factors, score and position', () => {
+			const ctx = setup();
+			// Lower case sorts like a word – SQLite would put it after all capitals.
+			db.update(schema.user).set({ username: 'ben' }).where(eq(schema.user.id, 'u-ben')).run();
+			insertArchivedBottle(ctx.anna.id, 3, 'Ahorn');
+			insertArchivedBottle(ctx.cem.id, 1, 'Birke', {
+				bottling: 'Sherry Cask',
+				age: 12,
+				whiskybaseUrl: 'https://www.whiskybase.com/whiskies/whisky/2',
+				presentationFile: 'Tasting_2026-10-24_Birke.pptx',
+				presentationName: 'Birke.pptx'
+			});
+			insertArchivedBottle(ctx.ben.id, 2, 'Moor');
+			insertArchivedBottle(ctx.anna.id, 1, 'Zeder');
+
+			const view = getParticipantView(db, ctx.ben, REVEALED);
+
+			expect(view).toMatchObject({ phase: 'revealed', archived: true });
+			if (view.phase !== 'revealed' || !view.archived) return;
+			expect(view.bottles.map((b) => [b.broughtBy, b.alias])).toEqual([
+				['Anna', 'Zeder'],
+				['Anna', 'Ahorn'],
+				['ben', 'Moor'],
+				['Cem', 'Birke']
+			]);
+			expect(view.bottles[3]).toEqual({
+				id: 'b-Birke',
+				alias: 'Birke',
+				distillery: 'Aberlour',
+				bottler: null,
+				bottling: 'Sherry Cask',
+				age: 12,
+				whiskybaseUrl: 'https://www.whiskybase.com/whiskies/whisky/2',
+				abv: 40,
+				broughtBy: 'Cem',
+				presentation: { bottleId: 'b-Birke', name: 'Birke.pptx' }
+			});
+			const serialized = JSON.stringify(view);
+			for (const hidden of ['smoke', 'cask', '"value"', 'score', 'position', 'breakdown']) {
+				expect(serialized).not.toContain(hidden);
+			}
+		});
+
+		it('shows a tasting mixing archived and entered bottles all archived', () => {
+			const ctx = setup();
+			saveBottle(db, ctx.anna, 1, bottle({ alias: 'Nebel' }), ENTRY);
+			insertArchivedBottle(ctx.ben.id, 1, 'Moor');
+
+			const view = getParticipantView(db, ctx.cem, REVEALED);
+			expect(view).toMatchObject({
+				phase: 'revealed',
+				archived: true,
+				bottles: [
+					{ alias: 'Nebel', broughtBy: 'Anna', abv: 54.2 },
+					{ alias: 'Moor', broughtBy: 'Ben', abv: 40 }
+				]
+			});
+			expect(JSON.stringify(view)).not.toContain('smoke');
+		});
+
+		it.each([
+			{ phase: 'entry', now: ENTRY },
+			{ phase: 'order', now: ORDER }
+		])('fails closed in the $phase phase, for every participant', ({ phase, now }) => {
+			const ctx = setup();
+			saveBottle(db, ctx.anna, 1, bottle(), ENTRY);
+			insertArchivedBottle(ctx.ben.id, 1, 'Moor');
+
+			for (const holder of [ctx.anna, ctx.ben, ctx.cem]) {
+				expect(() => getParticipantView(db, holder, now)).toThrow(
+					`tasting ${ctx.id} has archived bottles in phase ${phase}`
+				);
+			}
+		});
 	});
 });
 

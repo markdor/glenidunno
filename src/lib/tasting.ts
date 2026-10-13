@@ -121,6 +121,26 @@ export type RevealedBottle = TastingBottle & {
 	presentation: PresentationRef | null;
 };
 
+/**
+ * A bottle after the reveal of a tasting with archived bottles. Those come
+ * from the tasting history with the ABV only: without smoke, cask and value
+ * there is neither a score nor a position. The bottle id (also part of the
+ * presentation link) keys the list instead.
+ */
+export type ArchivedRevealedBottle = Omit<TastingBottle, 'smoke' | 'cask' | 'value'> & {
+	id: string;
+	broughtBy: string;
+	presentation: PresentationRef | null;
+};
+
+/**
+ * The reveal: the bottles in pouring order – or, once a tasting has an
+ * archived bottle, all of them without factors, by bringer and slot.
+ */
+export type Reveal =
+	| { archived: false; bottles: RevealedBottle[] }
+	| { archived: true; bottles: ArchivedRevealedBottle[] };
+
 /** Points each factor contributes to the score (they add up to it). */
 export type ScoreBreakdown = { smoke: number; cask: number; abv: number; value: number };
 

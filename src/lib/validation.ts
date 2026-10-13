@@ -53,7 +53,7 @@ export const TASTING_ALIAS_LENGTH = { max: 30 } as const;
 export const TASTING_DISTILLERY_LENGTH = { max: 60 } as const;
 /** Independent bottler; empty means original bottling. */
 export const TASTING_BOTTLER_LENGTH = { max: 60 } as const;
-export const TASTING_BOTTLING_LENGTH = { max: 80 } as const;
+export const TASTING_BOTTLING_LENGTH = { max: 120 } as const;
 /** Age statement in years; empty means NAS. */
 export const TASTING_AGE = { min: 1, max: 80 } as const;
 export const TASTING_WHISKYBASE_URL_LENGTH = { max: 300 } as const;

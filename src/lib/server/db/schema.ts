@@ -115,6 +115,16 @@ function lengthUpTo(column: SQLiteColumn, max: number): SQL {
 	return sql`length(${column}) BETWEEN 1 AND ${sql.raw(String(max))}`;
 }
 
+// An archived bottle has none of the factors, every other bottle all of them.
+function factorsMatchArchived(archived: SQLiteColumn, factors: SQLiteColumn[]): SQL {
+	const all = (condition: string) =>
+		sql.join(
+			factors.map((factor) => sql`${factor} ${sql.raw(condition)}`),
+			sql` AND `
+		);
+	return sql`(${archived} = 0 AND ${all('IS NOT NULL')}) OR (${archived} = 1 AND ${all('IS NULL')})`;
+}
+
 // The tasting date is a calendar date (YYYY-MM-DD), not a timestamp: the
 // phases hang on Berlin local time, not on an instant.
 export const tasting = sqliteTable(
@@ -184,10 +194,14 @@ export const tastingBottle = sqliteTable(
 		bottling: text('bottling'),
 		age: integer('age'),
 		whiskybaseUrl: text('whiskybase_url'),
-		smoke: integer('smoke').notNull(),
-		cask: integer('cask').notNull(),
+		smoke: integer('smoke'),
+		cask: integer('cask'),
 		abv: real('abv').notNull(),
-		value: integer('value').notNull(),
+		value: integer('value'),
+		// Imported from the tasting history with the ABV only: an archived bottle
+		// has no smoke, cask and value, every other bottle has all three
+		// (CHECK tasting_bottle_archived_factors). Only the import sets the flag.
+		archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
 		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 		// Optional presentation upload: the file name in MEDIA_PATH follows the
 		// scheme Tasting_<date>_<alias>[.ext] (presentationFiles.ts, never the
@@ -214,7 +228,11 @@ export const tastingBottle = sqliteTable(
 		check('tasting_bottle_smoke_range', inRange(t.smoke, TASTING_SCALE.min, TASTING_SCALE.max)),
 		check('tasting_bottle_cask_range', inRange(t.cask, TASTING_SCALE.min, TASTING_SCALE.max)),
 		check('tasting_bottle_abv_range', inRange(t.abv, TASTING_ABV.min, TASTING_ABV.max)),
-		check('tasting_bottle_value_range', inRange(t.value, TASTING_SCALE.min, TASTING_SCALE.max))
+		check('tasting_bottle_value_range', inRange(t.value, TASTING_SCALE.min, TASTING_SCALE.max)),
+		check(
+			'tasting_bottle_archived_factors',
+			factorsMatchArchived(t.archived, [t.smoke, t.cask, t.value])
+		)
 		// Deliberately no CHECK on presentation_name (length is validated in the
 		// save action): adding a CHECK to an existing table makes drizzle-kit
 		// rebuild the table, and its generated INSERT … SELECT reads the new
