@@ -211,18 +211,15 @@ const tastingId = randomUUID();
 sqlite
 	.prepare(
 		`INSERT INTO tasting
-		   (id, slug, name, tasting_date, bottles_per_participant, created_at, order_opened_at,
-		    revealed_at)
+		   (id, slug, name, tasting_date, created_at, order_opened_at, revealed_at)
 		 VALUES
-		   (@id, @slug, @name, @tastingDate, @bottlesPerParticipant, @createdAt, @orderOpenedAt,
-		    @revealedAt)`
+		   (@id, @slug, @name, @tastingDate, @createdAt, @orderOpenedAt, @revealedAt)`
 	)
 	.run({
 		id: tastingId,
 		slug,
 		name: 'Testitest',
 		tastingDate,
-		bottlesPerParticipant: 2,
 		createdAt: toUnixSeconds(now),
 		// No manual override: with tastingDate a week out, getTastingPhase()
 		// resolves to `entry` purely from the clock.

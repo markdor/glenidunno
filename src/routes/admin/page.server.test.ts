@@ -63,7 +63,6 @@ function takePart(userId: string) {
 	createTasting(db, {
 		name: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
-		bottlesPerParticipant: 2,
 		participantUserIds: [ADMIN.id, userId]
 	});
 }

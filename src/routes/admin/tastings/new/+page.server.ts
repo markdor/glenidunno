@@ -1,10 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import {
-	TASTING_BOTTLES_PER_PARTICIPANT,
-	TASTING_NAME_LENGTH,
-	TASTING_PARTICIPANTS
-} from '$lib/validation';
+import { TASTING_NAME_LENGTH, TASTING_PARTICIPANTS } from '$lib/validation';
 import { db } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/authGuards';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
@@ -33,7 +29,6 @@ type Values = {
 	name: string;
 	motto: string;
 	tastingDate: string;
-	bottlesPerParticipant: string;
 	participants: string[];
 };
 
@@ -50,16 +45,6 @@ function validate(values: Values, now: Date) {
 	const date = validateTastingDate(values.tastingDate, now);
 	if (date.error) fieldErrors.tastingDate = date.error;
 
-	const bottles = values.bottlesPerParticipant.trim();
-	const bottlesPerParticipant = Number(bottles);
-	if (
-		!/^\d+$/.test(bottles) ||
-		bottlesPerParticipant < TASTING_BOTTLES_PER_PARTICIPANT.min ||
-		bottlesPerParticipant > TASTING_BOTTLES_PER_PARTICIPANT.max
-	) {
-		fieldErrors.bottlesPerParticipant = 'invalid';
-	}
-
 	// User ids of the ticked checkboxes; a tampered form may repeat one.
 	const participantUserIds = [...new Set(values.participants.filter(Boolean))];
 	if (participantUserIds.length === 0) fieldErrors.participants = 'required';
@@ -75,7 +60,6 @@ function validate(values: Values, now: Date) {
 			name,
 			motto: motto.motto,
 			tastingDate: date.tastingDate,
-			bottlesPerParticipant,
 			participantUserIds
 		},
 		fieldErrors
@@ -90,7 +74,6 @@ export const actions: Actions = {
 			name: String(form.get('name') ?? ''),
 			motto: String(form.get('motto') ?? ''),
 			tastingDate: String(form.get('tastingDate') ?? ''),
-			bottlesPerParticipant: String(form.get('bottlesPerParticipant') ?? ''),
 			participants: form.getAll('participant').map(String)
 		};
 

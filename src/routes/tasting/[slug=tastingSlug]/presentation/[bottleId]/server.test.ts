@@ -81,7 +81,6 @@ beforeEach(async () => {
 	slug = createTasting(db, {
 		name: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
-		bottlesPerParticipant: 1,
 		participantUserIds: [ANNA, BEN]
 	}).slug;
 	const result = saveBottle(
@@ -155,7 +154,6 @@ describe('presentation download from the participant page', () => {
 		const other = createTasting(db, {
 			name: 'Anderes',
 			tastingDate: '2026-10-24',
-			bottlesPerParticipant: 1,
 			participantUserIds: [DORA, EMIL]
 		});
 		vi.setSystemTime(REVEALED);

@@ -4,12 +4,7 @@
 	import { resolve } from '$app/paths';
 	import SubHeader from '$lib/components/SubHeader.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
-	import {
-		TASTING_BOTTLES_PER_PARTICIPANT,
-		TASTING_MOTTO_LENGTH,
-		TASTING_NAME_LENGTH,
-		TASTING_PARTICIPANTS
-	} from '$lib/validation';
+	import { TASTING_MOTTO_LENGTH, TASTING_NAME_LENGTH, TASTING_PARTICIPANTS } from '$lib/validation';
 
 	let { data, form } = $props();
 
@@ -86,41 +81,20 @@
 			{/if}
 		</div>
 
-		<div class="grid gap-5 sm:grid-cols-2">
-			<div class="space-y-1">
-				<label for="t-date" class="block text-sm font-medium text-slate-700">Datum *</label>
-				<input
-					id="t-date"
-					name="tastingDate"
-					type="date"
-					required
-					min={data.today}
-					value={form?.values?.tastingDate ?? ''}
-					class={inputClass}
-				/>
-				{#if fieldError('tastingDate')}
-					<p class="text-xs text-red-600">{fieldError('tastingDate')}</p>
-				{/if}
-			</div>
-			<div class="space-y-1">
-				<label for="t-bottles" class="block text-sm font-medium text-slate-700">
-					Flaschen pro Person *
-				</label>
-				<input
-					id="t-bottles"
-					name="bottlesPerParticipant"
-					type="number"
-					inputmode="numeric"
-					required
-					min={TASTING_BOTTLES_PER_PARTICIPANT.min}
-					max={TASTING_BOTTLES_PER_PARTICIPANT.max}
-					value={form?.values?.bottlesPerParticipant ?? TASTING_BOTTLES_PER_PARTICIPANT.default}
-					class={inputClass}
-				/>
-				{#if fieldError('bottlesPerParticipant')}
-					<p class="text-xs text-red-600">{fieldError('bottlesPerParticipant')}</p>
-				{/if}
-			</div>
+		<div class="space-y-1">
+			<label for="t-date" class="block text-sm font-medium text-slate-700">Datum *</label>
+			<input
+				id="t-date"
+				name="tastingDate"
+				type="date"
+				required
+				min={data.today}
+				value={form?.values?.tastingDate ?? ''}
+				class={inputClass}
+			/>
+			{#if fieldError('tastingDate')}
+				<p class="text-xs text-red-600">{fieldError('tastingDate')}</p>
+			{/if}
 		</div>
 
 		<fieldset class="space-y-2">

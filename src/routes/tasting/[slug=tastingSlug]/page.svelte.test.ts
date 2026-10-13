@@ -11,6 +11,20 @@ import { toast } from '$lib/components/toastStore.svelte';
 
 const tasting = { name: 'Herbst-Tasting', tastingDate: '2026-10-24' };
 
+const savedBottle = {
+	slot: 1,
+	alias: 'Nebel',
+	distillery: 'Ardbeg',
+	bottler: null,
+	bottling: null,
+	age: null,
+	whiskybaseUrl: null,
+	smoke: 5,
+	cask: 2,
+	abv: 46,
+	value: 3
+};
+
 // No admin button pressed unless a test says otherwise.
 const noManual = { orderOpenedAt: null, revealedAt: null };
 
@@ -35,23 +49,9 @@ describe('Tasting participant page', () => {
 	test('shows one card per bottle during entry, filled with the own bottles', async () => {
 		renderView({
 			phase: 'entry',
-			tasting: { ...tasting, bottlesPerParticipant: 2 },
+			tasting,
 			participant: { username: 'Anna' },
-			bottles: [
-				{
-					slot: 2,
-					alias: 'Nebel',
-					distillery: 'Ardbeg',
-					bottler: null,
-					bottling: null,
-					age: null,
-					whiskybaseUrl: null,
-					smoke: 5,
-					cask: 2,
-					abv: 46,
-					value: 3
-				}
-			]
+			bottles: [{ ...savedBottle, slot: 2 }]
 		});
 
 		await expect.element(page.getByText('Hallo Anna 👋')).toBeVisible();
@@ -63,11 +63,32 @@ describe('Tasting participant page', () => {
 		await expect.element(second.getByLabelText('Synonym *')).toHaveValue('Nebel');
 	});
 
+	test('shows slots 1 and 2 plus every slot with a saved bottle, in order', async () => {
+		renderView({
+			phase: 'entry',
+			tasting,
+			participant: { username: 'Anna' },
+			bottles: [5, 3].map((slot) => ({ ...savedBottle, slot, alias: `Flasche ${slot}` }))
+		});
+
+		await expect
+			.poll(() =>
+				page
+					.getByRole('heading', { level: 2 })
+					.elements()
+					.map((h) => h.textContent)
+			)
+			.toEqual(['Flasche 1', 'Flasche 2', 'Flasche 3', 'Flasche 5']);
+		await expect
+			.element(page.getByRole('form', { name: 'Flasche 3' }).getByLabelText('Synonym *'))
+			.toHaveValue('Flasche 3');
+	});
+
 	test('passes field errors only to the card they belong to', async () => {
 		renderView(
 			{
 				phase: 'entry',
-				tasting: { ...tasting, bottlesPerParticipant: 2 },
+				tasting,
 				participant: { username: 'Anna' },
 				bottles: []
 			},

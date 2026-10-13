@@ -41,7 +41,13 @@ export const TASTING_NAME_LENGTH = { max: 60 } as const;
 export const TASTING_MOTTO_LENGTH = { max: 120 } as const;
 /** Number of users the admin picks as participants of a tasting. */
 export const TASTING_PARTICIPANTS = { min: 2, max: 12 } as const;
-export const TASTING_BOTTLES_PER_PARTICIPANT = { min: 1, max: 6, default: 2 } as const;
+/**
+ * Bottle slots of a participant. Slots 1..`base` are always there and set the
+ * participant's target in the entry progress (max(base, own bottles)); the
+ * participant adds the slots up to `max` themselves. `max` is also the bound
+ * of the CHECK on tasting_bottle.slot – changing it rebuilds that table.
+ */
+export const TASTING_BOTTLE_SLOTS = { base: 2, max: 6 } as const;
 
 export const TASTING_ALIAS_LENGTH = { max: 30 } as const;
 export const TASTING_DISTILLERY_LENGTH = { max: 60 } as const;

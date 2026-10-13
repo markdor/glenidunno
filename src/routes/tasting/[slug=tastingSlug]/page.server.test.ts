@@ -135,7 +135,6 @@ beforeEach(async () => {
 	const created = createTasting(db, {
 		name: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
-		bottlesPerParticipant: 2,
 		participantUserIds: [ANNA, BEN]
 	});
 	tastingId = created.id;
@@ -322,11 +321,21 @@ describe('participant page save', () => {
 		expect(db.select().from(tastingBottle).get()?.distillery).toBe('Ardbeg');
 	});
 
-	it('rejects a slot beyond bottlesPerParticipant', async () => {
-		expect(await save(ANNA, { ...validBottle, slot: '3' })).toMatchObject({
+	it('saves a further bottle into slot 3', async () => {
+		expect(await save(ANNA, { ...validBottle, slot: '3' })).toEqual({
+			action: 'save',
+			slot: 3,
+			saved: true
+		});
+		expect(loadFor(ANNA).view).toMatchObject({ bottles: [{ slot: 3, alias: 'Nebel' }] });
+	});
+
+	it('rejects a slot beyond 6', async () => {
+		expect(await save(ANNA, { ...validBottle, slot: '7' })).toMatchObject({
 			status: 422,
 			data: { userMessage: 'Diese Flasche gibt es in diesem Tasting nicht.' }
 		});
+		expect(db.select().from(tastingBottle).all()).toEqual([]);
 	});
 
 	it('rejects an alias that someone else already uses, ignoring case', async () => {

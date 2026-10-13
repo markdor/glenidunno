@@ -76,7 +76,6 @@ describe('admin tastings list load', () => {
 		const { slug } = createTasting(db, {
 			name: 'Herbst-Tasting',
 			tastingDate: '2026-10-24',
-			bottlesPerParticipant: 2,
 			participantUserIds: ['u-Anna', 'u-Ben']
 		});
 		const anna = findParticipant(db, slug, 'u-Anna')!;

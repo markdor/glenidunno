@@ -11,6 +11,7 @@
 	import TastingScoreExplainer from '$lib/components/TastingScoreExplainer.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import { formatTastingDate, TASTING_ORDER_HOUR, TASTING_REVEAL_HOUR } from '$lib/tasting';
+	import { TASTING_BOTTLE_SLOTS } from '$lib/validation';
 
 	let { data, form } = $props();
 
@@ -23,11 +24,12 @@
 		}
 	});
 
-	const slots = $derived(
-		view.phase === 'entry'
-			? Array.from({ length: view.tasting.bottlesPerParticipant }, (_, i) => i + 1)
-			: []
-	);
+	// The base slots are always there, plus every slot with a saved bottle.
+	const slots = $derived.by(() => {
+		if (view.phase !== 'entry') return [];
+		const base = Array.from({ length: TASTING_BOTTLE_SLOTS.base }, (_, i) => i + 1);
+		return [...new Set([...base, ...view.bottles.map((b) => b.slot)])].sort((a, b) => a - b);
+	});
 
 	// Downloads run through this tasting's link (see presentation/[bottleId]).
 	function presentationHref(bottleId: string) {
