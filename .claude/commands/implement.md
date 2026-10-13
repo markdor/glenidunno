@@ -1,10 +1,10 @@
 ---
-description: Einstieg in die Implementierung eines GitHub Issues – Kontext laden → Codebase-Analyse → Implementierungsplan. Aufruf: /implement <Issue-Nummer>
+description: Implementierung eines GitHub Issues – Kontext laden → Codebase-Analyse → Implementierungsplan → Umsetzung nach Freigabe. Aufruf: /implement <Issue-Nummer>
 model: opus
 effort: max
 ---
 
-Du bereitest die Implementierung eines GitHub Issues vor. Ziel ist **nicht**, den Code fertig zu schreiben, sondern einen fundierten Implementierungsplan zu erarbeiten und zur Freigabe vorzulegen. Die eigentliche Umsetzung läuft danach wie gewohnt interaktiv im Chat weiter.
+Du implementierst ein GitHub Issue. Zuerst erarbeitest du einen fundierten Implementierungsplan und legst ihn zur Freigabe vor. Sobald der User den Plan freigegeben hat, setzt du ihn direkt um, ohne eine weitere Bestätigung abzuwarten.
 
 **Eingabe:** `$ARGUMENTS` – eine Issue-Nummer (z. B. `12`).
 
@@ -68,23 +68,25 @@ Gehe anschließend über `EnterPlanMode` in den Plan-Mode und lege den Plan dem 
 
 ---
 
-## Phase 5 – Übergabe an die Implementierung
+## Phase 5 – Umsetzung
 
-Nach Freigabe des Plans:
-- Lege die Schritte des Plans als Todos via `TodoWrite` an, damit der Fortschritt im weiteren Chat-Verlauf sichtbar bleibt. Übernimm dabei die Zuordnung aus Phase 4: welches Todo welche(s) Akzeptanzkriterium/-ien abdeckt.
-- Beginne **nicht automatisch** mit dem Schreiben von Code – warte auf die nächste Nachricht des Users bzw. mache im selben Turn direkt mit dem ersten Todo weiter, falls der User das beim Freigeben so signalisiert (z. B. „leg los").
+Die Freigabe des Plans (`ExitPlanMode`) ist zugleich das Startsignal: **Direkt im selben Turn mit der Umsetzung beginnen**, keine weitere Rückfrage wie „Soll ich loslegen?".
+
+- Gib die Schritte des Plans zuerst als nummerierte Checkliste im Chat aus, je Schritt mit den Akzeptanzkriterien aus Phase 4, die er abdeckt. Steht das Werkzeug `TodoWrite` zur Verfügung, lege die Schritte zusätzlich dort an. Fehlt es, genügt die Checkliste, ohne Hinweis auf das fehlende Werkzeug.
+- Arbeite die Schritte der Reihe nach ab und melde nach jedem abgeschlossenen Schritt den Stand in einer Zeile (z. B. „Schritt 2/5 erledigt: …“).
+- Rückfragen nur, wenn während der Umsetzung etwas auftaucht, das der Plan nicht abdeckt und das der User entscheiden muss.
 
 ---
 
 ## Phase 5.5 – Verifikation vor Abschluss (Pflicht, kein Angebot)
 
-Bevor der Skill **irgendein** Todo als `completed` markiert oder die Gesamtarbeit als getan betrachtet, **immer** – unabhängig davon, ob zuvor schon einzelne Test-Befehle manuell gelaufen sind:
+Bevor der Skill **irgendeinen** Schritt als abgeschlossen meldet oder die Gesamtarbeit als getan betrachtet, **immer** – unabhängig davon, ob zuvor schon einzelne Test-Befehle manuell gelaufen sind:
 
 1. `npm run test:coverage`
 2. `npm run lint`
 3. `npm run test`
 
-Alle drei müssen grün sein. Schlägt einer fehl: Todo bleibt `in_progress`, Fehler beheben, alle drei erneut laufen lassen – erst danach gilt der Schritt als fertig. Diese drei Befehle sind kein optionales Angebot wie Commit/Push/PR in Phase 7, sondern eine feste Bedingung, die der Skill selbstständig prüft, ohne zu fragen.
+Alle drei müssen grün sein. Schlägt einer fehl: Der Schritt bleibt offen, Fehler beheben, alle drei erneut laufen lassen – erst danach gilt der Schritt als fertig. Diese drei Befehle sind kein optionales Angebot wie Commit/Push/PR in Phase 7, sondern eine feste Bedingung, die der Skill selbstständig prüft, ohne zu fragen.
 
 **Hintergrund:** `npm run test:coverage` prüft nur Unit-Tests + Coverage, `npm run test` deckt zusätzlich E2E ab – keiner der beiden läuft `npm run lint` (Prettier + ESLint) mit. Eine reine Text-/Format-Änderung kann trotz grüner Tests am CI-Lint-Job scheitern (Prettier-Zeilenumbruch-Regeln reagieren auf Textlänge). Ohne diesen expliziten Lint-Lauf bleibt das lokal unbemerkt und fällt erst in der GitHub-Actions-CI auf.
 
@@ -92,7 +94,7 @@ Alle drei müssen grün sein. Schlägt einer fehl: Todo bleibt `in_progress`, Fe
 
 ## Phase 6 – Akzeptanzkriterien im Issue abhaken
 
-Sobald im weiteren Gesprächsverlauf ein Todo via `TodoWrite` als `completed` markiert wird, das laut Zuordnung aus Phase 4/5 mindestens ein Akzeptanzkriterium abdeckt:
+Sobald ein Schritt abgeschlossen ist, der laut Zuordnung aus Phase 4/5 mindestens ein Akzeptanzkriterium abdeckt:
 
 1. **Nur abhaken, wenn wirklich erfüllt**: Voraussetzung ist immer, dass Phase 5.5 (alle drei Befehle grün) für diesen Stand bereits durchlaufen wurde. Prüfe zusätzlich kurz, ob das Kriterium inhaltlich vollständig umgesetzt ist. Im Zweifel ungecheckt lassen und dem User kurz mitteilen, warum – kein Abhaken auf Verdacht.
 2. **Aktuellen Issue-Body holen**: `gh issue view $ARGUMENTS --json body -q .body` – nicht den Stand aus Phase 1 wiederverwenden, falls der Issue-Body zwischenzeitlich extern geändert wurde.
@@ -106,7 +108,7 @@ Enthält der Issue-Body keine Checkbox-Sektion (z. B. weil `/refine` übersprung
 
 ## Phase 7 – Commit, Push & PR nach den ersten Edits
 
-Abweichend vom sonst im Projekt geltenden Grundsatz „nie committen/pushen" (siehe Grundsätze) darf **dieser Skill-Flow** nach einem sinnvollen ersten Zwischenstand aktiv anbieten, in einem Zug zu committen, zu pushen und einen PR anzulegen – z. B. wenn das erste Todo aus Phase 5 abgeschlossen ist. Voraussetzung ist immer, dass Phase 5.5 für den aktuellen Stand grün durchlaufen wurde – kein Commit/Push/PR-Angebot auf Basis eines Standes, der nicht durch alle drei Befehle verifiziert wurde. Immer nur als Angebot, nie automatisch ohne Zustimmung im Chat:
+Abweichend vom sonst im Projekt geltenden Grundsatz „nie committen/pushen" (siehe Grundsätze) darf **dieser Skill-Flow** nach einem sinnvollen ersten Zwischenstand aktiv anbieten, in einem Zug zu committen, zu pushen und einen PR anzulegen – z. B. wenn der erste Schritt aus Phase 5 abgeschlossen ist. Das Angebot hält die Umsetzung nicht an: weiterarbeiten und es am Ende der Antwort stellen. Voraussetzung ist immer, dass Phase 5.5 für den aktuellen Stand grün durchlaufen wurde – kein Commit/Push/PR-Angebot auf Basis eines Standes, der nicht durch alle drei Befehle verifiziert wurde. Immer nur als Angebot, nie automatisch ohne Zustimmung im Chat:
 
 1. **Commit**: `git add` der betroffenen Dateien + `git commit` mit sprechender Conventional-Commits-Message (Stil an bestehender Historie orientieren).
 2. **Push**: `git push -u origin <branch>` im selben Aufwasch.
@@ -125,5 +127,6 @@ Diese Ausnahme gilt **nur innerhalb von `/implement`** – außerhalb dieses Ski
 - **Keine Halluzinationen**: Nenne im Plan nur Dateien, die der Explore-Agent tatsächlich gefunden hat oder die laut Issue offensichtlich neu entstehen müssen.
 - **Commit/Push nur nach Zustimmung**: Phase 2 (Branch) committet nie von selbst. Ab Phase 7 darf nach den ersten Edits aktiv angeboten werden zu committen, zu pushen und den PR anzulegen – aber immer nur als Angebot, nie automatisch. Lehnt der User ab, committet er wie gewohnt selbst.
 - **Akzeptanzkriterien-Checkboxen laufen automatisch**: Anders als Commit/Push/PR braucht Phase 6 keine Zustimmung – Checkbox-Updates im Issue sind non-destruktiv und jederzeit reversibel.
-- **Verifikation vor „fertig"**: Kein Todo, keine Akzeptanzkriterium-Checkbox und kein Commit/Push/PR-Angebot ohne vorher grün durchlaufene Phase 5.5 (`npm run test:coverage`, `npm run lint`, `npm run test`) – manuell einzeln ausgeführte Einzelbefehle ersetzen das nicht, wenn `npm run lint` dabei fehlte.
+- **Freigabe = Startsignal**: Nach der Freigabe des Plans wird ohne erneute Bestätigung umgesetzt (Phase 5).
+- **Verifikation vor „fertig"**: Kein abgeschlossener Schritt, keine Akzeptanzkriterium-Checkbox und kein Commit/Push/PR-Angebot ohne vorher grün durchlaufene Phase 5.5 (`npm run test:coverage`, `npm run lint`, `npm run test`) – manuell einzeln ausgeführte Einzelbefehle ersetzen das nicht, wenn `npm run lint` dabei fehlte.
 - **Kompakt**: Der Plan ist eine Anleitung, kein Aufsatz – Stichpunkte statt Fließtext, wo möglich.
