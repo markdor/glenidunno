@@ -17,8 +17,8 @@ interface ConfirmOptions {
 let request = $state<ConfirmRequest | null>(null);
 
 // Resolves once the user picks an option. `use:enhance` can't await this
-// directly (its cancel() must run synchronously) - callers show the dialog
-// from a plain button onclick and re-submit the form themselves on true.
+// directly (its cancel() must run synchronously) - to gate a form, use
+// submit() from a plain button onclick instead.
 function ask(message: string, options: ConfirmOptions = {}): Promise<boolean> {
 	return new Promise((resolve) => {
 		request = {
@@ -28,6 +28,21 @@ function ask(message: string, options: ConfirmOptions = {}): Promise<boolean> {
 			variant: options.variant ?? 'default',
 			resolve
 		};
+	});
+}
+
+// Submits the form of a type="button" once the user confirms - the dialog
+// can't gate use:enhance's cancel(), which must run synchronously. The form is
+// looked up before the dialog opens: the browser clears currentTarget once the
+// event has finished dispatching, long before the answer comes in. Not async
+// on purpose, so a button outside a form throws right in its onclick instead
+// of ending up as an unhandled rejection (or silently doing nothing).
+function submit(event: Event, message: string, options?: ConfirmOptions): Promise<void> {
+	const target = event.currentTarget;
+	const form = target instanceof Element ? target.closest('form') : null;
+	if (!form) throw new Error('confirmDialog.submit() needs a button inside a form');
+	return ask(message, options).then((ok) => {
+		if (ok) form.requestSubmit();
 	});
 }
 
@@ -41,6 +56,7 @@ export const confirmDialog = {
 		return request;
 	},
 	ask,
+	submit,
 	confirm: () => settle(true),
 	cancel: () => settle(false)
 };

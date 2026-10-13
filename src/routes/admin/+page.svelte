@@ -34,27 +34,14 @@
 		});
 	}
 
-	// The dialog can't gate use:enhance's cancel() (that must run
-	// synchronously), so the button just re-submits its form once confirmed.
-	// currentTarget is read before the await: the browser clears it once the
-	// event has finished dispatching, i.e. before an async handler resumes.
 	// A user who took part in a tasting is deactivated instead of deleted (their
 	// bottles stay in the tasting) – the dialog says so up front.
-	async function confirmDelete(
-		event: MouseEvent,
-		u: { username: string; hasParticipation: boolean }
-	) {
-		const formEl = (event.currentTarget as HTMLElement).closest('form');
-		const ok = u.hasParticipation
-			? await confirmDialog.ask(
-					`Benutzer „${u.username}" hat an Tastings teilgenommen und wird deshalb deaktiviert statt gelöscht: Er kann sich nicht mehr anmelden, bleibt in seinen Tastings aber als „${u.username} (inaktiv)" sichtbar.`,
-					{ variant: 'danger', confirmLabel: 'Deaktivieren' }
-				)
-			: await confirmDialog.ask(`Benutzer „${u.username}" wirklich löschen?`, {
-					variant: 'danger',
-					confirmLabel: 'Löschen'
-				});
-		if (ok) formEl?.requestSubmit();
+	function confirmDelete(event: MouseEvent, u: { username: string; hasParticipation: boolean }) {
+		const message = u.hasParticipation
+			? `Benutzer „${u.username}" hat an Tastings teilgenommen und wird deshalb deaktiviert statt gelöscht: Er kann sich nicht mehr anmelden, bleibt in seinen Tastings aber als „${u.username} (inaktiv)" sichtbar.`
+			: `Benutzer „${u.username}" wirklich löschen?`;
+		const confirmLabel = u.hasParticipation ? 'Deaktivieren' : 'Löschen';
+		confirmDialog.submit(event, message, { variant: 'danger', confirmLabel });
 	}
 </script>
 
