@@ -137,21 +137,17 @@
 	};
 
 	// A card that was never saved simply disappears. A saved bottle is deleted
-	// on the server once confirmed: the dialog can't gate use:enhance's cancel()
-	// (that must run synchronously), so the button re-submits its form itself.
-	// currentTarget is read before the await – the browser clears it once the
-	// event has finished dispatching.
-	async function remove(event: MouseEvent) {
+	// on the server once confirmed.
+	function remove(event: MouseEvent) {
 		if (!bottle) {
 			onremove?.(slot);
 			return;
 		}
-		const formEl = (event.currentTarget as HTMLElement).closest('form');
-		const ok = await confirmDialog.ask(
+		confirmDialog.submit(
+			event,
 			`Flasche ${slot} entfernen? Synonym, Angaben und Präsentation werden gelöscht.`,
 			{ variant: 'danger', confirmLabel: 'Entfernen' }
 		);
-		if (ok) formEl?.requestSubmit();
 	}
 
 	const submitRemove: SubmitFunction = () => {

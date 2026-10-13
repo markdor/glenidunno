@@ -2,7 +2,7 @@
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
-	import { confirmDialog, type ConfirmVariant } from '$lib/components/confirmDialogStore.svelte';
+	import { confirmDialog } from '$lib/components/confirmDialogStore.svelte';
 	import SubHeader from '$lib/components/SubHeader.svelte';
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
@@ -33,20 +33,6 @@
 			untrack(() => toast.show('success', message));
 		}
 	});
-
-	// The dialog can't gate use:enhance's cancel() (that must run
-	// synchronously), so the button just re-submits its form once confirmed.
-	// currentTarget is read before the await: the browser clears it once the
-	// event has finished dispatching, i.e. before an async handler resumes.
-	async function confirmSubmit(
-		event: MouseEvent,
-		question: string,
-		options?: { variant?: ConfirmVariant; confirmLabel?: string }
-	) {
-		const formEl = (event.currentTarget as HTMLElement).closest('form');
-		const ok = await confirmDialog.ask(question, options);
-		if (ok) formEl?.requestSubmit();
-	}
 
 	const errorText: Record<string, string> = {
 		required: 'Pflichtfeld',
@@ -170,7 +156,7 @@
 					type="button"
 					disabled={detail.phase !== 'entry'}
 					onclick={(e) =>
-						confirmSubmit(
+						confirmDialog.submit(
 							e,
 							'Reihenfolge jetzt für alle Teilnehmer freigeben? Danach kann niemand mehr Flaschen eintragen oder ändern.',
 							{ confirmLabel: 'Freigeben' }
@@ -185,7 +171,7 @@
 					type="button"
 					disabled={detail.phase !== 'order'}
 					onclick={(e) =>
-						confirmSubmit(
+						confirmDialog.submit(
 							e,
 							'Tasting jetzt für alle Teilnehmer komplett auflösen? Alle sehen dann Namen, Werte und Mitbringer.',
 							{ confirmLabel: 'Auflösen' }
@@ -217,7 +203,7 @@
 			<button
 				type="button"
 				onclick={(e) =>
-					confirmSubmit(
+					confirmDialog.submit(
 						e,
 						`Tasting „${detail.tasting.name}“ wirklich löschen? Alle Eingaben gehen verloren.`,
 						{ variant: 'danger', confirmLabel: 'Löschen' }
