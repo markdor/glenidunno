@@ -128,6 +128,46 @@ describe('Tasting participant page', () => {
 				.toEqual(['Flasche 1', 'Flasche 2', 'Flasche 3', 'Flasche 4']);
 		});
 
+		// The alias was taken: the failed save of slot 3 stays in `form`.
+		const takenAlias = {
+			action: 'save',
+			slot: 3,
+			values: { alias: 'Nebel' },
+			fieldErrors: { alias: 'taken' }
+		};
+		const card = (slot: number) => page.getByRole('form', { name: `Flasche ${slot}` });
+
+		test('starts a re-added slot empty instead of with its failed save', async () => {
+			renderView({ ...entry, bottles: [] }, takenAlias);
+
+			await add.click();
+			await expect.element(card(3).getByLabelText('Synonym *')).toHaveValue('Nebel');
+			await expect.element(card(3).getByText(/Schon vergeben/)).toBeVisible();
+
+			await page.getByRole('button', { name: 'Flasche 3 entfernen' }).click();
+			await expect.element(card(3)).not.toBeInTheDocument();
+			await add.click();
+
+			await expect.element(card(3).getByLabelText('Synonym *')).toHaveValue('');
+			expect(
+				card(3)
+					.getByText(/Schon vergeben/)
+					.elements()
+			).toHaveLength(0);
+		});
+
+		test('keeps the errors of another card when hiding a slot', async () => {
+			renderView({ ...entry, bottles: [] }, takenAlias);
+
+			await add.click();
+			await add.click();
+			await page.getByRole('button', { name: 'Flasche 4 entfernen' }).click();
+
+			await expect.element(card(4)).not.toBeInTheDocument();
+			await expect.element(card(3).getByText(/Schon vergeben/)).toBeVisible();
+			await expect.element(card(3).getByLabelText('Synonym *')).toHaveValue('Nebel');
+		});
+
 		test('hides an added card again without asking', async () => {
 			renderView({ ...entry, bottles: [] });
 

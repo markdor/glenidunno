@@ -90,9 +90,15 @@ function save(userId: string, fields: Record<string, string | File>, tastingSlug
 	} as unknown as ActionEvent);
 }
 
-function remove(userId: string, slot: string, tastingSlug = slug) {
+function remove(
+	userId: string,
+	slot: string,
+	tastingSlug = slug,
+	extra: Record<string, string> = {}
+) {
 	const fd = new FormData();
 	fd.append('slot', slot);
+	for (const [k, v] of Object.entries(extra)) fd.append(k, v);
 	const request = new Request(`http://localhost/tasting/${tastingSlug}?/remove`, {
 		method: 'POST',
 		body: fd
@@ -638,6 +644,24 @@ describe('participant page remove', () => {
 
 		expect(await remove(ANNA, '3')).toEqual({ action: 'remove', slot: 3, removed: true });
 		expect(bottles()).toMatchObject([{ participantId: findParticipant(db, slug, BEN)!.id }]);
+		expect(await storedFiles()).toEqual([DECK_FILE]);
+	});
+
+	it('takes the bottle only from slug, login and slot, never from other form fields', async () => {
+		await save(BEN, { ...validBottle, slot: '3', presentation: deck() });
+		const benBottle = bottles()[0];
+
+		expect(
+			await remove(ANNA, '3', slug, {
+				bottleId: benBottle.id,
+				id: benBottle.id,
+				participantId: benBottle.participantId,
+				participant_id: benBottle.participantId,
+				userId: BEN,
+				user_id: BEN
+			})
+		).toEqual({ action: 'remove', slot: 3, removed: true });
+		expect(bottles()).toEqual([benBottle]);
 		expect(await storedFiles()).toEqual([DECK_FILE]);
 	});
 

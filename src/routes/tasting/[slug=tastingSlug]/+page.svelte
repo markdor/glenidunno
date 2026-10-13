@@ -44,10 +44,17 @@
 		)
 	);
 
+	// The action result of a card that was hidden. A failed save keeps its
+	// values and field errors in `form`, so a re-added slot would show them
+	// again instead of an empty card. Raw: a proxy would never equal `form`.
+	let dismissed = $state.raw<typeof form>(null);
+
 	// Also after the server removed a saved bottle: an added slot would stay
 	// as an empty card otherwise.
 	function hideSlot(slot: number) {
 		added = added.filter((s) => s !== slot);
+		// Only this slot's result: another card may still show its own errors.
+		if (form?.slot === slot) dismissed = form;
 	}
 
 	// Downloads run through this tasting's link (see presentation/[bottleId]).
@@ -85,7 +92,7 @@
 			<TastingBottleForm
 				{slot}
 				bottle={view.bottles.find((b) => b.slot === slot) ?? null}
-				result={form?.action === 'save' && form.slot === slot ? form : null}
+				result={form?.action === 'save' && form.slot === slot && form !== dismissed ? form : null}
 				onremove={hideSlot}
 			/>
 		{/each}
