@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { Plus } from '@lucide/svelte';
 	import TastingBottleForm from '$lib/components/TastingBottleForm.svelte';
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import TastingOrderChart from '$lib/components/TastingOrderChart.svelte';
@@ -24,12 +25,30 @@
 		}
 	});
 
-	// The base slots are always there, plus every slot with a saved bottle.
+	// Further slots added with "Weitere Flasche" that may not be saved yet.
+	let added = $state<number[]>([]);
+
+	// The base slots are always there, plus every saved and every added slot.
 	const slots = $derived.by(() => {
 		if (view.phase !== 'entry') return [];
 		const base = Array.from({ length: TASTING_BOTTLE_SLOTS.base }, (_, i) => i + 1);
-		return [...new Set([...base, ...view.bottles.map((b) => b.slot)])].sort((a, b) => a - b);
+		const shown = new Set([...base, ...view.bottles.map((b) => b.slot), ...added]);
+		return [...shown].sort((a, b) => a - b);
 	});
+
+	// The smallest free slot, none once all are shown. Slots aren't renumbered:
+	// a removed bottle 3 next to a kept bottle 4 frees slot 3 again.
+	const nextSlot = $derived(
+		Array.from({ length: TASTING_BOTTLE_SLOTS.max }, (_, i) => i + 1).find(
+			(slot) => !slots.includes(slot)
+		)
+	);
+
+	// Also after the server removed a saved bottle: an added slot would stay
+	// as an empty card otherwise.
+	function hideSlot(slot: number) {
+		added = added.filter((s) => s !== slot);
+	}
 
 	// Downloads run through this tasting's link (see presentation/[bottleId]).
 	function presentationHref(bottleId: string) {
@@ -66,9 +85,20 @@
 			<TastingBottleForm
 				{slot}
 				bottle={view.bottles.find((b) => b.slot === slot) ?? null}
-				result={form?.slot === slot ? form : null}
+				result={form?.action === 'save' && form.slot === slot ? form : null}
+				onremove={hideSlot}
 			/>
 		{/each}
+		{#if nextSlot !== undefined}
+			<button
+				type="button"
+				onclick={() => (added = [...added, nextSlot])}
+				class="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-50"
+			>
+				<Plus size={20} strokeWidth={2} aria-hidden="true" />
+				Weitere Flasche
+			</button>
+		{/if}
 	{:else if view.phase === 'order'}
 		<TastingManualNotice manual={view.manual} />
 		<section class="space-y-3">

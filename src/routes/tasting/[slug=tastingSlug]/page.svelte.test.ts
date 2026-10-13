@@ -84,6 +84,61 @@ describe('Tasting participant page', () => {
 			.toHaveValue('Flasche 3');
 	});
 
+	describe('further bottles', () => {
+		const entry = { phase: 'entry', tasting, participant: { username: 'Anna' } };
+		const add = page.getByRole('button', { name: 'Weitere Flasche' });
+
+		test('adds slots up to 6, then the button is gone', async () => {
+			renderView({ ...entry, bottles: [] });
+
+			for (const slot of [3, 4, 5, 6]) {
+				await add.click();
+				await expect
+					.element(page.getByRole('form', { name: `Flasche ${slot}` }).getByLabelText('Synonym *'))
+					.toHaveValue('');
+			}
+			await expect.element(add).not.toBeInTheDocument();
+			expect(page.getByRole('form').elements()).toHaveLength(6);
+		});
+
+		test('offers no further slot with six saved bottles', async () => {
+			renderView({
+				...entry,
+				bottles: [1, 2, 3, 4, 5, 6].map((slot) => ({ ...savedBottle, slot, alias: `F${slot}` }))
+			});
+
+			await expect.element(page.getByRole('form', { name: 'Flasche 6' })).toBeVisible();
+			expect(add.elements()).toHaveLength(0);
+		});
+
+		test('fills the smallest free slot first', async () => {
+			renderView({
+				...entry,
+				bottles: [1, 2, 4].map((slot) => ({ ...savedBottle, slot, alias: `F${slot}` }))
+			});
+
+			await add.click();
+			await expect
+				.poll(() =>
+					page
+						.getByRole('heading', { level: 2 })
+						.elements()
+						.map((h) => h.textContent)
+				)
+				.toEqual(['Flasche 1', 'Flasche 2', 'Flasche 3', 'Flasche 4']);
+		});
+
+		test('hides an added card again without asking', async () => {
+			renderView({ ...entry, bottles: [] });
+
+			await add.click();
+			await page.getByRole('button', { name: 'Flasche 3 entfernen' }).click();
+
+			await expect.element(page.getByRole('form', { name: 'Flasche 3' })).not.toBeInTheDocument();
+			await expect.element(add).toBeVisible();
+		});
+	});
+
 	test('passes field errors only to the card they belong to', async () => {
 		renderView(
 			{

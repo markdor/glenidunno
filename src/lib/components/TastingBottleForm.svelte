@@ -12,6 +12,7 @@
 		TASTING_ABV,
 		TASTING_AGE,
 		TASTING_ALIAS_LENGTH,
+		TASTING_BOTTLE_SLOTS,
 		TASTING_BOTTLER_LENGTH,
 		TASTING_BOTTLING_LENGTH,
 		TASTING_DISTILLERY_LENGTH,
@@ -20,6 +21,7 @@
 		TASTING_SCALE,
 		TASTING_WHISKYBASE_URL_LENGTH
 	} from '$lib/validation';
+	import { confirmDialog } from './confirmDialogStore.svelte';
 	import { toast } from './toastStore.svelte';
 
 	/** Result of the last save action, if it concerned this slot. */
@@ -31,12 +33,18 @@
 	let {
 		slot,
 		bottle,
-		result = null
+		result = null,
+		onremove
 	}: {
 		slot: number;
 		bottle: (TastingBottle & { presentationName?: string | null }) | null;
 		result?: SaveResult;
+		/** Hides the card: right away if never saved, once the server removed it otherwise. */
+		onremove?: (slot: number) => void;
 	} = $props();
+
+	// Only the further bottles can be removed, the base slots always stay.
+	const removable = $derived(slot > TASTING_BOTTLE_SLOTS.base);
 
 	const MAX_PRESENTATION_MB = TASTING_PRESENTATION_MAX_BYTES / (1024 * 1024);
 
@@ -128,222 +136,284 @@
 		};
 	};
 
+	// A card that was never saved simply disappears. A saved bottle is deleted
+	// on the server once confirmed: the dialog can't gate use:enhance's cancel()
+	// (that must run synchronously), so the button re-submits its form itself.
+	// currentTarget is read before the await – the browser clears it once the
+	// event has finished dispatching.
+	async function remove(event: MouseEvent) {
+		if (!bottle) {
+			onremove?.(slot);
+			return;
+		}
+		const formEl = (event.currentTarget as HTMLElement).closest('form');
+		const ok = await confirmDialog.ask(
+			`Flasche ${slot} entfernen? Synonym, Angaben und Präsentation werden gelöscht.`,
+			{ variant: 'danger', confirmLabel: 'Entfernen' }
+		);
+		if (ok) formEl?.requestSubmit();
+	}
+
+	const submitRemove: SubmitFunction = () => {
+		// Read up front: the reload drops the bottle and may unmount this card.
+		const removed = slot;
+		const hide = onremove;
+		return async ({ result: actionResult, update }) => {
+			await update({ reset: false });
+			if (actionResult.type === 'success') {
+				toast.show('success', `Flasche ${removed} entfernt.`);
+				hide?.(removed);
+			} else if (actionResult.type === 'failure' && actionResult.data?.reload) {
+				// Like save: the error toast comes from the page.
+				await invalidateAll();
+			}
+		};
+	};
+
 	const id = (field: string) => `b${slot}-${field}`;
 	const inputClass =
 		'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 placeholder:text-slate-400';
 </script>
 
-<form
-	method="POST"
-	action="?/save"
-	enctype="multipart/form-data"
-	use:enhance={submit}
-	aria-labelledby={id('title')}
-	class="space-y-4 rounded-xl border border-slate-200 bg-white p-4"
->
-	<h2 id={id('title')} class="text-lg font-semibold">Flasche {slot}</h2>
-	<input type="hidden" name="slot" value={slot} />
-
-	<div class="space-y-1">
-		<label for={id('alias')} class="block text-sm font-medium text-slate-700">Synonym *</label>
-		<input
-			id={id('alias')}
-			name="alias"
-			required
-			maxlength={TASTING_ALIAS_LENGTH.max}
-			value={initial('alias')}
-			aria-describedby={id('alias-hint')}
-			class={inputClass}
-		/>
-		<p id={id('alias-hint')} class="text-xs text-slate-500">
-			Steht auf der verhüllten Flasche, alle anderen sehen nur das.
-		</p>
-		{#if fieldError('alias')}
-			<p class="text-xs text-red-600">{fieldError('alias')}</p>
+<!-- Two sibling forms: a nested one isn't allowed, and a formaction button on
+     the save form would send the upload along. -->
+<div class="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
+	<div class="flex items-center justify-between gap-3">
+		<h2 id={id('title')} class="text-lg font-semibold">Flasche {slot}</h2>
+		{#if removable}
+			<form method="POST" action="?/remove" use:enhance={submitRemove}>
+				<input type="hidden" name="slot" value={slot} />
+				<button
+					type="button"
+					onclick={remove}
+					aria-label="Flasche {slot} entfernen"
+					class="-my-2 -mr-2 min-h-11 rounded-lg px-3 text-sm font-medium text-red-700 hover:bg-red-50"
+				>
+					Entfernen
+				</button>
+			</form>
 		{/if}
 	</div>
 
-	<div class="space-y-1">
-		<label for={id('distillery')} class="block text-sm font-medium text-slate-700">
-			Distillery *
-		</label>
-		<input
-			id={id('distillery')}
-			name="distillery"
-			required
-			maxlength={TASTING_DISTILLERY_LENGTH.max}
-			value={initial('distillery')}
-			class={inputClass}
-		/>
-		{#if fieldError('distillery')}
-			<p class="text-xs text-red-600">{fieldError('distillery')}</p>
-		{/if}
-	</div>
-
-	<div class="grid gap-4 sm:grid-cols-2">
-		<div class="space-y-1">
-			<label for={id('bottler')} class="block text-sm font-medium text-slate-700">Abfüller</label>
-			<input
-				id={id('bottler')}
-				name="bottler"
-				maxlength={TASTING_BOTTLER_LENGTH.max}
-				value={initial('bottler')}
-				aria-describedby={id('bottler-hint')}
-				class={inputClass}
-			/>
-			<p id={id('bottler-hint')} class="text-xs text-slate-500">
-				Leer lassen bei Originalabfüllung.
-			</p>
-			{#if fieldError('bottler')}
-				<p class="text-xs text-red-600">{fieldError('bottler')}</p>
-			{/if}
-		</div>
-
-		<div class="space-y-1">
-			<label for={id('bottling')} class="block text-sm font-medium text-slate-700">Abfüllung</label>
-			<input
-				id={id('bottling')}
-				name="bottling"
-				maxlength={TASTING_BOTTLING_LENGTH.max}
-				value={initial('bottling')}
-				class={inputClass}
-			/>
-			{#if fieldError('bottling')}
-				<p class="text-xs text-red-600">{fieldError('bottling')}</p>
-			{/if}
-		</div>
-
-		<div class="space-y-1">
-			<label for={id('age')} class="block text-sm font-medium text-slate-700">
-				Alter in Jahren
-			</label>
-			<input
-				id={id('age')}
-				name="age"
-				type="number"
-				inputmode="numeric"
-				min={TASTING_AGE.min}
-				max={TASTING_AGE.max}
-				step="1"
-				value={initial('age')}
-				aria-describedby={id('age-hint')}
-				class={inputClass}
-			/>
-			<p id={id('age-hint')} class="text-xs text-slate-500">
-				Leer lassen, wenn der Whisky keine Altersangabe hat (NAS).
-			</p>
-			{#if fieldError('age')}
-				<p class="text-xs text-red-600">{fieldError('age')}</p>
-			{/if}
-		</div>
-
-		<div class="space-y-1">
-			<label for={id('abv')} class="block text-sm font-medium text-slate-700">Alkohol in % *</label>
-			<input
-				id={id('abv')}
-				name="abv"
-				type="number"
-				inputmode="decimal"
-				required
-				min={TASTING_ABV.min}
-				max={TASTING_ABV.max}
-				step={TASTING_ABV.step}
-				value={initial('abv')}
-				class={inputClass}
-			/>
-			{#if fieldError('abv')}
-				<p class="text-xs text-red-600">{fieldError('abv')}</p>
-			{/if}
-		</div>
-	</div>
-
-	<div class="space-y-1">
-		<label for={id('whiskybaseUrl')} class="block text-sm font-medium text-slate-700">
-			Whiskybase-Link
-		</label>
-		<input
-			id={id('whiskybaseUrl')}
-			name="whiskybaseUrl"
-			type="url"
-			inputmode="url"
-			maxlength={TASTING_WHISKYBASE_URL_LENGTH.max}
-			placeholder="https://www.whiskybase.com/…"
-			value={initial('whiskybaseUrl')}
-			class={inputClass}
-		/>
-		{#if fieldError('whiskybaseUrl')}
-			<p class="text-xs text-red-600">{fieldError('whiskybaseUrl')}</p>
-		{/if}
-	</div>
-
-	{#each scales as scale (scale.field)}
-		<div class="space-y-1">
-			<div class="flex items-baseline justify-between gap-3">
-				<label for={id(scale.field)} class="text-sm font-medium text-slate-700">
-					{scale.label} *
-				</label>
-				<output for={id(scale.field)} class="text-sm font-semibold text-slate-900">
-					{scaleValue(scale.field)}
-					{#if scale.field === 'smoke'}
-						<!-- The group decides the pouring block, so show where the value lands. -->
-						<span class="font-normal text-slate-500">
-							· {SMOKE_GROUPS[smokeGroup(scaleValue('smoke')) - 1].label}
-						</span>
-					{/if}
-				</output>
-			</div>
-			<input
-				id={id(scale.field)}
-				name={scale.field}
-				type="range"
-				min={TASTING_SCALE.min}
-				max={TASTING_SCALE.max}
-				step="1"
-				value={scaleValue(scale.field)}
-				oninput={(e) => (moved[scale.field] = e.currentTarget.valueAsNumber)}
-				aria-describedby={id(`${scale.field}-hint`)}
-				class="h-8 w-full accent-brand"
-			/>
-			<p id={id(`${scale.field}-hint`)} class="text-xs text-slate-500">{scale.hint}</p>
-			{#if fieldError(scale.field)}
-				<p class="text-xs text-red-600">{fieldError(scale.field)}</p>
-			{/if}
-		</div>
-	{/each}
-
-	<div class="space-y-1">
-		<label for={id('presentation')} class="block text-sm font-medium text-slate-700">
-			Präsentation
-		</label>
-		<input
-			id={id('presentation')}
-			name="presentation"
-			type="file"
-			onchange={checkPresentationSize}
-			aria-describedby={id('presentation-hint')}
-			class="block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700"
-		/>
-		<p id={id('presentation-hint')} class="text-xs text-slate-500">
-			Optional, z. B. PowerPoint, höchstens {MAX_PRESENTATION_MB} MB. Alle können sie ab der Reihenfolge
-			herunterladen, den Dateinamen sehen sie erst bei der Auflösung.
-		</p>
-		{#if bottle?.presentationName}
-			<p class="text-sm break-all text-slate-700">Hochgeladen: {bottle.presentationName}</p>
-			<label class="flex items-center gap-2 py-1 text-sm text-slate-700">
-				<input name="removePresentation" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
-				Präsentation entfernen
-			</label>
-		{/if}
-		{#if fieldError('presentation')}
-			<p class="text-xs text-red-600">{fieldError('presentation')}</p>
-		{/if}
-	</div>
-
-	<button
-		type="submit"
-		disabled={saving}
-		class="w-full rounded-lg bg-brand px-4 py-3 text-base font-medium text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+	<form
+		method="POST"
+		action="?/save"
+		enctype="multipart/form-data"
+		use:enhance={submit}
+		aria-labelledby={id('title')}
+		class="space-y-4"
 	>
-		{saving ? 'Wird gespeichert …' : `Flasche ${slot} speichern`}
-	</button>
-</form>
+		<input type="hidden" name="slot" value={slot} />
+
+		<div class="space-y-1">
+			<label for={id('alias')} class="block text-sm font-medium text-slate-700">Synonym *</label>
+			<input
+				id={id('alias')}
+				name="alias"
+				required
+				maxlength={TASTING_ALIAS_LENGTH.max}
+				value={initial('alias')}
+				aria-describedby={id('alias-hint')}
+				class={inputClass}
+			/>
+			<p id={id('alias-hint')} class="text-xs text-slate-500">
+				Steht auf der verhüllten Flasche, alle anderen sehen nur das.
+			</p>
+			{#if fieldError('alias')}
+				<p class="text-xs text-red-600">{fieldError('alias')}</p>
+			{/if}
+		</div>
+
+		<div class="space-y-1">
+			<label for={id('distillery')} class="block text-sm font-medium text-slate-700">
+				Distillery *
+			</label>
+			<input
+				id={id('distillery')}
+				name="distillery"
+				required
+				maxlength={TASTING_DISTILLERY_LENGTH.max}
+				value={initial('distillery')}
+				class={inputClass}
+			/>
+			{#if fieldError('distillery')}
+				<p class="text-xs text-red-600">{fieldError('distillery')}</p>
+			{/if}
+		</div>
+
+		<div class="grid gap-4 sm:grid-cols-2">
+			<div class="space-y-1">
+				<label for={id('bottler')} class="block text-sm font-medium text-slate-700">Abfüller</label>
+				<input
+					id={id('bottler')}
+					name="bottler"
+					maxlength={TASTING_BOTTLER_LENGTH.max}
+					value={initial('bottler')}
+					aria-describedby={id('bottler-hint')}
+					class={inputClass}
+				/>
+				<p id={id('bottler-hint')} class="text-xs text-slate-500">
+					Leer lassen bei Originalabfüllung.
+				</p>
+				{#if fieldError('bottler')}
+					<p class="text-xs text-red-600">{fieldError('bottler')}</p>
+				{/if}
+			</div>
+
+			<div class="space-y-1">
+				<label for={id('bottling')} class="block text-sm font-medium text-slate-700"
+					>Abfüllung</label
+				>
+				<input
+					id={id('bottling')}
+					name="bottling"
+					maxlength={TASTING_BOTTLING_LENGTH.max}
+					value={initial('bottling')}
+					class={inputClass}
+				/>
+				{#if fieldError('bottling')}
+					<p class="text-xs text-red-600">{fieldError('bottling')}</p>
+				{/if}
+			</div>
+
+			<div class="space-y-1">
+				<label for={id('age')} class="block text-sm font-medium text-slate-700">
+					Alter in Jahren
+				</label>
+				<input
+					id={id('age')}
+					name="age"
+					type="number"
+					inputmode="numeric"
+					min={TASTING_AGE.min}
+					max={TASTING_AGE.max}
+					step="1"
+					value={initial('age')}
+					aria-describedby={id('age-hint')}
+					class={inputClass}
+				/>
+				<p id={id('age-hint')} class="text-xs text-slate-500">
+					Leer lassen, wenn der Whisky keine Altersangabe hat (NAS).
+				</p>
+				{#if fieldError('age')}
+					<p class="text-xs text-red-600">{fieldError('age')}</p>
+				{/if}
+			</div>
+
+			<div class="space-y-1">
+				<label for={id('abv')} class="block text-sm font-medium text-slate-700"
+					>Alkohol in % *</label
+				>
+				<input
+					id={id('abv')}
+					name="abv"
+					type="number"
+					inputmode="decimal"
+					required
+					min={TASTING_ABV.min}
+					max={TASTING_ABV.max}
+					step={TASTING_ABV.step}
+					value={initial('abv')}
+					class={inputClass}
+				/>
+				{#if fieldError('abv')}
+					<p class="text-xs text-red-600">{fieldError('abv')}</p>
+				{/if}
+			</div>
+		</div>
+
+		<div class="space-y-1">
+			<label for={id('whiskybaseUrl')} class="block text-sm font-medium text-slate-700">
+				Whiskybase-Link
+			</label>
+			<input
+				id={id('whiskybaseUrl')}
+				name="whiskybaseUrl"
+				type="url"
+				inputmode="url"
+				maxlength={TASTING_WHISKYBASE_URL_LENGTH.max}
+				placeholder="https://www.whiskybase.com/…"
+				value={initial('whiskybaseUrl')}
+				class={inputClass}
+			/>
+			{#if fieldError('whiskybaseUrl')}
+				<p class="text-xs text-red-600">{fieldError('whiskybaseUrl')}</p>
+			{/if}
+		</div>
+
+		{#each scales as scale (scale.field)}
+			<div class="space-y-1">
+				<div class="flex items-baseline justify-between gap-3">
+					<label for={id(scale.field)} class="text-sm font-medium text-slate-700">
+						{scale.label} *
+					</label>
+					<output for={id(scale.field)} class="text-sm font-semibold text-slate-900">
+						{scaleValue(scale.field)}
+						{#if scale.field === 'smoke'}
+							<!-- The group decides the pouring block, so show where the value lands. -->
+							<span class="font-normal text-slate-500">
+								· {SMOKE_GROUPS[smokeGroup(scaleValue('smoke')) - 1].label}
+							</span>
+						{/if}
+					</output>
+				</div>
+				<input
+					id={id(scale.field)}
+					name={scale.field}
+					type="range"
+					min={TASTING_SCALE.min}
+					max={TASTING_SCALE.max}
+					step="1"
+					value={scaleValue(scale.field)}
+					oninput={(e) => (moved[scale.field] = e.currentTarget.valueAsNumber)}
+					aria-describedby={id(`${scale.field}-hint`)}
+					class="h-8 w-full accent-brand"
+				/>
+				<p id={id(`${scale.field}-hint`)} class="text-xs text-slate-500">{scale.hint}</p>
+				{#if fieldError(scale.field)}
+					<p class="text-xs text-red-600">{fieldError(scale.field)}</p>
+				{/if}
+			</div>
+		{/each}
+
+		<div class="space-y-1">
+			<label for={id('presentation')} class="block text-sm font-medium text-slate-700">
+				Präsentation
+			</label>
+			<input
+				id={id('presentation')}
+				name="presentation"
+				type="file"
+				onchange={checkPresentationSize}
+				aria-describedby={id('presentation-hint')}
+				class="block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700"
+			/>
+			<p id={id('presentation-hint')} class="text-xs text-slate-500">
+				Optional, z. B. PowerPoint, höchstens {MAX_PRESENTATION_MB} MB. Alle können sie ab der Reihenfolge
+				herunterladen, den Dateinamen sehen sie erst bei der Auflösung.
+			</p>
+			{#if bottle?.presentationName}
+				<p class="text-sm break-all text-slate-700">Hochgeladen: {bottle.presentationName}</p>
+				<label class="flex items-center gap-2 py-1 text-sm text-slate-700">
+					<input
+						name="removePresentation"
+						type="checkbox"
+						class="h-4 w-4 rounded border-slate-300"
+					/>
+					Präsentation entfernen
+				</label>
+			{/if}
+			{#if fieldError('presentation')}
+				<p class="text-xs text-red-600">{fieldError('presentation')}</p>
+			{/if}
+		</div>
+
+		<button
+			type="submit"
+			disabled={saving}
+			class="w-full rounded-lg bg-brand px-4 py-3 text-base font-medium text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+		>
+			{saving ? 'Wird gespeichert …' : `Flasche ${slot} speichern`}
+		</button>
+	</form>
+</div>
