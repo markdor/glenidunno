@@ -12,6 +12,7 @@ import {
 	type Progress,
 	type Reveal,
 	type RevealedBottle,
+	type Statistics,
 	type TastingBottle,
 	type TastingPhase
 } from '$lib/tasting';
@@ -33,6 +34,7 @@ import {
 	type FileChange
 } from './presentationFiles';
 import { getBerlinToday, getTastingPhase } from './tastingPhase';
+import { buildStatistics } from './statistics';
 import type { PendingUpload, StoredPresentation } from './tastingMedia';
 import { sortForPouring, type BottleScore } from './tastingScore';
 
@@ -519,6 +521,83 @@ export function getDashboardTasting(
 		}
 	}
 	return { next, last };
+}
+
+/**
+ * The statistics page, the same for every user: all revealed tastings, also
+ * those without an own participation. Blind stays blind because only the
+ * `revealed` phase counts – computed per tasting like on the start page, so a
+ * tasting revealed early by the admin counts at once. Bottles of the other
+ * tastings aren't even queried. Slug and presentation link only for the
+ * user's own tastings, like getDashboardTasting. `null` while nothing is
+ * revealed.
+ */
+export function getStatistics(db: Db, userId: string, now: Date = new Date()): Statistics | null {
+	const revealed = db
+		.select({ id: tasting.id, slug: tasting.slug, ...phaseColumns })
+		.from(tasting)
+		// created_at only has second precision: see getDashboardTasting.
+		.orderBy(asc(tasting.tastingDate), asc(tasting.createdAt), sql`${tasting}.rowid`)
+		.all()
+		.filter((t) => getTastingPhase(t.tastingDate, now, t) === 'revealed');
+	if (revealed.length === 0) return null;
+
+	const ids = revealed.map((t) => t.id);
+	const own = new Set(
+		db
+			.select({ tastingId: tastingParticipant.tastingId })
+			.from(tastingParticipant)
+			.where(and(eq(tastingParticipant.userId, userId), inArray(tastingParticipant.tastingId, ids)))
+			.all()
+			.map((p) => p.tastingId)
+	);
+
+	// No factors (archived bottles have none). The file name only tells
+	// whether there is a presentation, it doesn't leave the server.
+	const rows = db
+		.select({
+			id: tastingBottle.id,
+			tastingId: tastingParticipant.tastingId,
+			slot: tastingBottle.slot,
+			alias: tastingBottle.alias,
+			distillery: tastingBottle.distillery,
+			bottler: tastingBottle.bottler,
+			bottling: tastingBottle.bottling,
+			age: tastingBottle.age,
+			abv: tastingBottle.abv,
+			whiskybaseUrl: tastingBottle.whiskybaseUrl,
+			presentationFile: tastingBottle.presentationFile,
+			username: user.username,
+			deactivatedAt: user.deactivatedAt
+		})
+		.from(tastingBottle)
+		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+		.innerJoin(user, eq(user.id, tastingParticipant.userId))
+		.where(inArray(tastingParticipant.tastingId, ids))
+		.all();
+
+	return buildStatistics(
+		revealed.map((t) => ({
+			id: t.id,
+			tastingDate: t.tastingDate,
+			slug: own.has(t.id) ? t.slug : null
+		})),
+		rows.map((b) => ({
+			tastingId: b.tastingId,
+			slot: b.slot,
+			alias: b.alias,
+			distillery: b.distillery,
+			bottler: b.bottler,
+			bottling: b.bottling,
+			age: b.age,
+			abv: b.abv,
+			whiskybaseUrl: b.whiskybaseUrl,
+			username: b.username,
+			deactivatedAt: b.deactivatedAt,
+			// The download route checks the participation again (404 otherwise).
+			presentation: own.has(b.tastingId) && b.presentationFile ? { bottleId: b.id } : null
+		}))
+	);
 }
 
 /** `name` is the display label: the username, marked if deactivated. */

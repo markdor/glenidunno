@@ -17,6 +17,7 @@ import {
 	getParticipantView,
 	getPresentationForParticipant,
 	getStartPageSummary,
+	getStatistics,
 	listPresentationFiles,
 	listSelectableUsers,
 	listTastings,
@@ -749,7 +750,7 @@ describe('listTastings and getStartPageSummary', () => {
 	});
 
 	it('counts and previews only unrevealed tastings, soonest first, flagging today', () => {
-		setup('2026-10-10'); // revealed by REVEALED
+		setup('2026-10-21'); // revealed by REVEALED
 		const today = setup('2026-10-25');
 		const next = setup('2026-11-01');
 
@@ -869,7 +870,7 @@ describe('getDashboardTasting', () => {
 	});
 
 	it('has no next tasting once all are revealed, without falling back to the last one', () => {
-		setup('2026-10-10'); // revealed by the clock long before PRESSED
+		setup('2026-10-21'); // revealed by the clock long before PRESSED
 		const latest = setup(TASTING_DATE);
 		revealByButton(latest.id);
 		expect(getDashboardTasting(db, 'u-anna', PRESSED)).toEqual({
@@ -1311,6 +1312,156 @@ describe('presentations', () => {
 		expect(listPresentationFiles(db, ctx.id).sort()).toEqual([
 			'Tasting_2026-10-24_Blume.pdf',
 			DECK_FILE
+		]);
+	});
+});
+
+describe('getStatistics', () => {
+	// An admin button press on a Thursday before the tasting.
+	const PRESSED = new Date('2026-10-22T15:32:10Z');
+
+	/** A tasting with one bottle of Anna and Ben each, entered during entry. */
+	function setupWithBottles(tastingDate = TASTING_DATE, participantUserIds = PARTICIPANT_IDS) {
+		const { id, slug } = createTasting(db, newTasting({ tastingDate, participantUserIds }), ENTRY);
+		const anna = findParticipant(db, slug, 'u-anna')!;
+		const ben = findParticipant(db, slug, 'u-ben')!;
+		saveBottle(db, anna, 1, bottle({ alias: `Nebel ${tastingDate}`, abv: 40 }), ENTRY);
+		saveBottle(db, ben, 1, bottle({ alias: `Torf ${tastingDate}`, abv: 60, age: 12 }), ENTRY);
+		return { id, slug, anna, ben };
+	}
+
+	const aliases = (result: ReturnType<typeof getStatistics>) =>
+		result?.bottles.map((b) => b.alias) ?? null;
+
+	it('is null while no tasting is revealed, before the order and after 18:00', () => {
+		setupWithBottles();
+		expect(getStatistics(db, 'u-anna', ENTRY)).toBeNull();
+		expect(getStatistics(db, 'u-anna', ORDER)).toBeNull();
+		// Sunday 8:59 in Berlin – one minute before the reveal.
+		expect(getStatistics(db, 'u-anna', new Date('2026-10-25T07:59:00Z'))).toBeNull();
+	});
+
+	it('counts a tasting from 9:00 on the day after', () => {
+		setupWithBottles();
+		expect(aliases(getStatistics(db, 'u-anna', REVEALED))).toEqual([
+			'Nebel 2026-10-24',
+			'Torf 2026-10-24'
+		]);
+	});
+
+	it('counts a tasting the admin revealed early at once', () => {
+		const ctx = setupWithBottles();
+		openOrderEarly(db, ctx.id, PRESSED);
+		revealEarly(db, ctx.id, PRESSED);
+		expect(getStatistics(db, 'u-anna', PRESSED)?.overview).toMatchObject({
+			tastings: 1,
+			bottles: 2
+		});
+	});
+
+	it('never includes bottles of tastings that are not revealed, not even in the totals', () => {
+		setupWithBottles('2026-10-21');
+		setupWithBottles();
+		const result = getStatistics(db, 'u-anna', ORDER)!;
+		expect(result.overview).toMatchObject({ tastings: 1, bottles: 2 });
+		expect(result.alcohol.pureMl).toBeCloseTo(50, 10);
+		const serialized = JSON.stringify(result);
+		expect(serialized).not.toContain('2026-10-24');
+	});
+
+	it('shows every user all revealed tastings, with slug and download only for their own', () => {
+		const ctx = setupWithBottles();
+		db.update(schema.tastingBottle)
+			.set({ presentationFile: 'Tasting_2026-10-24_Nebel.pptx', presentationName: 'Islay.pptx' })
+			.where(eq(schema.tastingBottle.participantId, ctx.anna.id))
+			.run();
+		const annaBottle = db
+			.select({ id: schema.tastingBottle.id })
+			.from(schema.tastingBottle)
+			.where(eq(schema.tastingBottle.participantId, ctx.anna.id))
+			.get()!;
+
+		const own = getStatistics(db, 'u-anna', REVEALED)!;
+		expect(own.bottles.map((b) => [b.slug, b.presentation])).toEqual([
+			[ctx.slug, { bottleId: annaBottle.id }],
+			[ctx.slug, null]
+		]);
+
+		// The admin without a participation sees the same bottles, but neither
+		// the link nor the bottle id.
+		const other = getStatistics(db, 'u-admin', REVEALED)!;
+		expect(other.bottles.map((b) => [b.alias, b.slug, b.presentation])).toEqual([
+			['Nebel 2026-10-24', null, null],
+			['Torf 2026-10-24', null, null]
+		]);
+		const serialized = JSON.stringify(other);
+		for (const hidden of [ctx.slug, annaBottle.id, ctx.id, 'Islay.pptx', 'Tasting_2026']) {
+			expect(serialized).not.toContain(hidden);
+		}
+		// No factors: the bottles carry exactly these fields (a record's
+		// "value" is its ABV or age, not the factor).
+		expect(Object.keys(other.bottles[0]).sort()).toEqual([
+			'abv',
+			'age',
+			'alias',
+			'bottler',
+			'bottling',
+			'broughtBy',
+			'distillery',
+			'number',
+			'presentation',
+			'slug',
+			'tastingDate',
+			'whiskybaseUrl'
+		]);
+		expect(serialized).not.toMatch(/"(smoke|cask|score)":/);
+	});
+
+	it('includes archived tastings with their ABV only', () => {
+		const ctx = setup();
+		insertArchivedBottle(ctx.anna.id, 1, 'Ahorn', { abv: 43 });
+		insertArchivedBottle(ctx.cem.id, 1, 'Birke', { abv: 57 });
+		const result = getStatistics(db, 'u-ben', REVEALED)!;
+		expect(result.bottles.map((b) => [b.alias, b.broughtBy, b.abv])).toEqual([
+			['Ahorn', 'Anna', 43],
+			['Birke', 'Cem', 57]
+		]);
+		expect(result.overview.meanAbv).toBe(50);
+	});
+
+	it('marks deactivated bringers', () => {
+		setupWithBottles();
+		db.update(schema.user).set({ deactivatedAt: ORDER }).where(eq(schema.user.id, 'u-ben')).run();
+		const result = getStatistics(db, 'u-anna', REVEALED)!;
+		expect(result.bottles.map((b) => b.broughtBy)).toEqual(['Anna', 'Ben (inaktiv)']);
+		expect(result.people.persons.map((p) => p.name)).toEqual(['Anna', 'Ben (inaktiv)']);
+	});
+
+	it('counts the pure alcohol per person of each tasting, also when somebody was missing', () => {
+		// 50 ml samples at 40 % and 60 %: 50 ml pure alcohol per person.
+		setupWithBottles('2026-10-21');
+		// Cem missed this one: still 50 ml for everybody who was there.
+		setupWithBottles(TASTING_DATE, ['u-anna', 'u-ben']);
+		const { alcohol } = getStatistics(db, 'u-cem', REVEALED)!;
+		expect(alcohol.pureMl).toBeCloseTo(100, 10);
+		expect(alcohol.hardest).toEqual({ tastingDate: '2026-10-21', pureMl: 50 });
+	});
+
+	it('orders same-day tastings by creation', () => {
+		setupWithBottles();
+		const later = createTasting(db, newTasting(), ENTRY);
+		saveBottle(
+			db,
+			findParticipant(db, later.slug, 'u-cem')!,
+			1,
+			bottle({ alias: 'Später' }),
+			ENTRY
+		);
+		const result = getStatistics(db, 'u-anna', REVEALED)!;
+		expect([...result.bottles].sort((a, b) => a.number - b.number).map((b) => b.alias)).toEqual([
+			'Nebel 2026-10-24',
+			'Torf 2026-10-24',
+			'Später'
 		]);
 	});
 });

@@ -113,3 +113,20 @@ export function normalizeWhiskybaseUrl(value: string): string | null {
 		url.href.length <= TASTING_WHISKYBASE_URL_LENGTH.max;
 	return valid ? url.href : null;
 }
+
+const WHISKYBASE_WHISKY_PATH = /^\/whiskies\/whisky\/(\d+)(?:\/|$)/;
+
+/**
+ * The whisky's ID from a Whiskybase link (`/whiskies/whisky/<id>[/…]`), the
+ * same with and without `www.`. `null` for any other page, host or no URL.
+ */
+export function whiskybaseId(value: string): string | null {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		return null;
+	}
+	if (!WHISKYBASE_HOSTS.has(url.hostname)) return null;
+	return WHISKYBASE_WHISKY_PATH.exec(url.pathname)?.[1] ?? null;
+}
