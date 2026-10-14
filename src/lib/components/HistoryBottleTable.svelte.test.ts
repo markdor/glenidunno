@@ -1,20 +1,20 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
-import type { StatisticsBottle } from '$lib/tasting';
+import type { HistoryBottle } from '$lib/tasting';
 
 // The table reads its state from page.url and writes it back via goto(): the
 // real goto() needs a running SvelteKit client.
-const mockPage = vi.hoisted(() => ({ url: new URL('http://localhost/statistics') }));
+const mockPage = vi.hoisted(() => ({ url: new URL('http://localhost/history') }));
 vi.mock('$app/state', () => ({ page: mockPage }));
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
 
 import { goto } from '$app/navigation';
-import StatisticsBottleTable from './StatisticsBottleTable.svelte';
+import HistoryBottleTable from './HistoryBottleTable.svelte';
 
 const NAVIGATION = { replaceState: true, noScroll: true, keepFocus: true };
 
-function bottle(number: number, overrides: Partial<StatisticsBottle> = {}): StatisticsBottle {
+function bottle(number: number, overrides: Partial<HistoryBottle> = {}): HistoryBottle {
 	return {
 		number,
 		tastingDate: '2021-05-07',
@@ -66,8 +66,8 @@ const BOTTLES = [
 ];
 
 function show(search = '') {
-	mockPage.url = new URL(`http://localhost/statistics${search}`);
-	return render(StatisticsBottleTable, { bottles: BOTTLES });
+	mockPage.url = new URL(`http://localhost/history${search}`);
+	return render(HistoryBottleTable, { bottles: BOTTLES });
 }
 
 /** The aliases of the rows in their order. */
@@ -85,7 +85,7 @@ beforeEach(() => {
 	vi.mocked(goto).mockClear();
 });
 
-describe('StatisticsBottleTable – sorting', () => {
+describe('HistoryBottleTable – sorting', () => {
 	test('lists the newest tasting first and marks the date column as sorted', async () => {
 		show();
 		await expect.element(header('Datum')).toHaveAttribute('aria-sort', 'descending');
@@ -97,9 +97,9 @@ describe('StatisticsBottleTable – sorting', () => {
 	test('sorts by a new column ascending, a second click reverses it', async () => {
 		show();
 		await header('Alkohol').getByRole('button').click();
-		expect(goto).toHaveBeenLastCalledWith('/statistics?sort=abv&dir=asc', NAVIGATION);
+		expect(goto).toHaveBeenLastCalledWith('/history?sort=abv&dir=asc', NAVIGATION);
 		await header('Datum').getByRole('button').click();
-		expect(goto).toHaveBeenLastCalledWith('/statistics?dir=asc', NAVIGATION);
+		expect(goto).toHaveBeenLastCalledWith('/history?dir=asc', NAVIGATION);
 	});
 
 	test('reads the sorting from the URL – headings, mobile selection and direction agree', async () => {
@@ -112,16 +112,16 @@ describe('StatisticsBottleTable – sorting', () => {
 
 		await page.getByRole('button', { name: 'Aufsteigend' }).click();
 		// Descending is the default direction, so it stays out of the URL.
-		expect(goto).toHaveBeenLastCalledWith('/statistics?sort=abv', NAVIGATION);
+		expect(goto).toHaveBeenLastCalledWith('/history?sort=abv', NAVIGATION);
 		await header('Alkohol').getByRole('button').click();
-		expect(goto).toHaveBeenLastCalledWith('/statistics?sort=abv', NAVIGATION);
+		expect(goto).toHaveBeenLastCalledWith('/history?sort=abv', NAVIGATION);
 	});
 
 	test('sorts by the mobile selection, ascending', async () => {
 		show('?sort=abv');
 		await expect.element(page.getByRole('button', { name: 'Absteigend' })).toBeVisible();
 		await page.getByLabelText('Sortieren nach').selectOptions('alias');
-		expect(goto).toHaveBeenLastCalledWith('/statistics?sort=alias&dir=asc', NAVIGATION);
+		expect(goto).toHaveBeenLastCalledWith('/history?sort=alias&dir=asc', NAVIGATION);
 	});
 
 	test('sorts aliases naturally', async () => {
@@ -146,7 +146,7 @@ describe('StatisticsBottleTable – sorting', () => {
 	});
 });
 
-describe('StatisticsBottleTable – search and filters', () => {
+describe('HistoryBottleTable – search and filters', () => {
 	test('filters only from the third character on', async () => {
 		const short = show('?q=gl');
 		expect(aliases()).toHaveLength(4);
@@ -184,21 +184,21 @@ describe('StatisticsBottleTable – search and filters', () => {
 	test('writes search and filters into the URL, keeping the rest', async () => {
 		show('?sort=abv');
 		await page.getByLabelText('Suche').fill('Glen ');
-		expect(goto).toHaveBeenLastCalledWith('/statistics?q=Glen+&sort=abv', NAVIGATION);
+		expect(goto).toHaveBeenLastCalledWith('/history?q=Glen+&sort=abv', NAVIGATION);
 		await page.getByLabelText('Teilnehmer').selectOptions('Cem (inaktiv)');
-		expect(goto).toHaveBeenLastCalledWith('/statistics?by=Cem+%28inaktiv%29&sort=abv', NAVIGATION);
+		expect(goto).toHaveBeenLastCalledWith('/history?by=Cem+%28inaktiv%29&sort=abv', NAVIGATION);
 		await page.getByLabelText('Jahr').selectOptions('2021');
-		expect(goto).toHaveBeenLastCalledWith('/statistics?year=2021&sort=abv', NAVIGATION);
+		expect(goto).toHaveBeenLastCalledWith('/history?year=2021&sort=abv', NAVIGATION);
 	});
 
 	test('drops a filter set back to "Alle"', async () => {
 		show('?by=Ben');
 		await page.getByLabelText('Teilnehmer').selectOptions('');
-		expect(goto).toHaveBeenLastCalledWith('/statistics', NAVIGATION);
+		expect(goto).toHaveBeenLastCalledWith('/history', NAVIGATION);
 	});
 });
 
-describe('StatisticsBottleTable – cells and links', () => {
+describe('HistoryBottleTable – cells and links', () => {
 	test('shows every column as text, the whisky without the bottler', async () => {
 		show();
 		const row = page.getByRole('row').filter({ hasText: 'P113' }).first();

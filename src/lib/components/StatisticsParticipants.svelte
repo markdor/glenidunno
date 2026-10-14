@@ -20,7 +20,7 @@
 	}: {
 		people: Statistics['people'];
 		bottles: StatisticsBottle[];
-		/** Link to a bottle's row in the table. */
+		/** Link to a bottle's row in the history's table. */
 		bottleHref: (number: number) => ResolvedPathname;
 	} = $props();
 

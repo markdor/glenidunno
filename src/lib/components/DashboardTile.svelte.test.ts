@@ -19,9 +19,10 @@ describe('DashboardTile', () => {
 	});
 
 	test('shows a section still to come as neither link nor focus target', async () => {
-		const { container } = render(DashboardTile, { title: 'Historie', icon: RotateCcwClock });
+		// No tile of the start page is a placeholder at the moment: a neutral title.
+		const { container } = render(DashboardTile, { title: 'Bereich', icon: RotateCcwClock });
 
-		await expect.element(page.getByText('Historie')).toBeVisible();
+		await expect.element(page.getByText('Bereich')).toBeVisible();
 		await expect.element(page.getByText('Demnächst')).toBeVisible();
 		expect(page.getByRole('link').elements()).toHaveLength(0);
 		expect(container.querySelector('a, button, [tabindex]')).toBeNull();

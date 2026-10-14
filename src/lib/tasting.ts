@@ -363,56 +363,144 @@ export const BEER_PURE_ALCOHOL_ML = 25;
 /** Content of a whisky bottle. */
 export const WHISKY_BOTTLE_ML = 700;
 
-/**
- * Class bounds of the histograms: each bound starts a class, so five bounds
- * make six classes, the first and the last one open (< 43, 43–45,9, …, ≥ 60).
- */
-export const ABV_HISTOGRAM_BOUNDS = [43, 46, 50, 55, 60] as const;
-export const AGE_HISTOGRAM_BOUNDS = [6, 10, 15, 20] as const;
+/** Range of the "Intervall" sliders: the width in %-points resp. years. */
+export const HISTOGRAM_STEP = { min: 1, max: 5 } as const;
 
-/** Index of the histogram class a value falls into, 0 to `bounds.length`. */
-export function histogramClass(value: number, bounds: readonly number[]): number {
-	return bounds.filter((bound) => value >= bound).length;
+/**
+ * Axes of the interval histograms. `anchor` is a bound at every width, `step`
+ * the width on every page load. `scale` is the precision of the values: the
+ * intervals are computed in these units (ABV in tenths, ages in years), so
+ * floating point can't put 45.9 and 46.0 into the same interval.
+ */
+export const ABV_HISTOGRAM = { anchor: 46, step: 4, scale: 10 } as const;
+export const AGE_HISTOGRAM = { anchor: 3, step: 3, scale: 1 } as const;
+
+export type HistogramAxis = { anchor: number; scale: number };
+
+/** Half-open: `start` belongs to the interval, `end` to the next one. */
+export type HistogramInterval = { start: number; end: number; count: number };
+
+/**
+ * The values per interval of the given width, from the interval of the lowest
+ * to that of the highest value – the empty ones in between included. Values
+ * below the anchor fall into the intervals below it, without a special case.
+ */
+export function histogramIntervals(
+	values: number[],
+	axis: HistogramAxis,
+	width: number
+): HistogramInterval[] {
+	if (values.length === 0) return [];
+	const indexes = values.map((value) =>
+		Math.floor((Math.round(value * axis.scale) - axis.anchor * axis.scale) / (width * axis.scale))
+	);
+	const first = Math.min(...indexes);
+	const counts = new Array<number>(Math.max(...indexes) - first + 1).fill(0);
+	for (const index of indexes) counts[index - first]++;
+	return counts.map((count, i) => ({
+		start: axis.anchor + (first + i) * width,
+		end: axis.anchor + (first + i + 1) * width,
+		count
+	}));
 }
 
 /**
- * Labels of the histogram classes. `step` is the precision of the values: a
- * class ends one step below the next bound (43–45,9 for ABV, 6–9 for ages).
+ * Index of the bound at `value` (0 = start of the first interval) – for the
+ * anchor also the index of the interval that starts there. May lie outside
+ * the intervals when no value is near the anchor.
  */
-export function histogramLabels(bounds: readonly number[], step: number): string[] {
-	const upper = (bound: number) =>
-		step < 1 ? formatOneDecimal(bound - step) : String(bound - step);
-	return [
-		`< ${bounds[0]}`,
-		...bounds.slice(1).map((bound, i) => `${bounds[i]}–${upper(bound)}`),
-		`≥ ${bounds[bounds.length - 1]}`
-	];
+export function histogramBoundIndex(value: number, intervals: HistogramInterval[]): number {
+	if (intervals.length === 0) return 0;
+	const { start, end } = intervals[0];
+	return Math.round((value - start) / (end - start));
 }
 
 /**
- * Where a value sits on a histogram's class axis: the index of its class plus
- * its linear position inside it (0–1). The open classes reach to `min`/`max`,
- * the bounds of the input.
+ * Where a value sits on the interval axis, in intervals from the start of the
+ * first one: Ø 11.2 years at a width of 1 from 3 on is 8.2, a fifth into the
+ * interval of 11 years.
  */
-export function histogramPosition(
-	value: number,
-	bounds: readonly number[],
-	range: { min: number; max: number }
-): number {
-	const index = histogramClass(value, bounds);
-	const lower = index === 0 ? range.min : bounds[index - 1];
-	const upper = index === bounds.length ? range.max : bounds[index];
-	const inside = upper > lower ? (value - lower) / (upper - lower) : 0;
-	return index + Math.min(1, Math.max(0, inside));
+export function histogramPosition(value: number, intervals: HistogramInterval[]): number {
+	if (intervals.length === 0) return 0;
+	const { start, end } = intervals[0];
+	return Math.min(intervals.length, Math.max(0, (value - start) / (end - start)));
 }
 
-/** A bottle of a revealed tasting as the statistics table lists it. */
-export type StatisticsBottle = {
+/** Height of the highest bar; the count sits on top of it. */
+export const HISTOGRAM_BAR_PX = 96;
+
+/** Bar height of a count, `max` being the highest count of the chart. */
+export function histogramBarHeight(count: number, max: number): number {
+	return Math.round((count / Math.max(1, max)) * HISTOGRAM_BAR_PX);
+}
+
+/**
+ * Room an axis label needs: its estimated text width (11 px, the widest
+ * common system font) plus a gap that keeps the labels apart – on a desktop
+ * at a width of 1 every other ABV bound.
+ */
+const LABEL_CHAR_PX = 6.5;
+const LABEL_GAP_PX = 16;
+
+/** Room a count needs: digits at 12 px plus a hair of air. */
+const COUNT_CHAR_PX = 7;
+const COUNT_GAP_PX = 2;
+/** Line height of a count plus its distance to the bar. */
+const COUNT_LINE_PX = 18;
+
+/**
+ * Only every this many labels fits: the smallest step at which the longest
+ * label keeps its room. `slotPx` is the distance between two labels.
+ */
+export function labelStep(labels: string[], slotPx: number): number {
+	const longest = Math.max(0, ...labels.map((label) => label.length));
+	return Math.max(1, Math.ceil((longest * LABEL_CHAR_PX + LABEL_GAP_PX) / slotPx));
+}
+
+/** Whether label `i` is shown at `step`: the anchor's label always is. */
+export function isLabeled(i: number, anchor: number, step: number): boolean {
+	return (((i - anchor) % step) + step) % step === 0;
+}
+
+/**
+ * Which counts are shown on top of their bars, `slotPx` being the width of a
+ * column. The highest bars keep theirs first; a count that would overlap one
+ * already shown – side by side and at about the same height – is dropped. No
+ * count for an empty interval.
+ */
+export function visibleCounts(counts: number[], max: number, slotPx: number): boolean[] {
+	const shown: Array<{ center: number; half: number; bottom: number }> = [];
+	const visible = counts.map(() => false);
+	const order = counts
+		.map((count, i) => ({ count, i }))
+		.sort((a, b) => b.count - a.count || a.i - b.i);
+	for (const { count, i } of order) {
+		if (count === 0) break;
+		const box = {
+			center: (i + 0.5) * slotPx,
+			half: (String(count).length * COUNT_CHAR_PX) / 2,
+			bottom: histogramBarHeight(count, max)
+		};
+		const overlaps = shown.some(
+			(other) =>
+				Math.abs(other.center - box.center) < other.half + box.half + COUNT_GAP_PX &&
+				Math.abs(other.bottom - box.bottom) < COUNT_LINE_PX
+		);
+		if (!overlaps) {
+			shown.push(box);
+			visible[i] = true;
+		}
+	}
+	return visible;
+}
+
+/** A bottle of a revealed tasting as the history's table lists it. */
+export type HistoryBottle = {
 	/**
 	 * Position in the ascending standard order (by tasting, bringer, slot),
-	 * from 1: anchor of the table row (`#bottle-<number>`) and the count of
-	 * the milestones. The bottle id doesn't do – it only leaves the server for
-	 * the viewer's own tastings.
+	 * from 1: anchor of the table row (`#bottle-<number>`) and the count of the
+	 * milestones – the statistics link to the row with it. The bottle id
+	 * doesn't do, it only leaves the server for the viewer's own tastings.
 	 */
 	number: number;
 	tastingDate: string;
@@ -430,6 +518,16 @@ export type StatisticsBottle = {
 	/** Like the slug only for the viewer's own tastings – without the file name. */
 	presentation: PresentationLink | null;
 };
+
+/**
+ * A bottle of a revealed tasting as the statistics use it: what records,
+ * milestones, the participant comparison and the histograms show – nothing
+ * that only the history's table needs.
+ */
+export type StatisticsBottle = Pick<
+	HistoryBottle,
+	'number' | 'tastingDate' | 'distillery' | 'bottler' | 'bottling' | 'age' | 'abv' | 'broughtBy'
+>;
 
 /**
  * A record (strongest, oldest): the value, the first holder in standard order
@@ -467,7 +565,7 @@ export type PersonMetric =
 export const CASK_STRENGTH_ABV = 50;
 
 export type Statistics = {
-	/** Table order: newest tasting first, within one by bringer and slot. */
+	/** In standard order (see HistoryBottle's number). */
 	bottles: StatisticsBottle[];
 	overview: {
 		tastings: number;
@@ -484,8 +582,6 @@ export type Statistics = {
 		strongest: BottleRecord | null;
 		oldest: BottleRecord | null;
 	};
-	/** Bottles per class of ABV_HISTOGRAM_BOUNDS resp. AGE_HISTOGRAM_BOUNDS (without NAS). */
-	distributions: { abv: number[]; age: number[] };
 	/** Per person who took part in every tasting, in ml unless noted. */
 	alcohol: {
 		pureMl: number;

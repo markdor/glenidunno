@@ -2,19 +2,19 @@ import { describe, it, expect } from 'vitest';
 import { CASK_STRENGTH_ABV } from '$lib/tasting';
 import {
 	buildStatistics,
+	numberBottles,
 	type StatisticsBottleInput,
 	type StatisticsTastingInput
 } from './statistics';
 
-const T1: StatisticsTastingInput = { id: 't1', tastingDate: '2021-05-07', slug: null };
-const T2: StatisticsTastingInput = { id: 't2', tastingDate: '2022-02-18', slug: 'fluffy-otter' };
-const T3: StatisticsTastingInput = { id: 't3', tastingDate: '2024-09-27', slug: null };
+const T1: StatisticsTastingInput = { id: 't1', tastingDate: '2021-05-07' };
+const T2: StatisticsTastingInput = { id: 't2', tastingDate: '2022-02-18' };
+const T3: StatisticsTastingInput = { id: 't3', tastingDate: '2024-09-27' };
 
 function bottle(overrides: Partial<StatisticsBottleInput> = {}): StatisticsBottleInput {
 	return {
 		tastingId: 't1',
 		slot: 1,
-		alias: 'Nebel',
 		distillery: 'Ardbeg',
 		bottler: null,
 		bottling: null,
@@ -23,7 +23,6 @@ function bottle(overrides: Partial<StatisticsBottleInput> = {}): StatisticsBottl
 		whiskybaseUrl: null,
 		username: 'Anna',
 		deactivatedAt: null,
-		presentation: null,
 		...overrides
 	};
 }
@@ -36,80 +35,94 @@ function bottles(
 	overrides: Partial<StatisticsBottleInput> = {}
 ): StatisticsBottleInput[] {
 	return distilleries.map((distillery, i) =>
-		bottle({
-			tastingId,
-			username,
-			slot: i + 1,
-			alias: `${username}-${i + 1}`,
-			distillery,
-			...overrides
-		})
+		bottle({ tastingId, username, slot: i + 1, distillery, ...overrides })
 	);
 }
 
-describe('buildStatistics – order', () => {
-	const result = buildStatistics(
-		[T1, T2],
-		[
-			bottle({ tastingId: 't2', username: 'ben', slot: 1, alias: 'P4' }),
-			bottle({ tastingId: 't1', username: 'Ben', slot: 2, alias: 'P2' }),
-			bottle({ tastingId: 't2', username: 'Anna', slot: 2, alias: 'P3' }),
-			bottle({ tastingId: 't1', username: 'Anna', slot: 1, alias: 'P1' }),
-			bottle({ tastingId: 't1', username: 'Ben', slot: 1, alias: 'P0' })
-		]
-	);
+/** Like getStatistics: numbered first, then aggregated. */
+function build(tastings: StatisticsTastingInput[], inputs: StatisticsBottleInput[]) {
+	return buildStatistics(tastings, numberBottles(tastings, inputs));
+}
 
-	it('numbers the bottles by tasting, bringer and slot', () => {
-		const byNumber = [...result.bottles].sort((a, b) => a.number - b.number);
-		expect(byNumber.map((b) => b.alias)).toEqual(['P1', 'P0', 'P2', 'P3', 'P4']);
+describe('numberBottles', () => {
+	const tagged = (tastingId: string, username: string, slot: number, alias: string) => ({
+		tastingId,
+		username,
+		slot,
+		alias
 	});
 
-	it('lists the newest tasting first, within one still by bringer and slot', () => {
-		expect(result.bottles.map((b) => [b.number, b.alias])).toEqual([
-			[4, 'P3'],
-			[5, 'P4'],
-			[1, 'P1'],
-			[2, 'P0'],
-			[3, 'P2']
+	it('numbers the bottles by tasting, bringer (de-DE, not bytes) and slot', () => {
+		const result = numberBottles(
+			[T1, T2],
+			[
+				tagged('t2', 'ben', 1, 'P4'),
+				tagged('t1', 'Ben', 2, 'P2'),
+				tagged('t2', 'Anna', 2, 'P3'),
+				tagged('t1', 'Anna', 1, 'P1'),
+				tagged('t1', 'Ben', 1, 'P0'),
+				// Bytes would put "Ä" after "B".
+				tagged('t1', 'Änne', 1, 'P1b')
+			]
+		);
+		expect(result.map((b) => [b.number, b.tastingIndex, b.alias])).toEqual([
+			[1, 0, 'P1'],
+			[2, 0, 'P1b'],
+			[3, 0, 'P0'],
+			[4, 0, 'P2'],
+			[5, 1, 'P3'],
+			[6, 1, 'P4']
 		]);
 	});
 
-	it('takes date and slug from the tasting', () => {
-		expect(result.bottles[0]).toMatchObject({ tastingDate: '2022-02-18', slug: 'fluffy-otter' });
-		expect(result.bottles[2]).toMatchObject({ tastingDate: '2021-05-07', slug: null });
+	it('keeps every field of the input and leaves the input alone', () => {
+		const input = [tagged('t1', 'Anna', 1, 'P1')];
+		expect(numberBottles([T1], input)).toEqual([{ ...input[0], number: 1, tastingIndex: 0 }]);
+		expect(input[0]).not.toHaveProperty('number');
 	});
+});
 
-	it('picks the fields explicitly and labels deactivated bringers', () => {
-		const [only] = buildStatistics(
-			[T1],
+describe('buildStatistics – bottles', () => {
+	it('picks the fields explicitly, in standard order, and labels deactivated bringers', () => {
+		const result = build(
+			[T1, T2],
 			[
+				bottle({ tastingId: 't2', username: 'Ben' }),
 				bottle({
 					username: 'Cem',
 					deactivatedAt: new Date('2026-01-01T00:00:00Z'),
-					presentation: { bottleId: 'b-1' }
+					whiskybaseUrl: 'https://www.whiskybase.com/whiskies/whisky/1234'
 				})
 			]
-		).bottles;
-		expect(only).toEqual({
-			number: 1,
-			tastingDate: '2021-05-07',
-			slug: null,
-			alias: 'Nebel',
-			distillery: 'Ardbeg',
-			bottler: null,
-			bottling: null,
-			age: null,
-			abv: 46,
-			whiskybaseUrl: null,
-			broughtBy: 'Cem (inaktiv)',
-			presentation: { bottleId: 'b-1' }
-		});
+		);
+		expect(result.bottles).toEqual([
+			{
+				number: 1,
+				tastingDate: '2021-05-07',
+				distillery: 'Ardbeg',
+				bottler: null,
+				bottling: null,
+				age: null,
+				abv: 46,
+				broughtBy: 'Cem (inaktiv)'
+			},
+			{
+				number: 2,
+				tastingDate: '2022-02-18',
+				distillery: 'Ardbeg',
+				bottler: null,
+				bottling: null,
+				age: null,
+				abv: 46,
+				broughtBy: 'Ben'
+			}
+		]);
 	});
 });
 
 describe('buildStatistics – overview', () => {
 	it('counts distilleries without Blend and Unbekannt, ignoring case', () => {
-		const { overview, distilleries } = buildStatistics(
+		const { overview, distilleries } = build(
 			[T1],
 			bottles('t1', 'Anna', ['Ardbeg', 'ardbeg ', 'BLEND', 'Blend', 'unbekannt', 'Lagavulin'])
 		);
@@ -122,7 +135,7 @@ describe('buildStatistics – overview', () => {
 	});
 
 	it('leaves NAS out of the age figures but counts it', () => {
-		const { overview, distributions } = buildStatistics(
+		const { overview } = build(
 			[T1],
 			[
 				bottle({ slot: 1, age: 10 }),
@@ -137,23 +150,20 @@ describe('buildStatistics – overview', () => {
 			totalAge: 39,
 			oldest: { value: 24, number: 2, more: 0 }
 		});
-		// < 6, 6–9, 10–14, 15–19, ≥ 20 – without the NAS bottle.
-		expect(distributions.age).toEqual([1, 0, 1, 0, 1]);
 	});
 
-	it('computes mean and median ABV and the ABV histogram', () => {
-		const { overview, distributions } = buildStatistics(
+	it('computes mean and median ABV', () => {
+		const { overview } = build(
 			[T1],
 			[40, 45.9, 46, 54.9, 55, 66.6].map((abv, i) => bottle({ slot: i + 1, abv }))
 		);
 		expect(overview.meanAbv).toBeCloseTo(51.4, 5);
 		expect(overview.medianAbv).toBeCloseTo(50.45, 5);
-		expect(distributions.abv).toEqual([1, 1, 1, 1, 1, 1]);
-		expect(buildStatistics([T1], [bottle({ abv: 50 })]).overview.medianAbv).toBe(50);
+		expect(build([T1], [bottle({ abv: 50 })]).overview.medianAbv).toBe(50);
 	});
 
 	it('names the first record holder in standard order and counts the ties', () => {
-		const { overview } = buildStatistics(
+		const { overview } = build(
 			[T1, T2],
 			[
 				bottle({ tastingId: 't2', abv: 66.6, age: 24 }),
@@ -169,7 +179,7 @@ describe('buildStatistics – overview', () => {
 
 describe('buildStatistics – pure alcohol', () => {
 	it('sums the samples of every bottle per tasting – per person, whoever took part', () => {
-		const { alcohol } = buildStatistics(
+		const { alcohol } = build(
 			[T1, T2],
 			[
 				// 50 ml at 40 % and at 60 %: 20 + 30 ml pure alcohol per person.
@@ -190,7 +200,7 @@ describe('buildStatistics – pure alcohol', () => {
 
 describe('buildStatistics – people', () => {
 	it('compares the bringers with their shares and averages', () => {
-		const { people } = buildStatistics(
+		const { people } = build(
 			[T1],
 			[
 				// ABVs relative to the cask strength level, one bottle of Ben's above it.
@@ -241,7 +251,7 @@ describe('buildStatistics – people', () => {
 	});
 
 	it('counts a bottle from CASK_STRENGTH_ABV on as cask strength level', () => {
-		const { people } = buildStatistics(
+		const { people } = build(
 			[T1],
 			[
 				bottle({ username: 'Anna', abv: CASK_STRENGTH_ABV }),
@@ -255,7 +265,7 @@ describe('buildStatistics – people', () => {
 	});
 
 	it('compares the averages at the precision shown, so ties name everybody', () => {
-		const { people } = buildStatistics(
+		const { people } = build(
 			[T1],
 			[
 				bottle({ username: 'Anna', abv: 51.26 }),
@@ -268,7 +278,7 @@ describe('buildStatistics – people', () => {
 	});
 
 	it('counts distilleries that occur exactly once overall, without Blend and Unbekannt', () => {
-		const { people } = buildStatistics(
+		const { people } = build(
 			[T1, T2],
 			[
 				...bottles('t1', 'Anna', ['Ardbeg', 'Blend', 'Bunnahabhain', 'Kilchoman']),
@@ -288,7 +298,7 @@ describe('buildStatistics – people', () => {
 
 describe('buildStatistics – distilleries and bottlers', () => {
 	it('shares podium places on ties and gives the next place to the next lower count', () => {
-		const { distilleries } = buildStatistics(
+		const { distilleries } = build(
 			[T1],
 			bottles('t1', 'Anna', [
 				'BenRiach',
@@ -317,7 +327,7 @@ describe('buildStatistics – distilleries and bottlers', () => {
 	});
 
 	it('splits original and independent bottlings and names the top bottlers', () => {
-		const { distilleries } = buildStatistics(
+		const { distilleries } = build(
 			[T1],
 			[
 				bottle({ slot: 1, bottler: 'Signatory' }),
@@ -333,11 +343,11 @@ describe('buildStatistics – distilleries and bottlers', () => {
 			independent: 5,
 			topBottlers: { names: ['Gordon & MacPhail', 'Signatory'], count: 2 }
 		});
-		expect(buildStatistics([T1], [bottle()]).distilleries.topBottlers).toBeNull();
+		expect(build([T1], [bottle()]).distilleries.topBottlers).toBeNull();
 	});
 
 	it('finds the same Whiskybase whisky in several tastings, with and without www', () => {
-		const { distilleries } = buildStatistics(
+		const { distilleries } = build(
 			[T1, T2, T3],
 			[
 				bottle({
@@ -374,7 +384,7 @@ describe('buildStatistics – distilleries and bottlers', () => {
 
 describe('buildStatistics – timeline', () => {
 	it('averages per tasting, an age only without NAS', () => {
-		const { timeline } = buildStatistics(
+		const { timeline } = build(
 			[T1, T2, T3],
 			[
 				bottle({ tastingId: 't1', slot: 1, abv: 40, age: 10 }),
@@ -392,10 +402,7 @@ describe('buildStatistics – timeline', () => {
 	});
 
 	it('counts tastings per year, empty years included, and finds the longest break', () => {
-		const { timeline } = buildStatistics(
-			[T1, { id: 't1b', tastingDate: '2021-11-26', slug: null }, T2, T3],
-			[]
-		);
+		const { timeline } = build([T1, { id: 't1b', tastingDate: '2021-11-26' }, T2, T3], []);
 		expect(timeline.perYear).toEqual([
 			{ year: 2021, count: 2 },
 			{ year: 2022, count: 1 },
@@ -403,20 +410,20 @@ describe('buildStatistics – timeline', () => {
 			{ year: 2024, count: 1 }
 		]);
 		expect(timeline.longestBreak).toEqual({ days: 952, from: '2022-02-18', to: '2024-09-27' });
-		expect(buildStatistics([T1], []).timeline.longestBreak).toBeNull();
+		expect(build([T1], []).timeline.longestBreak).toBeNull();
 	});
 
 	it('marks the first and every 50th bottle as a milestone', () => {
 		const many = Array.from({ length: 101 }, (_, i) =>
 			bottle({ slot: (i % 6) + 1, username: `user${String(Math.floor(i / 6)).padStart(2, '0')}` })
 		);
-		expect(buildStatistics([T1], many).timeline.milestones).toEqual([1, 50, 100]);
+		expect(build([T1], many).timeline.milestones).toEqual([1, 50, 100]);
 	});
 });
 
 describe('buildStatistics – revealed tastings without bottles', () => {
 	it('computes nothing from empty lists (no NaN, no Infinity)', () => {
-		const result = buildStatistics([T1], []);
+		const result = build([T1], []);
 		expect(result.bottles).toEqual([]);
 		expect(result.overview).toEqual({
 			tastings: 1,

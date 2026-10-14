@@ -4,13 +4,10 @@
 // computes with what it gets.
 
 import {
-	ABV_HISTOGRAM_BOUNDS,
-	AGE_HISTOGRAM_BOUNDS,
 	BEER_PURE_ALCOHOL_ML,
 	CASK_STRENGTH_ABV,
 	ETHANOL_DENSITY,
 	formatBottleName,
-	histogramClass,
 	MILESTONE_STEP,
 	participantLabel,
 	SAMPLE_SIZE_ML,
@@ -18,21 +15,22 @@ import {
 	type BottleRecord,
 	type PersonMetric,
 	type PersonStatistics,
-	type PresentationLink,
 	type Share,
 	type Statistics,
 	type StatisticsBottle
 } from '$lib/tasting';
 import { whiskybaseId } from '$lib/validation';
 
-/** A revealed tasting, in date order. `slug` only for the viewer's own ones. */
-export type StatisticsTastingInput = { id: string; tastingDate: string; slug: string | null };
+/** A revealed tasting, in date order. */
+export type StatisticsTastingInput = { id: string; tastingDate: string };
 
-/** A bottle of a revealed tasting with the fields the statistics may use. */
+/**
+ * A bottle of a revealed tasting with the fields the statistics may use. The
+ * Whiskybase link only finds the déjà-vus, it doesn't leave the server.
+ */
 export type StatisticsBottleInput = {
 	tastingId: string;
 	slot: number;
-	alias: string;
 	distillery: string;
 	bottler: string | null;
 	bottling: string | null;
@@ -41,9 +39,34 @@ export type StatisticsBottleInput = {
 	whiskybaseUrl: string | null;
 	username: string;
 	deactivatedAt: Date | null;
-	/** Only for the viewer's own tastings. */
-	presentation: PresentationLink | null;
 };
+
+/** A bottle with its place in the standard order, see numberBottles(). */
+export type Numbered<T> = T & { number: number; tastingIndex: number };
+
+/**
+ * The bottles in standard order: by tasting, then by bringer (compared here,
+ * SQLite only compares bytes) and slot – like the reveal of an archived
+ * tasting. `number` counts from 1: the anchor of the history's table row
+ * (`#bottle-<number>`) and the count of the milestones, so the statistics and
+ * the history must number the same way. `tastings` must be in date order
+ * (same-day tastings in creation order); the bottles may come in any order.
+ */
+export function numberBottles<T extends { tastingId: string; username: string; slot: number }>(
+	tastings: ReadonlyArray<{ id: string }>,
+	bottles: T[]
+): Array<Numbered<T>> {
+	const tastingIndex = new Map(tastings.map((t, index) => [t.id, index]));
+	return bottles
+		.map((bottle) => ({ bottle, tastingIndex: tastingIndex.get(bottle.tastingId)! }))
+		.sort(
+			(a, b) =>
+				a.tastingIndex - b.tastingIndex ||
+				a.bottle.username.localeCompare(b.bottle.username, 'de-DE') ||
+				a.bottle.slot - b.bottle.slot
+		)
+		.map(({ bottle, tastingIndex }, i) => ({ ...bottle, number: i + 1, tastingIndex }));
+}
 
 /**
  * Placeholders of the tasting history: they stand in the table, but count as
@@ -105,14 +128,11 @@ function namesWithCount(groups: Array<{ name: string; count: number }>, count: n
 		.sort(collator.compare);
 }
 
-/** Values per histogram class (see histogramClass). */
-function histogram(values: number[], bounds: readonly number[]): number[] {
-	const counts = new Array<number>(bounds.length + 1).fill(0);
-	for (const value of values) counts[histogramClass(value, bounds)]++;
-	return counts;
-}
-
-type Entry = { bottle: StatisticsBottle; input: StatisticsBottleInput; tastingIndex: number };
+type Entry = {
+	bottle: StatisticsBottle;
+	input: Numbered<StatisticsBottleInput>;
+	tastingIndex: number;
+};
 
 function record(entries: Entry[], value: (entry: Entry) => number): BottleRecord | null {
 	if (entries.length === 0) return null;
@@ -254,43 +274,27 @@ function timeline(entries: Entry[], tastings: StatisticsTastingInput[]): Statist
 
 /**
  * Everything the statistics page shows. `tastings` must be in date order
- * (same-day tastings in creation order); the bottles may come in any order.
+ * (same-day tastings in creation order), the bottles as numberBottles()
+ * returns them for these tastings.
  */
 export function buildStatistics(
 	tastings: StatisticsTastingInput[],
-	bottles: StatisticsBottleInput[]
+	bottles: Array<Numbered<StatisticsBottleInput>>
 ): Statistics {
-	const tastingIndex = new Map(tastings.map((t, index) => [t.id, index]));
-
-	// Standard order: by tasting, then by bringer (compared here, SQLite only
-	// compares bytes) and slot – like the reveal of an archived tasting.
-	const entries: Entry[] = bottles
-		.map((input) => ({ input, tastingIndex: tastingIndex.get(input.tastingId)! }))
-		.sort(
-			(a, b) =>
-				a.tastingIndex - b.tastingIndex ||
-				a.input.username.localeCompare(b.input.username, 'de-DE') ||
-				a.input.slot - b.input.slot
-		)
-		.map(({ input, tastingIndex }, i) => {
-			const t = tastings[tastingIndex];
-			// Picked explicitly, never spread: the input's fields aren't all for the page.
-			const bottle: StatisticsBottle = {
-				number: i + 1,
-				tastingDate: t.tastingDate,
-				slug: t.slug,
-				alias: input.alias,
-				distillery: input.distillery,
-				bottler: input.bottler,
-				bottling: input.bottling,
-				age: input.age,
-				abv: input.abv,
-				whiskybaseUrl: input.whiskybaseUrl,
-				broughtBy: participantLabel(input.username, input.deactivatedAt),
-				presentation: input.presentation
-			};
-			return { bottle, input, tastingIndex };
-		});
+	const entries: Entry[] = bottles.map((input) => {
+		// Picked explicitly, never spread: the input's fields aren't all for the page.
+		const bottle: StatisticsBottle = {
+			number: input.number,
+			tastingDate: tastings[input.tastingIndex].tastingDate,
+			distillery: input.distillery,
+			bottler: input.bottler,
+			bottling: input.bottling,
+			age: input.age,
+			abv: input.abv,
+			broughtBy: participantLabel(input.username, input.deactivatedAt)
+		};
+		return { bottle, input, tastingIndex: input.tastingIndex };
+	});
 
 	const abvs = entries.map((entry) => entry.input.abv);
 	const aged = entries.filter((entry) => entry.input.age !== null);
@@ -318,10 +322,7 @@ export function buildStatistics(
 	const liquidMl = entries.length * SAMPLE_SIZE_ML;
 
 	return {
-		// Newest tasting first, within one tasting still by bringer and slot.
-		bottles: [...entries]
-			.sort((a, b) => b.tastingIndex - a.tastingIndex || a.bottle.number - b.bottle.number)
-			.map((entry) => entry.bottle),
+		bottles: entries.map((entry) => entry.bottle),
 		overview: {
 			tastings: tastings.length,
 			bottles: entries.length,
@@ -334,10 +335,6 @@ export function buildStatistics(
 			totalAge: sum(ages),
 			strongest: record(entries, (entry) => entry.input.abv),
 			oldest: record(aged, (entry) => entry.input.age!)
-		},
-		distributions: {
-			abv: histogram(abvs, ABV_HISTOGRAM_BOUNDS),
-			age: histogram(ages, AGE_HISTOGRAM_BOUNDS)
 		},
 		alcohol: {
 			pureMl,

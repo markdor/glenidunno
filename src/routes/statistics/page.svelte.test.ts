@@ -1,13 +1,7 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, test, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import type { Statistics, StatisticsBottle } from '$lib/tasting';
-
-const mockPage = vi.hoisted(() => ({ url: new URL('http://localhost/statistics') }));
-vi.mock('$app/state', () => ({ page: mockPage }));
-// The real goto() needs a running SvelteKit client.
-vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
-
 import Page from './+page.svelte';
 
 const user = { id: 'u-anna', username: 'Anna', isAdmin: false };
@@ -16,16 +10,12 @@ function bottle(number: number, overrides: Partial<StatisticsBottle> = {}): Stat
 	return {
 		number,
 		tastingDate: '2021-05-07',
-		slug: null,
-		alias: `P${number}`,
 		distillery: 'Ardbeg',
 		bottler: null,
 		bottling: null,
 		age: null,
 		abv: 46,
-		whiskybaseUrl: null,
 		broughtBy: 'Anna',
-		presentation: null,
 		...overrides
 	};
 }
@@ -59,7 +49,6 @@ const STATISTICS: Statistics = {
 		strongest: { value: 66.6, number: 3, more: 0 },
 		oldest: { value: 24, number: 1, more: 2 }
 	},
-	distributions: { abv: [0, 1, 0, 1, 0, 1], age: [0, 1, 0, 0, 1] },
 	alcohol: {
 		pureMl: 2706.6,
 		pureGrams: 2135.5,
@@ -129,8 +118,7 @@ const STATISTICS: Statistics = {
 	}
 };
 
-function show(statistics: Statistics | null = STATISTICS, search = '') {
-	mockPage.url = new URL(`http://localhost/statistics${search}`);
+function show(statistics: Statistics | null = STATISTICS) {
 	return render(Page, { data: { user, statistics } });
 }
 
@@ -140,10 +128,6 @@ function headings() {
 		.elements()
 		.map((h) => h.textContent?.trim());
 }
-
-beforeEach(() => {
-	mockPage.url = new URL('http://localhost/statistics');
-});
 
 describe('Statistics page', () => {
 	test('shows only a hint while no tasting is revealed', async () => {
@@ -158,7 +142,7 @@ describe('Statistics page', () => {
 			.toHaveAttribute('href', '/');
 	});
 
-	test('puts the sections in order, the table last', async () => {
+	test('puts the sections in order and ends with the link to the history', async () => {
 		show();
 		expect(headings()).toEqual([
 			'Kennzahlen und Rekorde',
@@ -166,9 +150,13 @@ describe('Statistics page', () => {
 			'Reiner Alkohol',
 			'Teilnehmer im Vergleich',
 			'Destillerien und Abfüller',
-			'Zeitverlauf',
-			'Alle Flaschen'
+			'Zeitverlauf'
 		]);
+		// No table of the bottles any more, they are in the history.
+		expect(page.getByRole('region', { name: 'Alle Flaschen' }).elements()).toHaveLength(0);
+		const last = [...document.querySelectorAll('a')].at(-1);
+		expect(last).toHaveTextContent('Alle Flaschen in der Historie');
+		expect(last).toHaveAttribute('href', '/history');
 	});
 
 	test('shows the key figures in German format', async () => {
@@ -177,21 +165,17 @@ describe('Statistics page', () => {
 			await expect.element(page.getByText(text, { exact: true }).first()).toBeVisible();
 		}
 		await expect.element(page.getByText('Ø 54,6 %')).toBeVisible();
-		await expect.element(page.getByText('Ø 16,0 Jahre')).toBeVisible();
+		await expect.element(page.getByText('Ø 16,0 Jahre (ohne NAS)')).toBeVisible();
 	});
 
-	test('links the records to their table row, without search and filters', async () => {
-		show(STATISTICS, '?q=ard&by=Ben&year=2022&sort=abv');
-		const strongest = page.getByRole('link', { name: 'Deanston 2008/2022 (Signatory)' }).first();
-		await expect.element(strongest).toHaveAttribute('href', '/statistics?sort=abv#bottle-3');
-		await expect.element(page.getByText('+ 2 weitere')).toBeVisible();
-	});
-
-	test('links a record to the row alone without a sorting', async () => {
+	test('links the records to their row in the history, without a query string', async () => {
 		show();
+		const strongest = page.getByRole('link', { name: 'Deanston 2008/2022 (Signatory)' }).first();
+		await expect.element(strongest).toHaveAttribute('href', '/history#bottle-3');
+		await expect.element(page.getByText('+ 2 weitere')).toBeVisible();
 		await expect
 			.element(page.getByRole('link', { name: 'Glen Spey 24 Jahre (Hunter Laing)' }).first())
-			.toHaveAttribute('href', '/statistics#bottle-1');
+			.toHaveAttribute('href', '/history#bottle-1');
 	});
 
 	test('shows the pure alcohol per person with the conversions and the hint', async () => {
@@ -218,7 +202,7 @@ describe('Statistics page', () => {
 		expect(page.getByText('Experimentierfreudigster:').elements()).toHaveLength(0);
 		await expect
 			.element(page.getByRole('listitem').filter({ hasText: 'Ben:' }).getByRole('link'))
-			.toHaveAttribute('href', '/statistics#bottle-3');
+			.toHaveAttribute('href', '/history#bottle-3');
 	});
 
 	test('shows podium, repeaters, bottlers and déjà-vus', async () => {
@@ -263,7 +247,7 @@ describe('Statistics page', () => {
 		await expect.element(page.getByText('532 Tage')).toBeVisible();
 		await expect
 			.element(page.getByRole('listitem').filter({ hasText: 'Die 1. Flasche:' }).getByRole('link'))
-			.toHaveAttribute('href', '/statistics#bottle-1');
+			.toHaveAttribute('href', '/history#bottle-1');
 	});
 
 	test('leaves out what a single tasting without bottles cannot have', async () => {
@@ -296,5 +280,72 @@ describe('Statistics page', () => {
 		expect(page.getByText(/Härtestes Tasting/).elements()).toHaveLength(0);
 		expect(page.getByText(/Längste Pause/).elements()).toHaveLength(0);
 		expect(page.getByText('Meilensteine').elements()).toHaveLength(0);
+	});
+});
+
+describe('Statistics page – histogram intervals', () => {
+	/** Screen reader texts of a chart's columns – one per interval, NAS last. */
+	function columns(chart: string) {
+		const group = page.getByRole('group', { name: chart }).element();
+		return [...group.querySelectorAll('.sr-only')].map((c) => c.textContent);
+	}
+
+	function slide(name: string, value: number) {
+		const slider = page.getByRole('slider', { name }).element() as HTMLInputElement;
+		slider.value = String(value);
+		slider.dispatchEvent(new Event('input', { bubbles: true }));
+	}
+
+	const output = (unit: RegExp) => page.getByRole('status').filter({ hasText: unit });
+
+	test('starts at 4 %-points and 3 years, the sliders named after their chart', async () => {
+		show();
+		const abv = page.getByRole('slider', { name: 'Intervall Alkoholgehalt' });
+		const age = page.getByRole('slider', { name: 'Intervall Alter' });
+		await expect.element(abv).toHaveValue('4');
+		await expect.element(abv).toHaveAttribute('min', '1');
+		await expect.element(abv).toHaveAttribute('max', '5');
+		await expect.element(age).toHaveValue('3');
+		expect(page.getByText('Intervall', { exact: true }).elements()).toHaveLength(2);
+		await expect.element(output(/Punkt/)).toHaveTextContent('4 %-Punkte');
+		await expect.element(output(/Jahr/)).toHaveTextContent('3 Jahre');
+
+		// 43, 54.1 and 66.6 % vol. from 42 on, 46 being a bound.
+		expect(columns('Flaschen nach Alkoholgehalt')).toEqual([
+			'42–45,9 % vol.: 1 Flasche',
+			'46–49,9 % vol.: 0 Flaschen',
+			'50–53,9 % vol.: 0 Flaschen',
+			'54–57,9 % vol.: 1 Flasche',
+			'58–61,9 % vol.: 0 Flaschen',
+			'62–65,9 % vol.: 0 Flaschen',
+			'66–69,9 % vol.: 1 Flasche'
+		]);
+		// 8 and 24 years from 6 on, 3 being a bound; NAS apart.
+		expect(columns('Flaschen nach Alter')).toEqual([
+			'6–8 Jahre: 1 Flasche',
+			'9–11 Jahre: 0 Flaschen',
+			'12–14 Jahre: 0 Flaschen',
+			'15–17 Jahre: 0 Flaschen',
+			'18–20 Jahre: 0 Flaschen',
+			'21–23 Jahre: 0 Flaschen',
+			'24–26 Jahre: 1 Flasche',
+			'NAS: 1 Flasche'
+		]);
+	});
+
+	test('recomputes the columns when a slider moves', async () => {
+		show();
+		slide('Intervall Alkoholgehalt', 1);
+		await expect.element(output(/Punkt/)).toHaveTextContent('1 %-Punkt');
+		await expect.poll(() => columns('Flaschen nach Alkoholgehalt')).toHaveLength(24);
+		expect(columns('Flaschen nach Alkoholgehalt')[0]).toBe('43–43,9 % vol.: 1 Flasche');
+
+		slide('Intervall Alter', 1);
+		await expect.element(output(/Jahr/)).toHaveTextContent('1 Jahr');
+		await expect.poll(() => columns('Flaschen nach Alter')).toHaveLength(18);
+		expect(columns('Flaschen nach Alter').slice(0, 2)).toEqual([
+			'8 Jahre: 1 Flasche',
+			'9 Jahre: 0 Flaschen'
+		]);
 	});
 });

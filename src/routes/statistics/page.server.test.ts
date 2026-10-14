@@ -66,7 +66,7 @@ type Arg = Parameters<typeof load>[0];
 // No `url` on purpose: the load must not read the query string.
 function loadAs(currentUser: unknown) {
 	return load({ locals: { user: currentUser, session: null } } as unknown as Arg) as {
-		statistics: { bottles: Array<{ alias: string; slug: string | null }> } | null;
+		statistics: { bottles: Array<{ distillery: string }> } | null;
 	};
 }
 
@@ -95,21 +95,20 @@ function expectNoContent(result: unknown) {
 }
 
 describe('statistics page load', () => {
-	it('gives a participant the revealed tasting with its link', () => {
-		const result = loadAs({ id: 'u-Anna', username: 'Anna', isAdmin: false });
-		expect(result.statistics?.bottles).toEqual([
-			expect.objectContaining({ alias: 'Moor', slug: revealedSlug })
-		]);
-		expectNoContent(result);
-	});
-
-	it('gives everybody else the same bottles without the link', () => {
-		const result = loadAs({ id: 'u-maxi', username: 'maxi', isAdmin: true });
-		expect(result.statistics?.bottles).toEqual([
-			expect.objectContaining({ alias: 'Moor', slug: null })
-		]);
-		expect(JSON.stringify(result)).not.toContain(revealedSlug);
-		expectNoContent(result);
+	it('gives everybody the revealed tasting, without link or alias – those are for the history', () => {
+		for (const viewer of [
+			{ id: 'u-Anna', username: 'Anna', isAdmin: false },
+			{ id: 'u-maxi', username: 'maxi', isAdmin: true }
+		]) {
+			const result = loadAs(viewer);
+			expect(result.statistics?.bottles).toEqual([
+				expect.objectContaining({ distillery: 'Lagavulin' })
+			]);
+			const serialized = JSON.stringify(result);
+			expect(serialized).not.toContain(revealedSlug);
+			expect(serialized).not.toContain('Moor');
+			expectNoContent(result);
+		}
 	});
 
 	it('returns no statistics while nothing is revealed', () => {

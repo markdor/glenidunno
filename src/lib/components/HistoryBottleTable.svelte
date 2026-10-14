@@ -17,10 +17,10 @@
 		tableQueryString,
 		type SortKey,
 		type TableQuery
-	} from '$lib/statisticsTable';
-	import type { StatisticsBottle } from '$lib/tasting';
+	} from '$lib/historyTable';
+	import type { HistoryBottle } from '$lib/tasting';
 
-	let { bottles }: { bottles: StatisticsBottle[] } = $props();
+	let { bottles }: { bottles: HistoryBottle[] } = $props();
 
 	// The state lives in the query string only, so a shared link keeps it. A
 	// navigation superseded by the next keystroke is dropped by the router, so
@@ -35,7 +35,7 @@
 	function update(change: Partial<TableQuery>) {
 		const qs = tableQueryString({ ...query, ...change });
 		// keepFocus: the search field would lose the focus on every character.
-		void goto(qs ? resolve(`/statistics?${qs}`) : resolve('/statistics'), {
+		void goto(qs ? resolve(`/history?${qs}`) : resolve('/history'), {
 			replaceState: true,
 			noScroll: true,
 			keepFocus: true
@@ -95,7 +95,7 @@
 	</th>
 {/snippet}
 
-{#snippet links(bottle: StatisticsBottle)}
+{#snippet links(bottle: HistoryBottle)}
 	{#if bottle.whiskybaseUrl}
 		<!-- rel="external": required by svelte/no-navigation-without-resolve for
 		     a dynamic external href (also makes SvelteKit skip client routing). -->
@@ -121,8 +121,8 @@
 	{/if}
 {/snippet}
 
-<section class="space-y-3" aria-labelledby="statistics-bottles">
-	<h2 id="statistics-bottles" class="text-lg font-semibold">Alle Flaschen</h2>
+<section class="space-y-3" aria-labelledby="history-bottles">
+	<h2 id="history-bottles" class="text-lg font-semibold">Alle Flaschen</h2>
 
 	<div class="grid grid-cols-2 gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
 		<label class="col-span-2 block text-sm font-medium text-slate-700 lg:col-span-1">
