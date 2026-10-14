@@ -5,9 +5,9 @@ import { test, expect } from '@playwright/test';
 // at 18:00 and 9:00 is covered by route and component tests.
 //
 // The participant page is reached via the start page's hero. This spec
-// enters a single bottle there, only so the statistics page has a real row
-// for its layout check: entering bottles and the presentation downloads are
-// covered by route and component tests.
+// enters a single bottle there, only so the history has a real row for its
+// layout check and the statistics a record to link to it: entering bottles
+// and the presentation downloads are covered by route and component tests.
 
 // A week ahead is in the future in any time zone.
 function dateInDays(days: number): string {
@@ -158,11 +158,16 @@ test.describe('Tasting – Ablauf', () => {
 			await expectNoLinkOnAdminPage();
 		});
 
-		await test.step('Statistikseite: ab lg alle Spalten, bei 360 px kein horizontales Scrollen, Spaltenköpfe einzeilig', async () => {
+		const pageScrollsSideways = () =>
+			page.evaluate(
+				() => document.documentElement.scrollWidth > document.documentElement.clientWidth
+			);
+
+		await test.step('Historie: ab lg alle Spalten, bei 360 px kein horizontales Scrollen, Spaltenköpfe einzeilig', async () => {
 			// Reached via the dashboard tile, the only way in.
 			await page.goto('/');
-			await page.getByRole('link', { name: 'Statistiken' }).click();
-			await expect(page).toHaveURL(/\/statistics$/);
+			await page.getByRole('link', { name: 'Historie' }).click();
+			await expect(page).toHaveURL(/\/history$/);
 			const table = page.getByRole('region', { name: 'Alle Flaschen' }).getByRole('table');
 			const heading = (name: string) => table.getByRole('columnheader', { name, exact: true });
 			// One line: the sort button is min-h-11 (44 px), a second line makes it 56 px.
@@ -173,13 +178,9 @@ test.describe('Tasting – Ablauf', () => {
 				}
 			}
 			const mainColumns = ['Whisky', 'Datum', 'Mitgebracht von'];
-			const pageScrollsSideways = () =>
-				page.evaluate(
-					() => document.documentElement.scrollWidth > document.documentElement.clientWidth
-				);
 
 			// Playwright's default viewport (1280 px) is above lg: all columns in one row,
-			// the table wider than the rest of the page.
+			// the table as wide as its max-w-6xl container (1120 px).
 			const boxes = await Promise.all(TABLE_COLUMNS.map((name) => heading(name).boundingBox()));
 			for (const [i, box] of boxes.entries()) {
 				expect(box, TABLE_COLUMNS[i]).not.toBeNull();
@@ -187,9 +188,7 @@ test.describe('Tasting – Ablauf', () => {
 				if (i > 0) expect(box!.x).toBeGreaterThan(boxes[i - 1]!.x);
 			}
 			await expectOneLine(TABLE_COLUMNS.filter((name) => name !== 'Links'));
-			const tableBox = await table.boundingBox();
-			const sectionBox = await page.locator('section').first().boundingBox();
-			expect(tableBox!.width).toBeGreaterThan(sectionBox!.width + 200);
+			expect((await table.boundingBox())!.width).toBeGreaterThan(1000);
 
 			// Below lg only three columns stay, the rest goes to the tile below the row.
 			const viewport = page.viewportSize();
@@ -215,6 +214,36 @@ test.describe('Tasting – Ablauf', () => {
 			expect(await pageScrollsSideways()).toBe(false);
 			if (viewport) await page.setViewportSize(viewport);
 		});
+
+		await test.step('Statistikseite: bei 360 px mit beiden Reglern auf 1 kein horizontales Scrollen', async () => {
+			await page.goto('/');
+			await page.getByRole('link', { name: 'Statistiken' }).click();
+			await expect(page).toHaveURL(/\/statistics$/);
+			const viewport = page.viewportSize();
+			await page.setViewportSize({ width: 360, height: 800 });
+			for (const name of ['Intervall Alkoholgehalt', 'Intervall Alter']) {
+				const slider = page.getByRole('slider', { name });
+				await slider.fill('1');
+				await expect(slider).toHaveValue('1');
+			}
+			await expect(page.getByRole('status').filter({ hasText: '1 %-Punkt' })).toBeVisible();
+			await expect(page.getByRole('status').filter({ hasText: '1 Jahr' })).toBeVisible();
+			expect(await pageScrollsSideways()).toBe(false);
+			if (viewport) await page.setViewportSize(viewport);
+		});
+
+		await test.step('Statistikseite: ein Rekord-Link landet auf der hervorgehobenen Zeile der Historie', async () => {
+			const record = page
+				.getByRole('region', { name: 'Kennzahlen und Rekorde' })
+				.locator('a[href^="/history#bottle-"]')
+				.first();
+			const anchor = (await record.getAttribute('href'))!.split('#')[1];
+			await record.click();
+			await expect(page).toHaveURL(new RegExp(`/history#${anchor}$`));
+			const row = page.locator(`#${anchor}`);
+			await expect(row).toBeInViewport();
+			await expect(row).toHaveClass(/bg-slate-100/);
+		});
 	});
 });
 
@@ -229,6 +258,7 @@ test.describe('Tasting – Zugriff ohne Login', () => {
 		'/admin/tastings/00000000-0000-4000-8000-000000000000',
 		'/tasting',
 		'/statistics',
+		'/history',
 		UNKNOWN_SLUG_LINK,
 		`${UNKNOWN_SLUG_LINK}/presentation/some-id`,
 		// The anonymous token links of old are gone for good.

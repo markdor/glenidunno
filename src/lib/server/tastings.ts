@@ -6,6 +6,7 @@ import {
 	type ArchivedRevealedBottle,
 	type DashboardLastTasting,
 	type DashboardTasting,
+	type HistoryBottle,
 	type ManualPhaseChanges,
 	type OrderEntry,
 	type PresentationRef,
@@ -34,7 +35,7 @@ import {
 	type FileChange
 } from './presentationFiles';
 import { getBerlinToday, getTastingPhase } from './tastingPhase';
-import { buildStatistics } from './statistics';
+import { buildStatistics, numberBottles } from './statistics';
 import type { PendingUpload, StoredPresentation } from './tastingMedia';
 import { sortForPouring, type BottleScore } from './tastingScore';
 
@@ -524,25 +525,25 @@ export function getDashboardTasting(
 }
 
 /**
- * The statistics page, the same for every user: all revealed tastings, also
- * those without an own participation. Blind stays blind because only the
- * `revealed` phase counts – computed per tasting like on the start page, so a
- * tasting revealed early by the admin counts at once. Bottles of the other
- * tastings aren't even queried. Slug and presentation link only for the
- * user's own tastings, like getDashboardTasting. `null` while nothing is
- * revealed.
+ * The bottles of all revealed tastings, the same for every user: also those
+ * without an own participation. Blind stays blind because only the `revealed`
+ * phase counts – computed per tasting like on the start page, so a tasting
+ * revealed early by the admin counts at once. Bottles of the other tastings
+ * aren't even queried. Numbered in standard order (numberBottles), the one
+ * source of the anchors the statistics link to in the history. `own` tells
+ * the user's own tastings. `null` while nothing is revealed.
  */
-export function getStatistics(db: Db, userId: string, now: Date = new Date()): Statistics | null {
-	const revealed = db
+function revealedBottles(db: Db, userId: string, now: Date) {
+	const tastings = db
 		.select({ id: tasting.id, slug: tasting.slug, ...phaseColumns })
 		.from(tasting)
 		// created_at only has second precision: see getDashboardTasting.
 		.orderBy(asc(tasting.tastingDate), asc(tasting.createdAt), sql`${tasting}.rowid`)
 		.all()
 		.filter((t) => getTastingPhase(t.tastingDate, now, t) === 'revealed');
-	if (revealed.length === 0) return null;
+	if (tastings.length === 0) return null;
 
-	const ids = revealed.map((t) => t.id);
+	const ids = tastings.map((t) => t.id);
 	const own = new Set(
 		db
 			.select({ tastingId: tastingParticipant.tastingId })
@@ -552,8 +553,8 @@ export function getStatistics(db: Db, userId: string, now: Date = new Date()): S
 			.map((p) => p.tastingId)
 	);
 
-	// No factors (archived bottles have none). The file names only tell
-	// whether there is a presentation, they don't leave the server.
+	// No factors (archived bottles have none). Every projection picks its
+	// fields from these rows explicitly.
 	const rows = db
 		.select({
 			id: tastingBottle.id,
@@ -577,16 +578,25 @@ export function getStatistics(db: Db, userId: string, now: Date = new Date()): S
 		.where(inArray(tastingParticipant.tastingId, ids))
 		.all();
 
+	return { tastings, own, bottles: numberBottles(tastings, rows) };
+}
+
+/**
+ * The statistics page over all revealed tastings (see revealedBottles):
+ * neither slug nor presentation, Whiskybase link or alias – none of the
+ * statistics shows them, the history's table does. `null` while nothing is
+ * revealed.
+ */
+export function getStatistics(db: Db, userId: string, now: Date = new Date()): Statistics | null {
+	const revealed = revealedBottles(db, userId, now);
+	if (!revealed) return null;
 	return buildStatistics(
-		revealed.map((t) => ({
-			id: t.id,
-			tastingDate: t.tastingDate,
-			slug: own.has(t.id) ? t.slug : null
-		})),
-		rows.map((b) => ({
+		revealed.tastings.map((t) => ({ id: t.id, tastingDate: t.tastingDate })),
+		revealed.bottles.map((b) => ({
+			number: b.number,
+			tastingIndex: b.tastingIndex,
 			tastingId: b.tastingId,
 			slot: b.slot,
-			alias: b.alias,
 			distillery: b.distillery,
 			bottler: b.bottler,
 			bottling: b.bottling,
@@ -594,13 +604,44 @@ export function getStatistics(db: Db, userId: string, now: Date = new Date()): S
 			abv: b.abv,
 			whiskybaseUrl: b.whiskybaseUrl,
 			username: b.username,
-			deactivatedAt: b.deactivatedAt,
-			// File and name like presentationRef: the download route needs both
-			// and checks the participation again (404 otherwise).
-			presentation:
-				own.has(b.tastingId) && b.presentationFile && b.presentationName ? { bottleId: b.id } : null
+			deactivatedAt: b.deactivatedAt
 		}))
 	);
+}
+
+/**
+ * The history's table: every bottle of all revealed tastings (see
+ * revealedBottles), newest tasting first, within one by bringer and slot.
+ * Slug and presentation link only for the user's own tastings, like
+ * getDashboardTasting; the file names only tell whether there is a
+ * presentation, they don't leave the server. `null` while nothing is revealed.
+ */
+export function getHistory(db: Db, userId: string, now: Date = new Date()): HistoryBottle[] | null {
+	const revealed = revealedBottles(db, userId, now);
+	if (!revealed) return null;
+	const { tastings, own } = revealed;
+	return [...revealed.bottles]
+		.sort((a, b) => b.tastingIndex - a.tastingIndex || a.number - b.number)
+		.map((b) => {
+			const t = tastings[b.tastingIndex];
+			const isOwn = own.has(t.id);
+			return {
+				number: b.number,
+				tastingDate: t.tastingDate,
+				slug: isOwn ? t.slug : null,
+				alias: b.alias,
+				distillery: b.distillery,
+				bottler: b.bottler,
+				bottling: b.bottling,
+				age: b.age,
+				abv: b.abv,
+				whiskybaseUrl: b.whiskybaseUrl,
+				broughtBy: participantLabel(b.username, b.deactivatedAt),
+				// File and name like presentationRef: the download route needs both
+				// and checks the participation again (404 otherwise).
+				presentation: isOwn && b.presentationFile && b.presentationName ? { bottleId: b.id } : null
+			};
+		});
 }
 
 /** `name` is the display label: the username, marked if deactivated. */

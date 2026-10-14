@@ -14,6 +14,7 @@ import {
 	findParticipant,
 	getAdminTastingDetail,
 	getDashboardTasting,
+	getHistory,
 	getParticipantView,
 	getPresentationForParticipant,
 	getStartPageSummary,
@@ -1316,22 +1317,35 @@ describe('presentations', () => {
 	});
 });
 
+// An admin button press on a Thursday before the tasting.
+const PRESSED = new Date('2026-10-22T15:32:10Z');
+
+/** A tasting with one bottle of Anna and Ben each, entered during entry. */
+function setupWithBottles(tastingDate = TASTING_DATE, participantUserIds = PARTICIPANT_IDS) {
+	const { id, slug } = createTasting(db, newTasting({ tastingDate, participantUserIds }), ENTRY);
+	const anna = findParticipant(db, slug, 'u-anna')!;
+	const ben = findParticipant(db, slug, 'u-ben')!;
+	saveBottle(db, anna, 1, bottle({ alias: `Nebel ${tastingDate}`, abv: 40 }), ENTRY);
+	saveBottle(db, ben, 1, bottle({ alias: `Torf ${tastingDate}`, abv: 60, age: 12 }), ENTRY);
+	return { id, slug, anna, ben };
+}
+
+/** A presentation for the participant's bottle; returns the bottle id. */
+function addPresentation(participantId: string, presentationName: string | null = 'Islay.pptx') {
+	db.update(schema.tastingBottle)
+		.set({ presentationFile: 'Tasting_2026-10-24_Nebel.pptx', presentationName })
+		.where(eq(schema.tastingBottle.participantId, participantId))
+		.run();
+	return db
+		.select({ id: schema.tastingBottle.id })
+		.from(schema.tastingBottle)
+		.where(eq(schema.tastingBottle.participantId, participantId))
+		.get()!.id;
+}
+
 describe('getStatistics', () => {
-	// An admin button press on a Thursday before the tasting.
-	const PRESSED = new Date('2026-10-22T15:32:10Z');
-
-	/** A tasting with one bottle of Anna and Ben each, entered during entry. */
-	function setupWithBottles(tastingDate = TASTING_DATE, participantUserIds = PARTICIPANT_IDS) {
-		const { id, slug } = createTasting(db, newTasting({ tastingDate, participantUserIds }), ENTRY);
-		const anna = findParticipant(db, slug, 'u-anna')!;
-		const ben = findParticipant(db, slug, 'u-ben')!;
-		saveBottle(db, anna, 1, bottle({ alias: `Nebel ${tastingDate}`, abv: 40 }), ENTRY);
-		saveBottle(db, ben, 1, bottle({ alias: `Torf ${tastingDate}`, abv: 60, age: 12 }), ENTRY);
-		return { id, slug, anna, ben };
-	}
-
-	const aliases = (result: ReturnType<typeof getStatistics>) =>
-		result?.bottles.map((b) => b.alias) ?? null;
+	const bringers = (result: ReturnType<typeof getStatistics>) =>
+		result?.bottles.map((b) => [b.broughtBy, b.abv]) ?? null;
 
 	it('is null while no tasting is revealed, before the order and after 18:00', () => {
 		setupWithBottles();
@@ -1343,9 +1357,9 @@ describe('getStatistics', () => {
 
 	it('counts a tasting from 9:00 on the day after', () => {
 		setupWithBottles();
-		expect(aliases(getStatistics(db, 'u-anna', REVEALED))).toEqual([
-			'Nebel 2026-10-24',
-			'Torf 2026-10-24'
+		expect(bringers(getStatistics(db, 'u-anna', REVEALED))).toEqual([
+			['Anna', 40],
+			['Ben', 60]
 		]);
 	});
 
@@ -1369,68 +1383,36 @@ describe('getStatistics', () => {
 		expect(serialized).not.toContain('2026-10-24');
 	});
 
-	it('shows every user all revealed tastings, with slug and download only for their own', () => {
+	it('leaves out everything only the history shows, also for the own tasting', () => {
 		const ctx = setupWithBottles();
-		db.update(schema.tastingBottle)
-			.set({ presentationFile: 'Tasting_2026-10-24_Nebel.pptx', presentationName: 'Islay.pptx' })
-			.where(eq(schema.tastingBottle.participantId, ctx.anna.id))
-			.run();
-		const annaBottle = db
-			.select({ id: schema.tastingBottle.id })
-			.from(schema.tastingBottle)
-			.where(eq(schema.tastingBottle.participantId, ctx.anna.id))
-			.get()!;
+		const annaBottle = addPresentation(ctx.anna.id);
 
 		const own = getStatistics(db, 'u-anna', REVEALED)!;
-		expect(own.bottles.map((b) => [b.slug, b.presentation])).toEqual([
-			[ctx.slug, { bottleId: annaBottle.id }],
-			[ctx.slug, null]
-		]);
-		// Neither file name leaves the server, not even for the own tasting.
-		expect(JSON.stringify(own)).not.toMatch(/Islay\.pptx|Tasting_2026/);
-
-		// The admin without a participation sees the same bottles, but neither
-		// the link nor the bottle id.
-		const other = getStatistics(db, 'u-admin', REVEALED)!;
-		expect(other.bottles.map((b) => [b.alias, b.slug, b.presentation])).toEqual([
-			['Nebel 2026-10-24', null, null],
-			['Torf 2026-10-24', null, null]
-		]);
-		const serialized = JSON.stringify(other);
-		for (const hidden of [ctx.slug, annaBottle.id, ctx.id, 'Islay.pptx', 'Tasting_2026']) {
-			expect(serialized).not.toContain(hidden);
-		}
-		// No factors: the bottles carry exactly these fields (a record's
+		// No factors either: the bottles carry exactly these fields (a record's
 		// "value" is its ABV or age, not the factor).
-		expect(Object.keys(other.bottles[0]).sort()).toEqual([
+		expect(Object.keys(own.bottles[0]).sort()).toEqual([
 			'abv',
 			'age',
-			'alias',
 			'bottler',
 			'bottling',
 			'broughtBy',
 			'distillery',
 			'number',
-			'presentation',
-			'slug',
-			'tastingDate',
-			'whiskybaseUrl'
+			'tastingDate'
 		]);
+		const serialized = JSON.stringify(own);
+		for (const hidden of [
+			ctx.slug,
+			annaBottle,
+			ctx.id,
+			'Nebel 2026-10-24',
+			'whiskybase.com',
+			'Islay.pptx',
+			'Tasting_2026'
+		]) {
+			expect(serialized).not.toContain(hidden);
+		}
 		expect(serialized).not.toMatch(/"(smoke|cask|score)":/);
-	});
-
-	it('links a presentation only with file and name, like the download route', () => {
-		const ctx = setupWithBottles();
-		// Not possible via the app, but via a direct write such as the history import.
-		db.update(schema.tastingBottle)
-			.set({ presentationFile: 'Tasting_2026-10-24_Nebel.pptx', presentationName: null })
-			.where(eq(schema.tastingBottle.participantId, ctx.anna.id))
-			.run();
-		const own = getStatistics(db, 'u-anna', REVEALED)!;
-		expect(own.bottles.map((b) => [b.alias, b.presentation])).toEqual([
-			['Nebel 2026-10-24', null],
-			['Torf 2026-10-24', null]
-		]);
 	});
 
 	it('includes archived tastings with their ABV only', () => {
@@ -1438,9 +1420,9 @@ describe('getStatistics', () => {
 		insertArchivedBottle(ctx.anna.id, 1, 'Ahorn', { abv: 43 });
 		insertArchivedBottle(ctx.cem.id, 1, 'Birke', { abv: 57 });
 		const result = getStatistics(db, 'u-ben', REVEALED)!;
-		expect(result.bottles.map((b) => [b.alias, b.broughtBy, b.abv])).toEqual([
-			['Ahorn', 'Anna', 43],
-			['Birke', 'Cem', 57]
+		expect(bringers(result)).toEqual([
+			['Anna', 43],
+			['Cem', 57]
 		]);
 		expect(result.overview.meanAbv).toBe(50);
 	});
@@ -1466,18 +1448,120 @@ describe('getStatistics', () => {
 	it('orders same-day tastings by creation', () => {
 		setupWithBottles();
 		const later = createTasting(db, newTasting(), ENTRY);
-		saveBottle(
-			db,
-			findParticipant(db, later.slug, 'u-cem')!,
-			1,
-			bottle({ alias: 'Später' }),
-			ENTRY
-		);
+		saveBottle(db, findParticipant(db, later.slug, 'u-cem')!, 1, bottle({ abv: 45 }), ENTRY);
 		const result = getStatistics(db, 'u-anna', REVEALED)!;
-		expect([...result.bottles].sort((a, b) => a.number - b.number).map((b) => b.alias)).toEqual([
-			'Nebel 2026-10-24',
-			'Torf 2026-10-24',
-			'Später'
+		expect(result.bottles.map((b) => [b.number, b.broughtBy, b.abv])).toEqual([
+			[1, 'Anna', 40],
+			[2, 'Ben', 60],
+			[3, 'Cem', 45]
 		]);
+	});
+});
+
+describe('getHistory', () => {
+	const aliases = (result: ReturnType<typeof getHistory>) => result?.map((b) => b.alias) ?? null;
+
+	it('is null while no tasting is revealed and leaves out tastings that are not', () => {
+		setupWithBottles();
+		expect(getHistory(db, 'u-anna', ORDER)).toBeNull();
+
+		setupWithBottles('2026-10-31');
+		const result = getHistory(db, 'u-anna', REVEALED)!;
+		expect(aliases(result)).toEqual(['Nebel 2026-10-24', 'Torf 2026-10-24']);
+		expect(JSON.stringify(result)).not.toContain('2026-10-31');
+	});
+
+	it('lists the newest tasting first, within one by bringer and slot', () => {
+		setupWithBottles('2026-10-21');
+		const ctx = setupWithBottles();
+		saveBottle(db, ctx.anna, 3, bottle({ alias: 'Dritte' }), ENTRY);
+		expect(getHistory(db, 'u-cem', REVEALED)!.map((b) => [b.number, b.alias])).toEqual([
+			[3, 'Nebel 2026-10-24'],
+			[4, 'Dritte'],
+			[5, 'Torf 2026-10-24'],
+			[1, 'Nebel 2026-10-21'],
+			[2, 'Torf 2026-10-21']
+		]);
+	});
+
+	it('shows every user all revealed tastings, with slug and download only for their own', () => {
+		const ctx = setupWithBottles();
+		const annaBottle = addPresentation(ctx.anna.id);
+
+		const own = getHistory(db, 'u-anna', REVEALED)!;
+		expect(own.map((b) => [b.slug, b.presentation])).toEqual([
+			[ctx.slug, { bottleId: annaBottle }],
+			[ctx.slug, null]
+		]);
+		// Neither file name leaves the server, not even for the own tasting.
+		expect(JSON.stringify(own)).not.toMatch(/Islay\.pptx|Tasting_2026/);
+
+		// The admin without a participation sees the same bottles, but neither
+		// the link nor the bottle id.
+		const other = getHistory(db, 'u-admin', REVEALED)!;
+		expect(other.map((b) => [b.alias, b.slug, b.presentation])).toEqual([
+			['Nebel 2026-10-24', null, null],
+			['Torf 2026-10-24', null, null]
+		]);
+		const serialized = JSON.stringify(other);
+		for (const hidden of [ctx.slug, annaBottle, ctx.id, 'Islay.pptx', 'Tasting_2026']) {
+			expect(serialized).not.toContain(hidden);
+		}
+		// No factors: the bottles carry exactly these fields.
+		expect(Object.keys(other[0]).sort()).toEqual([
+			'abv',
+			'age',
+			'alias',
+			'bottler',
+			'bottling',
+			'broughtBy',
+			'distillery',
+			'number',
+			'presentation',
+			'slug',
+			'tastingDate',
+			'whiskybaseUrl'
+		]);
+		expect(serialized).not.toMatch(/"(smoke|cask|score)":/);
+	});
+
+	it('links a presentation only with file and name, like the download route', () => {
+		const ctx = setupWithBottles();
+		// Not possible via the app, but via a direct write such as the history import.
+		addPresentation(ctx.anna.id, null);
+		expect(getHistory(db, 'u-anna', REVEALED)!.map((b) => [b.alias, b.presentation])).toEqual([
+			['Nebel 2026-10-24', null],
+			['Torf 2026-10-24', null]
+		]);
+	});
+
+	it('marks deactivated bringers and includes archived bottles', () => {
+		const ctx = setup();
+		insertArchivedBottle(ctx.ben.id, 1, 'Ahorn', { abv: 43 });
+		db.update(schema.user).set({ deactivatedAt: ORDER }).where(eq(schema.user.id, 'u-ben')).run();
+		expect(getHistory(db, 'u-anna', REVEALED)!.map((b) => [b.alias, b.broughtBy, b.abv])).toEqual([
+			['Ahorn', 'Ben (inaktiv)', 43]
+		]);
+	});
+
+	it('numbers every bottle like the statistics, whose links point at its rows', () => {
+		setupWithBottles('2026-10-21');
+		const ctx = setupWithBottles();
+		saveBottle(db, ctx.ben, 2, bottle({ alias: 'Zweite', abv: 51 }), ENTRY);
+		const later = createTasting(db, newTasting(), ENTRY);
+		saveBottle(db, findParticipant(db, later.slug, 'u-cem')!, 1, bottle({ abv: 45 }), ENTRY);
+
+		const row = (b: { number: number; tastingDate: string; broughtBy: string; abv: number }) => [
+			b.number,
+			b.tastingDate,
+			b.broughtBy,
+			b.abv
+		];
+		const history = getHistory(db, 'u-anna', REVEALED)!;
+		const statistics = getStatistics(db, 'u-anna', REVEALED)!;
+		expect(statistics.bottles.map((b) => b.number)).toEqual([1, 2, 3, 4, 5, 6]);
+		expect([...history].sort((a, b) => a.number - b.number).map(row)).toEqual(
+			statistics.bottles.map(row)
+		);
 	});
 });

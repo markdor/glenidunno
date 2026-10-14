@@ -17,7 +17,7 @@
 	}: {
 		overview: Statistics['overview'];
 		bottles: StatisticsBottle[];
-		/** Link to a bottle's row in the table. */
+		/** Link to a bottle's row in the history's table. */
 		bottleHref: (number: number) => ResolvedPathname;
 	} = $props();
 
@@ -81,7 +81,7 @@
 				<dd class="break-words">
 					{#if record}
 						{@const bottle = byNumber.get(record.number)!}
-						<!-- No bottle page: the link jumps to the bottle's row in the table. -->
+						<!-- No bottle page: the link jumps to the bottle's row in the history. -->
 						<a
 							href={bottleHref(record.number)}
 							class="font-medium text-brand underline hover:text-brand-hover"

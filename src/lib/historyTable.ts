@@ -1,13 +1,8 @@
-// Search, filters and sorting of the statistics page's bottle table. The
-// state lives in the query string, so a link keeps it; the page derives it
-// from the URL on every change. Client-safe like tasting.ts.
+// Search, filters and sorting of the history's bottle table. The state lives
+// in the query string, so a link keeps it; the page derives it from the URL on
+// every change. Client-safe like tasting.ts.
 
-import {
-	formatBottleName,
-	formatDate,
-	formatOneDecimal,
-	type StatisticsBottle
-} from '$lib/tasting';
+import { formatBottleName, formatDate, formatOneDecimal, type HistoryBottle } from '$lib/tasting';
 
 export const SORT_KEYS = ['whisky', 'date', 'broughtBy', 'alias', 'bottler', 'age', 'abv'] as const;
 
@@ -53,7 +48,7 @@ const text = new Intl.Collator('de');
 // P2 < P21 < P113
 const natural = new Intl.Collator('de', { numeric: true });
 
-export function filterOptions(bottles: StatisticsBottle[]): FilterOptions {
+export function filterOptions(bottles: HistoryBottle[]): FilterOptions {
 	return {
 		years: [...new Set(bottles.map((b) => b.tastingDate.slice(0, 4)))].sort().reverse(),
 		people: [...new Set(bottles.map((b) => b.broughtBy))].sort(text.compare)
@@ -95,19 +90,14 @@ export function tableQueryString(query: TableQuery): string {
 }
 
 /**
- * The query string of a link to a table row: keeps the sorting, but drops
- * search and filters, which could hide the row.
+ * Id of a bottle's table row, the target of the statistics' links to it.
+ * Without a query string, so neither search nor filters hide the row.
  */
-export function linkQueryString(query: TableQuery): string {
-	return tableQueryString({ ...DEFAULT_QUERY, sort: query.sort, dir: query.dir });
-}
-
-/** Id of a bottle's table row, the target of the links to it. */
 export function bottleAnchor(number: number): string {
 	return `bottle-${number}`;
 }
 
-function bottlerText(bottle: StatisticsBottle): string {
+function bottlerText(bottle: HistoryBottle): string {
 	return bottle.bottler ?? 'Originalabfüllung';
 }
 
@@ -116,7 +106,7 @@ function bottlerText(bottle: StatisticsBottle): string {
  * it and the search compares with it, so both always agree. The whisky goes
  * without the bottler, which has a column of its own.
  */
-export function bottleCells(bottle: StatisticsBottle): Record<SortKey, string> {
+export function bottleCells(bottle: HistoryBottle): Record<SortKey, string> {
 	return {
 		whisky: formatBottleName({ ...bottle, bottler: null }),
 		date: formatDate(bottle.tastingDate),
@@ -129,7 +119,7 @@ export function bottleCells(bottle: StatisticsBottle): Record<SortKey, string> {
 }
 
 /** Search (from SEARCH_MIN_LENGTH characters on), bringer and year together. */
-export function filterBottles(bottles: StatisticsBottle[], query: TableQuery): StatisticsBottle[] {
+export function filterBottles(bottles: HistoryBottle[], query: TableQuery): HistoryBottle[] {
 	const needle = query.q.trim().toLocaleLowerCase('de-DE');
 	return bottles.filter(
 		(bottle) =>
@@ -141,7 +131,7 @@ export function filterBottles(bottles: StatisticsBottle[], query: TableQuery): S
 	);
 }
 
-const COMPARE: Record<SortKey, (a: StatisticsBottle, b: StatisticsBottle) => number> = {
+const COMPARE: Record<SortKey, (a: HistoryBottle, b: HistoryBottle) => number> = {
 	whisky: (a, b) => text.compare(a.distillery, b.distillery),
 	date: (a, b) => (a.tastingDate < b.tastingDate ? -1 : a.tastingDate > b.tastingDate ? 1 : 0),
 	broughtBy: (a, b) => text.compare(a.broughtBy, b.broughtBy),
@@ -156,10 +146,10 @@ const COMPARE: Record<SortKey, (a: StatisticsBottle, b: StatisticsBottle) => num
  * (default) order stays. NAS stays at the end in both directions.
  */
 export function sortBottles(
-	bottles: StatisticsBottle[],
+	bottles: HistoryBottle[],
 	sort: SortKey,
 	dir: SortDirection
-): StatisticsBottle[] {
+): HistoryBottle[] {
 	const sign = dir === 'asc' ? 1 : -1;
 	return [...bottles].sort((a, b) => {
 		if (sort === 'age' && (a.age === null || b.age === null)) {

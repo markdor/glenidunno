@@ -37,7 +37,8 @@ const noTastings = { nextTasting: null, lastTasting: null, notice: null };
 const bothTastings = { nextTasting, lastTasting, notice: null };
 const emptySummary = { upcomingCount: 0, preview: [] };
 
-const COMING_SOON = ['Historie'];
+// Every tile has its section by now.
+const COMING_SOON: string[] = [];
 
 function hrefs() {
 	return page
@@ -78,21 +79,29 @@ describe('Start page', () => {
 		render(Page, { data: { user, ...noTastings, tastingSummary: null } });
 		await expect.element(page.getByText('Kein Tasting geplant.')).toBeVisible();
 		await expect.element(page.getByText('Noch kein Tasting aufgelöst.')).toBeVisible();
-		// Only the statistics tile.
-		expect(hrefs()).toEqual(['/statistics']);
+		// Only the tiles.
+		expect(hrefs()).toEqual(['/history', '/statistics']);
 	});
 
-	test('links everybody to the statistics and shows the sections still to come without a link', async () => {
+	test('links everybody to the history and the statistics, no section is still to come', async () => {
 		render(Page, { data: { user, ...bothTastings, tastingSummary: null } });
 		for (const title of COMING_SOON) {
 			await expect.element(page.getByText(title, { exact: true })).toBeVisible();
 		}
 		expect(page.getByText('Demnächst').elements()).toHaveLength(COMING_SOON.length);
 		await expect
+			.element(page.getByRole('link', { name: 'Historie' }))
+			.toHaveAttribute('href', '/history');
+		await expect
 			.element(page.getByRole('link', { name: 'Statistiken' }))
 			.toHaveAttribute('href', '/statistics');
-		// Besides the two cards only the statistics tile links for non-admins: no admin card.
-		expect(hrefs()).toEqual(['/tasting/fluffy-otter', '/tasting/sleepy-panda', '/statistics']);
+		// Besides the two cards only the tiles link for non-admins: no admin card.
+		expect(hrefs()).toEqual([
+			'/tasting/fluffy-otter',
+			'/tasting/sleepy-panda',
+			'/history',
+			'/statistics'
+		]);
 		expect(page.getByText('Tasting-Verwaltung').elements()).toHaveLength(0);
 		for (const removed of ['Neues Tasting', 'Abgeschlossene Tastings']) {
 			expect(page.getByText(removed).elements()).toHaveLength(0);
@@ -115,6 +124,7 @@ describe('Start page', () => {
 			'/tasting/fluffy-otter',
 			'/tasting/sleepy-panda',
 			'/admin/tastings',
+			'/history',
 			'/statistics'
 		]);
 		expect(page.getByText('Demnächst').elements()).toHaveLength(COMING_SOON.length);
@@ -125,7 +135,7 @@ describe('Start page', () => {
 		await expect.element(page.getByRole('link', { name: /Tasting-Verwaltung/ })).toBeVisible();
 		await expect.element(page.getByRole('heading', { name: 'Nächstes Tasting' })).toBeVisible();
 		await expect.element(page.getByText('Noch kein Tasting aufgelöst.')).toBeVisible();
-		expect(hrefs()).toEqual(['/admin/tastings', '/statistics']);
+		expect(hrefs()).toEqual(['/admin/tastings', '/history', '/statistics']);
 	});
 
 	test('shows the not-found notice as an info toast and drops it from the URL', async () => {

@@ -49,11 +49,11 @@
 			<TastingCard summary={data.tastingSummary} />
 		{/if}
 
-		<!-- A tile without a link is a section still to come; it gets its link
-		     with its own issue. With an odd number of tiles the last one spans
-		     both columns instead of leaving a gap. -->
+		<!-- A tile without a link would be a section still to come (none at the
+		     moment). With an odd number of tiles the last one spans both columns
+		     instead of leaving a gap. -->
 		<div class="grid auto-rows-fr grid-cols-2 gap-4 [&>:last-child:nth-child(odd)]:col-span-2">
-			<DashboardTile title="Historie" icon={RotateCcwClock} />
+			<DashboardTile title="Historie" icon={RotateCcwClock} href={resolve('/history')} />
 			<DashboardTile title="Statistiken" icon={ChartColumn} href={resolve('/statistics')} />
 		</div>
 	</div>

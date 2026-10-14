@@ -1,20 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import type { StatisticsBottle } from './tasting';
+import type { HistoryBottle } from './tasting';
 import {
 	bottleAnchor,
 	bottleCells,
 	DEFAULT_QUERY,
 	filterBottles,
 	filterOptions,
-	linkQueryString,
 	parseTableQuery,
 	SEARCH_MAX_LENGTH,
 	sortBottles,
 	tableQueryString,
 	type TableQuery
-} from './statisticsTable';
+} from './historyTable';
 
-function bottle(number: number, overrides: Partial<StatisticsBottle> = {}): StatisticsBottle {
+function bottle(number: number, overrides: Partial<HistoryBottle> = {}): HistoryBottle {
 	return {
 		number,
 		tastingDate: '2022-10-21',
@@ -76,7 +75,7 @@ function query(overrides: Partial<TableQuery> = {}): TableQuery {
 	return { ...DEFAULT_QUERY, ...overrides };
 }
 
-const numbers = (bottles: StatisticsBottle[]) => bottles.map((b) => b.number);
+const numbers = (bottles: HistoryBottle[]) => bottles.map((b) => b.number);
 
 describe('filterOptions', () => {
 	it('offers the years newest first and the bringers alphabetically', () => {
@@ -119,11 +118,7 @@ describe('parseTableQuery and tableQueryString', () => {
 		expect(parseTableQuery(new URLSearchParams(written), OPTIONS)).toEqual(state);
 	});
 
-	it('keeps only the sorting in links to a row', () => {
-		expect(linkQueryString(query({ q: 'ard', by: 'Ben', year: '2024', sort: 'abv' }))).toBe(
-			'sort=abv'
-		);
-		expect(linkQueryString(query({ q: 'ard' }))).toBe('');
+	it('names the anchor of a row after its number', () => {
 		expect(bottleAnchor(7)).toBe('bottle-7');
 	});
 });
