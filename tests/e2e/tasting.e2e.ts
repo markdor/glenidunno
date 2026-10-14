@@ -4,9 +4,10 @@ import { test, expect } from '@playwright/test';
 // reached here via the admin's 18-Uhr/9-Uhr buttons, the clock-based switch
 // at 18:00 and 9:00 is covered by route and component tests.
 //
-// The participant page is reached via the start page's hero, but this spec
-// only checks the arrival: entering bottles and the presentation downloads
-// are covered by route and component tests.
+// The participant page is reached via the start page's hero. This spec
+// enters a single bottle there, only so the statistics page has a real row
+// for its layout check: entering bottles and the presentation downloads are
+// covered by route and component tests.
 
 // A week ahead is in the future in any time zone.
 function dateInDays(days: number): string {
@@ -17,6 +18,19 @@ function dateInDays(days: number): string {
 // aren't in the lists (no tasting can have it).
 const OLD_TOKEN_LINK = `/tasting/${'A'.repeat(32)}`;
 const UNKNOWN_SLUG_LINK = '/tasting/fluffy-nothing';
+
+// Long names on purpose: the table must not scroll sideways on a phone.
+const BOTTLE_ALIAS = 'E2E-Torfmoor';
+const TABLE_COLUMNS = [
+	'Whisky',
+	'Datum',
+	'Mitgebracht von',
+	'Synonym',
+	'Abfüller',
+	'Alter',
+	'Alkohol',
+	'Links'
+];
 
 test.describe('Tasting – Ablauf', () => {
 	test('Admin legt mit einem weiteren User ein Tasting an und gibt Reihenfolge und Auflösung frei', async ({
@@ -98,6 +112,17 @@ test.describe('Tasting – Ablauf', () => {
 			await expect(page).toHaveURL(/\/tasting\/[a-z]+-[a-z]+$/);
 			await expect(page.getByRole('heading', { level: 1, name: tastingName })).toBeVisible();
 
+			const form = page.getByRole('form', { name: 'Flasche 1' });
+			await form.getByLabel('Synonym *').fill(BOTTLE_ALIAS);
+			await form.getByLabel('Distillery *').fill('Bruichladdich');
+			await form.getByLabel('Abfüller').fill('The Whisky Agency & Three Rivers Tokyo');
+			await form
+				.getByLabel('Abfüllung')
+				.fill('Port Charlotte Islay Barley Heavily Peated Cask Strength Sherry Butt Finish');
+			await form.getByLabel('Alkohol in % *').fill('58.4');
+			await form.getByRole('button', { name: 'Flasche 1 speichern' }).click();
+			await expect(page.getByText('Flasche 1 gespeichert.')).toBeVisible();
+
 			if (viewport) await page.setViewportSize(viewport);
 			await page.goto(detailUrl);
 		});
@@ -132,6 +157,64 @@ test.describe('Tasting – Ablauf', () => {
 			await expect(page.getByText(/vorzeitig aufgelöst\.$/)).toBeVisible();
 			await expectNoLinkOnAdminPage();
 		});
+
+		await test.step('Statistikseite: ab lg alle Spalten, bei 360 px kein horizontales Scrollen, Spaltenköpfe einzeilig', async () => {
+			// Reached via the dashboard tile, the only way in.
+			await page.goto('/');
+			await page.getByRole('link', { name: 'Statistiken' }).click();
+			await expect(page).toHaveURL(/\/statistics$/);
+			const table = page.getByRole('region', { name: 'Alle Flaschen' }).getByRole('table');
+			const heading = (name: string) => table.getByRole('columnheader', { name, exact: true });
+			// One line: the sort button is min-h-11 (44 px), a second line makes it 56 px.
+			async function expectOneLine(names: string[]) {
+				for (const name of names) {
+					const box = await heading(name).getByRole('button').boundingBox();
+					expect(box!.height, name).toBeLessThan(50);
+				}
+			}
+			const mainColumns = ['Whisky', 'Datum', 'Mitgebracht von'];
+			const pageScrollsSideways = () =>
+				page.evaluate(
+					() => document.documentElement.scrollWidth > document.documentElement.clientWidth
+				);
+
+			// Playwright's default viewport (1280 px) is above lg: all columns in one row,
+			// the table wider than the rest of the page.
+			const boxes = await Promise.all(TABLE_COLUMNS.map((name) => heading(name).boundingBox()));
+			for (const [i, box] of boxes.entries()) {
+				expect(box, TABLE_COLUMNS[i]).not.toBeNull();
+				expect(box!.y).toBeCloseTo(boxes[0]!.y, 0);
+				if (i > 0) expect(box!.x).toBeGreaterThan(boxes[i - 1]!.x);
+			}
+			await expectOneLine(TABLE_COLUMNS.filter((name) => name !== 'Links'));
+			const tableBox = await table.boundingBox();
+			const sectionBox = await page.locator('section').first().boundingBox();
+			expect(tableBox!.width).toBeGreaterThan(sectionBox!.width + 200);
+
+			// Below lg only three columns stay, the rest goes to the tile below the row.
+			const viewport = page.viewportSize();
+			await page.setViewportSize({ width: 360, height: 800 });
+			for (const name of TABLE_COLUMNS) {
+				if (mainColumns.includes(name)) {
+					await expect(heading(name)).toBeVisible();
+				} else {
+					await expect(heading(name)).toBeHidden();
+				}
+			}
+			await expectOneLine(mainColumns);
+			await expect(table.locator('dd').filter({ hasText: BOTTLE_ALIAS })).toBeVisible();
+			expect(await pageScrollsSideways()).toBe(false);
+			expect(
+				await table.evaluate((t) => t.parentElement!.scrollWidth <= t.parentElement!.clientWidth)
+			).toBe(true);
+
+			// Without a match the whisky column keeps its width.
+			await page.getByLabel('Suche').fill('Lagavulin-nicht-da');
+			await expect(page.getByText('Keine Flasche gefunden.')).toBeVisible();
+			await expectOneLine(mainColumns);
+			expect(await pageScrollsSideways()).toBe(false);
+			if (viewport) await page.setViewportSize(viewport);
+		});
 	});
 });
 
@@ -145,6 +228,7 @@ test.describe('Tasting – Zugriff ohne Login', () => {
 		// Fixed on purpose: Playwright needs identical test titles in every worker.
 		'/admin/tastings/00000000-0000-4000-8000-000000000000',
 		'/tasting',
+		'/statistics',
 		UNKNOWN_SLUG_LINK,
 		`${UNKNOWN_SLUG_LINK}/presentation/some-id`,
 		// The anonymous token links of old are gone for good.

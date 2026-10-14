@@ -2,14 +2,23 @@ import { describe, it, expect } from 'vitest';
 import {
 	ABV_FLOOR,
 	ABV_HIGH_DIVISOR,
+	ABV_HISTOGRAM_BOUNDS,
 	ABV_KINK,
 	ABV_KINK_FRACTION,
 	ABV_LOW_DIVISOR,
+	AGE_HISTOGRAM_BOUNDS,
 	formatBottleName,
+	formatCount,
+	formatDate,
+	formatInteger,
+	formatNameList,
 	formatOneDecimal,
 	formatSmokeGroupRange,
 	formatTastingDate,
 	formatTastingTimestamp,
+	histogramClass,
+	histogramLabels,
+	histogramPosition,
 	normalizeScoreFactors,
 	participantLabel,
 	SCORE_FACTORS_BY_WEIGHT,
@@ -126,5 +135,83 @@ describe('formatOneDecimal', () => {
 	it('uses a German decimal comma with exactly one fraction digit', () => {
 		expect(formatOneDecimal(46)).toBe('46,0');
 		expect(formatOneDecimal(46.3)).toBe('46,3');
+	});
+});
+
+describe('formatDate', () => {
+	it('formats the calendar date without weekday', () => {
+		expect(formatDate('2022-10-21')).toBe('21.10.2022');
+		expect(formatDate('2026-12-31')).toBe('31.12.2026');
+	});
+});
+
+describe('formatInteger', () => {
+	it('rounds and groups thousands with a dot', () => {
+		expect(formatInteger(2706.7)).toBe('2.707');
+		expect(formatInteger(183.4)).toBe('183');
+		expect(formatInteger(0)).toBe('0');
+	});
+});
+
+describe('formatCount', () => {
+	it('picks the noun by the count', () => {
+		expect(formatCount(1, 'Flasche', 'Flaschen')).toBe('1 Flasche');
+		expect(formatCount(0, 'Flasche', 'Flaschen')).toBe('0 Flaschen');
+		expect(formatCount(1234, 'Flasche', 'Flaschen')).toBe('1.234 Flaschen');
+	});
+});
+
+describe('formatNameList', () => {
+	it('joins names as German prose', () => {
+		expect(formatNameList(['Anna'])).toBe('Anna');
+		expect(formatNameList(['Anna', 'Ben'])).toBe('Anna und Ben');
+		expect(formatNameList(['Anna', 'Ben', 'Cem'])).toBe('Anna, Ben und Cem');
+	});
+});
+
+describe('histogram classes', () => {
+	it('labels the ABV classes with one decimal and open ends', () => {
+		expect(histogramLabels(ABV_HISTOGRAM_BOUNDS, 0.1)).toEqual([
+			'< 43',
+			'43–45,9',
+			'46–49,9',
+			'50–54,9',
+			'55–59,9',
+			'≥ 60'
+		]);
+	});
+
+	it('labels the age classes in whole years', () => {
+		expect(histogramLabels(AGE_HISTOGRAM_BOUNDS, 1)).toEqual([
+			'< 6',
+			'6–9',
+			'10–14',
+			'15–19',
+			'≥ 20'
+		]);
+	});
+
+	it.each([
+		[40, 0],
+		[42.9, 0],
+		[43, 1],
+		[45.9, 1],
+		[46, 2],
+		[54.9, 3],
+		[55, 4],
+		[60, 5],
+		[66.6, 5]
+	])('puts %s %% vol into class %i', (abv, index) => {
+		expect(histogramClass(abv, ABV_HISTOGRAM_BOUNDS)).toBe(index);
+	});
+
+	it('places a value linearly inside its class', () => {
+		const range = { min: 35, max: 75 };
+		expect(histogramPosition(50.6, ABV_HISTOGRAM_BOUNDS, range)).toBeCloseTo(3.12);
+		expect(histogramPosition(43, ABV_HISTOGRAM_BOUNDS, range)).toBe(1);
+		// The open classes reach to the bounds of the input.
+		expect(histogramPosition(39, ABV_HISTOGRAM_BOUNDS, range)).toBeCloseTo(0.5);
+		expect(histogramPosition(75, ABV_HISTOGRAM_BOUNDS, range)).toBe(6);
+		expect(histogramPosition(30, ABV_HISTOGRAM_BOUNDS, range)).toBe(0);
 	});
 });

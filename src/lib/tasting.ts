@@ -315,3 +315,214 @@ export function formatTastingTimestamp(value: Date): string {
 export function formatOneDecimal(value: number): string {
 	return value.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
+
+/** German calendar date of a `YYYY-MM-DD` date, e.g. "21.10.2022" – in UTC like formatTastingDate. */
+export function formatDate(date: string): string {
+	return new Date(`${date}T00:00:00Z`).toLocaleDateString('de-DE', {
+		timeZone: 'UTC',
+		day: '2-digit',
+		month: '2-digit',
+		year: 'numeric'
+	});
+}
+
+/** Rounded to a whole number with German thousands separators, e.g. 2706.7 → "2.707". */
+export function formatInteger(value: number): string {
+	return Math.round(value).toLocaleString('de-DE');
+}
+
+/** A count with its noun, e.g. "1 Flasche", "2.707 Flaschen". */
+export function formatCount(count: number, one: string, other: string): string {
+	return `${formatInteger(count)} ${count === 1 ? one : other}`;
+}
+
+const nameList = new Intl.ListFormat('de', { type: 'conjunction' });
+
+/** Names as German prose, e.g. "Anna, Ben und Cem". */
+export function formatNameList(names: string[]): string {
+	return nameList.format(names);
+}
+
+// ── Statistics ───────────────────────────────────────────────────────────
+// The statistics page evaluates all revealed tastings. The aggregation runs
+// on the server (src/lib/server/statistics.ts); the constants and types live
+// here because the page renders and explains them in the browser.
+
+/**
+ * Sample per bottle, tasting and person: every participant tastes every
+ * bottle of the tasting, the own ones included. The page names it in its hint.
+ */
+export const SAMPLE_SIZE_ML = 50;
+
+/** Grams per millilitre of pure alcohol. */
+export const ETHANOL_DENSITY = 0.789;
+
+/** Pure alcohol in a half-litre beer at 5 % vol. */
+export const BEER_PURE_ALCOHOL_ML = 25;
+
+/** Content of a whisky bottle. */
+export const WHISKY_BOTTLE_ML = 700;
+
+/**
+ * Class bounds of the histograms: each bound starts a class, so five bounds
+ * make six classes, the first and the last one open (< 43, 43–45,9, …, ≥ 60).
+ */
+export const ABV_HISTOGRAM_BOUNDS = [43, 46, 50, 55, 60] as const;
+export const AGE_HISTOGRAM_BOUNDS = [6, 10, 15, 20] as const;
+
+/** Index of the histogram class a value falls into, 0 to `bounds.length`. */
+export function histogramClass(value: number, bounds: readonly number[]): number {
+	return bounds.filter((bound) => value >= bound).length;
+}
+
+/**
+ * Labels of the histogram classes. `step` is the precision of the values: a
+ * class ends one step below the next bound (43–45,9 for ABV, 6–9 for ages).
+ */
+export function histogramLabels(bounds: readonly number[], step: number): string[] {
+	const upper = (bound: number) =>
+		step < 1 ? formatOneDecimal(bound - step) : String(bound - step);
+	return [
+		`< ${bounds[0]}`,
+		...bounds.slice(1).map((bound, i) => `${bounds[i]}–${upper(bound)}`),
+		`≥ ${bounds[bounds.length - 1]}`
+	];
+}
+
+/**
+ * Where a value sits on a histogram's class axis: the index of its class plus
+ * its linear position inside it (0–1). The open classes reach to `min`/`max`,
+ * the bounds of the input.
+ */
+export function histogramPosition(
+	value: number,
+	bounds: readonly number[],
+	range: { min: number; max: number }
+): number {
+	const index = histogramClass(value, bounds);
+	const lower = index === 0 ? range.min : bounds[index - 1];
+	const upper = index === bounds.length ? range.max : bounds[index];
+	const inside = upper > lower ? (value - lower) / (upper - lower) : 0;
+	return index + Math.min(1, Math.max(0, inside));
+}
+
+/** A bottle of a revealed tasting as the statistics table lists it. */
+export type StatisticsBottle = {
+	/**
+	 * Position in the ascending standard order (by tasting, bringer, slot),
+	 * from 1: anchor of the table row (`#bottle-<number>`) and the count of
+	 * the milestones. The bottle id doesn't do – it only leaves the server for
+	 * the viewer's own tastings.
+	 */
+	number: number;
+	tastingDate: string;
+	/** Link to the participant page: only for the viewer's own tastings. */
+	slug: string | null;
+	alias: string;
+	distillery: string;
+	bottler: string | null;
+	bottling: string | null;
+	age: number | null;
+	abv: number;
+	whiskybaseUrl: string | null;
+	/** participantLabel() of the bringer. */
+	broughtBy: string;
+	/** Like the slug only for the viewer's own tastings – without the file name. */
+	presentation: PresentationLink | null;
+};
+
+/**
+ * A record (strongest, oldest): the value, the first holder in standard order
+ * and how many more bottles share the value.
+ */
+export type BottleRecord = { value: number; number: number; more: number };
+
+/** A count and its share of the reference amount in whole percent. */
+export type Share = { count: number; percent: number };
+
+/**
+ * One person in the participant comparison: the bottles they brought.
+ * Averages are rounded to one decimal – the precision shown and compared.
+ */
+export type PersonStatistics = {
+	name: string;
+	bottles: number;
+	meanAbv: number | null;
+	/** Bottles with at least CASK_STRENGTH_ABV. */
+	caskStrength: Share;
+	independent: Share;
+	meanAge: number | null;
+	nas: Share;
+	/** Own bottles from distilleries that occur exactly once in the statistics. */
+	uniqueDistilleries: number;
+	/** Number of the strongest own bottle. */
+	strongest: number;
+};
+
+/** Comparison rows whose highest value is highlighted (and partly earns a title). */
+export type PersonMetric =
+	'meanAbv' | 'caskStrength' | 'independent' | 'meanAge' | 'uniqueDistilleries';
+
+/** ABV from which a bottle counts as "Fassstärken-Niveau". */
+export const CASK_STRENGTH_ABV = 50;
+
+export type Statistics = {
+	/** Table order: newest tasting first, within one by bringer and slot. */
+	bottles: StatisticsBottle[];
+	overview: {
+		tastings: number;
+		bottles: number;
+		/** Without the placeholders "Blend" and "Unbekannt". */
+		distilleries: number;
+		meanAbv: number | null;
+		medianAbv: number | null;
+		/** Without NAS. */
+		meanAge: number | null;
+		nas: Share;
+		/** Sum of all age statements. */
+		totalAge: number;
+		strongest: BottleRecord | null;
+		oldest: BottleRecord | null;
+	};
+	/** Bottles per class of ABV_HISTOGRAM_BOUNDS resp. AGE_HISTOGRAM_BOUNDS (without NAS). */
+	distributions: { abv: number[]; age: number[] };
+	/** Per person who took part in every tasting, in ml unless noted. */
+	alcohol: {
+		pureMl: number;
+		pureGrams: number;
+		beers: number;
+		liquidMl: number;
+		whiskyBottles: number;
+		/** The tasting with the most pure alcohol per person. */
+		hardest: { tastingDate: string; pureMl: number } | null;
+	};
+	people: {
+		/** Everybody who brought a bottle, alphabetically. */
+		persons: PersonStatistics[];
+		/** Per row the names with the highest value – none for 0 or no value. */
+		best: Record<PersonMetric, string[]>;
+	};
+	distilleries: {
+		/** Places 1–3: the three highest counts, each with all its distilleries. */
+		podium: Array<{ place: number; count: number; names: string[] }>;
+		/** Distilleries with more than one bottle, most bottles first. */
+		repeaters: Array<{ name: string; count: number }>;
+		original: number;
+		independent: number;
+		topBottlers: { names: string[]; count: number } | null;
+		/** The same Whiskybase whisky in several tastings. */
+		dejaVu: Array<{ name: string; dates: string[] }>;
+	};
+	timeline: {
+		/** Per tasting in date order; `null` without bottles resp. without an age statement. */
+		tastings: Array<{ tastingDate: string; meanAbv: number | null; meanAge: number | null }>;
+		/** Every year from the first to the last tasting, gaps included. */
+		perYear: Array<{ year: number; count: number }>;
+		longestBreak: { days: number; from: string; to: string } | null;
+		/** Numbers of the milestone bottles: the first and every MILESTONE_STEP-th. */
+		milestones: number[];
+	};
+};
+
+/** Every this many bottles there is a milestone (besides the first bottle). */
+export const MILESTONE_STEP = 50;
