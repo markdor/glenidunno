@@ -48,6 +48,15 @@ describe('StatisticsLineChart', () => {
 		expect(texts).toEqual(['45 %', '50 %', '55 %', '2022', '2023', '2024']);
 	});
 
+	test('keeps a fixed height instead of scaling with the width', async () => {
+		show();
+		// Server-side rendered at the fallback width: without the height the
+		// SVG would scale up to a wide container until hydration.
+		const svg = document.querySelector('svg')!;
+		expect(svg).toHaveAttribute('height', '182');
+		expect(svg.getAttribute('viewBox')).toMatch(/ 182$/);
+	});
+
 	test('shows the value of a focused point', async () => {
 		show();
 		await expect.element(page.getByText(HINT)).toBeVisible();

@@ -33,8 +33,10 @@
 	const PLOT_HEIGHT = 150;
 	const AXIS_HEIGHT = 22;
 	const HEIGHT = PAD_TOP + PLOT_HEIGHT + AXIS_HEIGHT;
-	// Before the first measurement (server-side rendering) the SVG scales
-	// down to its container from this width.
+	// Drawing width before the first measurement (server-side rendering). The
+	// height is fixed, so the SVG fits this width into its container instead of
+	// scaling up with it – on a desktop it would be twice as tall until
+	// hydration and push everything below it down.
 	const FALLBACK_WIDTH = 320;
 	const MIN_YEAR_GAP = 32;
 
@@ -133,7 +135,8 @@
 		<svg
 			bind:this={svg}
 			viewBox={`0 0 ${width} ${HEIGHT}`}
-			class="block h-auto w-full"
+			height={HEIGHT}
+			class="block w-full"
 			role="img"
 			aria-label={label}
 		>

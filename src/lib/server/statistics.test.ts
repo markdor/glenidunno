@@ -193,17 +193,24 @@ describe('buildStatistics – people', () => {
 		const { people } = buildStatistics(
 			[T1],
 			[
-				bottle({ username: 'Ben', slot: 1, abv: 56, bottler: 'Signatory', age: 10 }),
-				bottle({ username: 'Ben', slot: 2, abv: 46, age: null }),
+				// ABVs relative to the cask strength level, one bottle of Ben's above it.
+				bottle({
+					username: 'Ben',
+					slot: 1,
+					abv: CASK_STRENGTH_ABV + 6,
+					bottler: 'Signatory',
+					age: 10
+				}),
+				bottle({ username: 'Ben', slot: 2, abv: CASK_STRENGTH_ABV - 4, age: null }),
 				// Just below the cask strength level.
-				bottle({ username: 'Anna', slot: 1, abv: 49.9, age: 12 })
+				bottle({ username: 'Anna', slot: 1, abv: CASK_STRENGTH_ABV - 0.1, age: 12 })
 			]
 		);
 		expect(people.persons).toEqual([
 			{
 				name: 'Anna',
 				bottles: 1,
-				meanAbv: 49.9,
+				meanAbv: CASK_STRENGTH_ABV - 0.1,
 				caskStrength: { count: 0, percent: 0 },
 				independent: { count: 0, percent: 0 },
 				meanAge: 12,
@@ -214,7 +221,7 @@ describe('buildStatistics – people', () => {
 			{
 				name: 'Ben',
 				bottles: 2,
-				meanAbv: 51,
+				meanAbv: CASK_STRENGTH_ABV + 1,
 				caskStrength: { count: 1, percent: 50 },
 				independent: { count: 1, percent: 50 },
 				meanAge: 10,
