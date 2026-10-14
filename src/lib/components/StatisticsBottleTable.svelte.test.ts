@@ -240,4 +240,10 @@ describe('StatisticsBottleTable – cells and links', () => {
 		expect(document.getElementById('bottle-1')).toHaveClass('bg-slate-100');
 		expect(document.getElementById('bottle-4')).not.toHaveClass('bg-slate-100');
 	});
+
+	test('ignores a malformed anchor instead of failing', async () => {
+		show('#%');
+		expect(aliases()).toEqual(['P113', 'P21', 'P2', 'p10']);
+		expect(document.querySelectorAll('tbody.bg-slate-100')).toHaveLength(0);
+	});
 });

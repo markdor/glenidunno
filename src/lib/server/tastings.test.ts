@@ -1386,6 +1386,8 @@ describe('getStatistics', () => {
 			[ctx.slug, { bottleId: annaBottle.id }],
 			[ctx.slug, null]
 		]);
+		// Neither file name leaves the server, not even for the own tasting.
+		expect(JSON.stringify(own)).not.toMatch(/Islay\.pptx|Tasting_2026/);
 
 		// The admin without a participation sees the same bottles, but neither
 		// the link nor the bottle id.
@@ -1415,6 +1417,20 @@ describe('getStatistics', () => {
 			'whiskybaseUrl'
 		]);
 		expect(serialized).not.toMatch(/"(smoke|cask|score)":/);
+	});
+
+	it('links a presentation only with file and name, like the download route', () => {
+		const ctx = setupWithBottles();
+		// Not possible via the app, but via a direct write such as the history import.
+		db.update(schema.tastingBottle)
+			.set({ presentationFile: 'Tasting_2026-10-24_Nebel.pptx', presentationName: null })
+			.where(eq(schema.tastingBottle.participantId, ctx.anna.id))
+			.run();
+		const own = getStatistics(db, 'u-anna', REVEALED)!;
+		expect(own.bottles.map((b) => [b.alias, b.presentation])).toEqual([
+			['Nebel 2026-10-24', null],
+			['Torf 2026-10-24', null]
+		]);
 	});
 
 	it('includes archived tastings with their ABV only', () => {

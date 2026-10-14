@@ -464,7 +464,7 @@ export type PersonMetric =
 	'meanAbv' | 'caskStrength' | 'independent' | 'meanAge' | 'uniqueDistilleries';
 
 /** ABV from which a bottle counts as "Fassstärken-Niveau". */
-export const CASK_STRENGTH_ABV = 55;
+export const CASK_STRENGTH_ABV = 50;
 
 export type Statistics = {
 	/** Table order: newest tasting first, within one by bringer and slot. */

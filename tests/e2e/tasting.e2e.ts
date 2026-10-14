@@ -158,13 +158,25 @@ test.describe('Tasting – Ablauf', () => {
 			await expectNoLinkOnAdminPage();
 		});
 
-		await test.step('Statistikseite: ab lg alle Spalten, bei 360 px kein horizontales Scrollen', async () => {
+		await test.step('Statistikseite: ab lg alle Spalten, bei 360 px kein horizontales Scrollen, Spaltenköpfe einzeilig', async () => {
 			// Reached via the dashboard tile, the only way in.
 			await page.goto('/');
 			await page.getByRole('link', { name: 'Statistiken' }).click();
 			await expect(page).toHaveURL(/\/statistics$/);
-			const table = page.getByRole('table').filter({ hasText: BOTTLE_ALIAS });
+			const table = page.getByRole('region', { name: 'Alle Flaschen' }).getByRole('table');
 			const heading = (name: string) => table.getByRole('columnheader', { name, exact: true });
+			// One line: the sort button is min-h-11 (44 px), a second line makes it 56 px.
+			async function expectOneLine(names: string[]) {
+				for (const name of names) {
+					const box = await heading(name).getByRole('button').boundingBox();
+					expect(box!.height, name).toBeLessThan(50);
+				}
+			}
+			const mainColumns = ['Whisky', 'Datum', 'Mitgebracht von'];
+			const pageScrollsSideways = () =>
+				page.evaluate(
+					() => document.documentElement.scrollWidth > document.documentElement.clientWidth
+				);
 
 			// Playwright's default viewport (1280 px) is above lg: all columns in one row,
 			// the table wider than the rest of the page.
@@ -174,6 +186,7 @@ test.describe('Tasting – Ablauf', () => {
 				expect(box!.y).toBeCloseTo(boxes[0]!.y, 0);
 				if (i > 0) expect(box!.x).toBeGreaterThan(boxes[i - 1]!.x);
 			}
+			await expectOneLine(TABLE_COLUMNS.filter((name) => name !== 'Links'));
 			const tableBox = await table.boundingBox();
 			const sectionBox = await page.locator('section').first().boundingBox();
 			expect(tableBox!.width).toBeGreaterThan(sectionBox!.width + 200);
@@ -182,21 +195,24 @@ test.describe('Tasting – Ablauf', () => {
 			const viewport = page.viewportSize();
 			await page.setViewportSize({ width: 360, height: 800 });
 			for (const name of TABLE_COLUMNS) {
-				if (['Whisky', 'Datum', 'Mitgebracht von'].includes(name)) {
+				if (mainColumns.includes(name)) {
 					await expect(heading(name)).toBeVisible();
 				} else {
 					await expect(heading(name)).toBeHidden();
 				}
 			}
+			await expectOneLine(mainColumns);
 			await expect(table.locator('dd').filter({ hasText: BOTTLE_ALIAS })).toBeVisible();
-			expect(
-				await page.evaluate(
-					() => document.documentElement.scrollWidth <= document.documentElement.clientWidth
-				)
-			).toBe(true);
+			expect(await pageScrollsSideways()).toBe(false);
 			expect(
 				await table.evaluate((t) => t.parentElement!.scrollWidth <= t.parentElement!.clientWidth)
 			).toBe(true);
+
+			// Without a match the whisky column keeps its width.
+			await page.getByLabel('Suche').fill('Lagavulin-nicht-da');
+			await expect(page.getByText('Keine Flasche gefunden.')).toBeVisible();
+			await expectOneLine(mainColumns);
+			expect(await pageScrollsSideways()).toBe(false);
 			if (viewport) await page.setViewportSize(viewport);
 		});
 	});

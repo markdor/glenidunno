@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { CASK_STRENGTH_ABV } from '$lib/tasting';
 import {
 	buildStatistics,
 	type StatisticsBottleInput,
@@ -194,14 +195,15 @@ describe('buildStatistics – people', () => {
 			[
 				bottle({ username: 'Ben', slot: 1, abv: 56, bottler: 'Signatory', age: 10 }),
 				bottle({ username: 'Ben', slot: 2, abv: 46, age: null }),
-				bottle({ username: 'Anna', slot: 1, abv: 50, age: 12 })
+				// Just below the cask strength level.
+				bottle({ username: 'Anna', slot: 1, abv: 49.9, age: 12 })
 			]
 		);
 		expect(people.persons).toEqual([
 			{
 				name: 'Anna',
 				bottles: 1,
-				meanAbv: 50,
+				meanAbv: 49.9,
 				caskStrength: { count: 0, percent: 0 },
 				independent: { count: 0, percent: 0 },
 				meanAge: 12,
@@ -229,6 +231,20 @@ describe('buildStatistics – people', () => {
 			// All bottles are Ardbeg: nobody has a distillery of their own.
 			uniqueDistilleries: []
 		});
+	});
+
+	it('counts a bottle from CASK_STRENGTH_ABV on as cask strength level', () => {
+		const { people } = buildStatistics(
+			[T1],
+			[
+				bottle({ username: 'Anna', abv: CASK_STRENGTH_ABV }),
+				bottle({ username: 'Ben', abv: CASK_STRENGTH_ABV - 0.1 })
+			]
+		);
+		expect(people.persons.map((p) => p.caskStrength)).toEqual([
+			{ count: 1, percent: 100 },
+			{ count: 0, percent: 0 }
+		]);
 	});
 
 	it('compares the averages at the precision shown, so ties name everybody', () => {

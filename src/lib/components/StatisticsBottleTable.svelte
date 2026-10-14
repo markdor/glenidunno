@@ -28,8 +28,9 @@
 	const options = $derived(filterOptions(bottles));
 	const query = $derived(parseTableQuery(page.url.searchParams, options));
 	const shown = $derived(sortBottles(filterBottles(bottles, query), query.sort, query.dir));
-	// The row a record link jumped to.
-	const target = $derived(decodeURIComponent(page.url.hash.slice(1)));
+	// The row a record link jumped to. Not decoded: the anchors are ASCII, and
+	// decodeURIComponent() throws on a malformed hash such as "#%".
+	const target = $derived(page.url.hash.slice(1));
 
 	function update(change: Partial<TableQuery>) {
 		const qs = tableQueryString({ ...query, ...change });
@@ -199,16 +200,20 @@
 	</p>
 
 	<div class="rounded-xl border border-slate-200 bg-white">
+		<!-- table-fixed ignores min-width: each width fits its heading, sort icon
+		     included, on one line – also in DejaVu Sans (Linux, CI), the widest
+		     usual system font. The whisky column takes the rest: about 110 px on a
+		     320 px screen, 140 px at the start of lg. -->
 		<table class="w-full table-fixed text-sm">
 			<thead class="border-b border-slate-200">
 				<tr>
 					{@render heading('whisky', '')}
 					{@render heading('date', 'w-24')}
-					{@render heading('broughtBy', 'w-20 lg:w-32')}
-					{@render heading('alias', 'hidden w-24 lg:table-cell')}
+					{@render heading('broughtBy', 'w-20 lg:w-44')}
+					{@render heading('alias', 'hidden w-28 lg:table-cell')}
 					{@render heading('bottler', 'hidden w-36 lg:table-cell')}
 					{@render heading('age', 'hidden w-24 lg:table-cell')}
-					{@render heading('abv', 'hidden w-24 lg:table-cell')}
+					{@render heading('abv', 'hidden w-28 lg:table-cell')}
 					<th scope="col" class="hidden w-28 px-2 py-2 text-left font-semibold lg:table-cell">
 						Links
 					</th>
@@ -264,14 +269,12 @@
 						</td>
 					</tr>
 				</tbody>
-			{:else}
-				<tbody>
-					<tr>
-						<td colspan="8" class="px-2 py-6 text-center text-slate-500">Keine Flasche gefunden.</td
-						>
-					</tr>
-				</tbody>
 			{/each}
 		</table>
+		{#if shown.length === 0}
+			<!-- Outside the table: a cell spanning all eight columns would add five
+			     empty columns below lg and squeeze the whisky column. -->
+			<p class="px-2 py-6 text-center text-sm text-slate-500">Keine Flasche gefunden.</p>
+		{/if}
 	</div>
 </section>

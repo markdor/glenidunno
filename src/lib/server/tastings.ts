@@ -552,8 +552,8 @@ export function getStatistics(db: Db, userId: string, now: Date = new Date()): S
 			.map((p) => p.tastingId)
 	);
 
-	// No factors (archived bottles have none). The file name only tells
-	// whether there is a presentation, it doesn't leave the server.
+	// No factors (archived bottles have none). The file names only tell
+	// whether there is a presentation, they don't leave the server.
 	const rows = db
 		.select({
 			id: tastingBottle.id,
@@ -567,6 +567,7 @@ export function getStatistics(db: Db, userId: string, now: Date = new Date()): S
 			abv: tastingBottle.abv,
 			whiskybaseUrl: tastingBottle.whiskybaseUrl,
 			presentationFile: tastingBottle.presentationFile,
+			presentationName: tastingBottle.presentationName,
 			username: user.username,
 			deactivatedAt: user.deactivatedAt
 		})
@@ -594,8 +595,10 @@ export function getStatistics(db: Db, userId: string, now: Date = new Date()): S
 			whiskybaseUrl: b.whiskybaseUrl,
 			username: b.username,
 			deactivatedAt: b.deactivatedAt,
-			// The download route checks the participation again (404 otherwise).
-			presentation: own.has(b.tastingId) && b.presentationFile ? { bottleId: b.id } : null
+			// File and name like presentationRef: the download route needs both
+			// and checks the participation again (404 otherwise).
+			presentation:
+				own.has(b.tastingId) && b.presentationFile && b.presentationName ? { bottleId: b.id } : null
 		}))
 	);
 }

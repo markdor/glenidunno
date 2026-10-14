@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ResolvedPathname } from '$app/types';
 	import {
+		CASK_STRENGTH_ABV,
 		formatBottleName,
 		formatInteger,
 		formatNameList,
@@ -46,8 +47,8 @@
 		{ label: 'Mitgebrachte Flaschen', value: (p) => whole(p.bottles), highlight: null },
 		{ label: 'Ø Alkohol', value: (p) => oneDecimal(p.meanAbv, ' %'), highlight: 'meanAbv' },
 		{
-			// Non-breaking spaces: "≥ 55 %" must not break apart.
-			label: 'Fassstärken-Niveau (≥\u00a055\u00a0%)',
+			// Non-breaking spaces: the threshold must not break apart.
+			label: `Fassstärken-Niveau (≥\u00a0${CASK_STRENGTH_ABV}\u00a0%)`,
 			value: (p) => share(p.caskStrength),
 			highlight: 'caskStrength'
 		},
