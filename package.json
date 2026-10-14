@@ -28,6 +28,7 @@
 		"db:generate": "drizzle-kit generate",
 		"db:seed": "node scripts/seed-test-tasting.ts",
 		"db:reset": "node scripts/reset-local-dev.ts",
+		"db:import-history": "node scripts/import-history.ts",
 		"dev:init": "npm run db:reset && npm run db:seed && npm run dev"
 	},
 	"devDependencies": {
