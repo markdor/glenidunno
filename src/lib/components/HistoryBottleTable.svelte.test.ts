@@ -45,7 +45,7 @@ const BOTTLES = [
 		bottler: 'Signatory',
 		broughtBy: 'Ben',
 		whiskybaseUrl: 'https://www.whiskybase.com/whiskies/whisky/1234',
-		presentation: { bottleId: 'b-4' }
+		presentation: { bottleId: 'b-4', viewable: true }
 	}),
 	bottle(5, {
 		tastingDate: '2024-09-27',
@@ -218,15 +218,40 @@ describe('HistoryBottleTable – cells and links', () => {
 		expect(page.getByRole('link', { name: '07.05.2021' }).elements()).toHaveLength(0);
 
 		// Row and tile each carry the links.
-		const presentations = page.getByRole('link', { name: 'Präsentation zu P113' }).elements();
+		const presentations = page
+			.getByRole('link', { name: 'Präsentation zu P113', exact: true })
+			.elements();
 		expect(presentations).toHaveLength(2);
 		expect(presentations[0]).toHaveAttribute('href', '/tasting/fluffy-otter/presentation/b-4');
 		expect(presentations[0]).toHaveAttribute('download');
-		expect(page.getByRole('link', { name: /^Präsentation/ }).elements()).toHaveLength(2);
+		expect(page.getByRole('link', { name: /^Präsentation zu [^ ]+$/ }).elements()).toHaveLength(2);
+		// The viewer's back link returns to the history.
+		const viewers = page.getByRole('link', { name: 'Präsentation zu P113 ansehen' }).elements();
+		expect(viewers).toHaveLength(2);
+		expect(viewers[0]).toHaveAttribute(
+			'href',
+			'/tasting/fluffy-otter/presentation/b-4/view?from=history'
+		);
+		expect(viewers[0]).not.toHaveAttribute('download');
 
 		const whiskybase = page.getByRole('link', { name: 'Whiskybase zu P2' }).elements();
 		expect(whiskybase[0]).toHaveAttribute('href', 'https://whiskybase.com/whiskies/whisky/9');
 		expect(whiskybase[0]).toHaveAttribute('rel', 'external noopener noreferrer');
+	});
+
+	test('offers only the download for a format the viewer can not show', async () => {
+		mockPage.url = new URL('http://localhost/history');
+		render(HistoryBottleTable, {
+			bottles: [
+				bottle(4, { slug: 'fluffy-otter', presentation: { bottleId: 'b-4', viewable: false } })
+			]
+		});
+		expect(
+			page.getByRole('link', { name: 'Präsentation zu P4', exact: true }).elements()
+		).toHaveLength(2);
+		expect(page.getByRole('link', { name: 'Präsentation zu P4 ansehen' }).elements()).toHaveLength(
+			0
+		);
 	});
 
 	test('anchors every bottle and highlights the one a link jumped to', async () => {

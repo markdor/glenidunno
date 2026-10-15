@@ -7,9 +7,13 @@ import { session, tastingParticipant, user } from '$lib/server/db/schema';
 import { requireAdmin } from '$lib/server/authGuards';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
 import { logger } from '$lib/server/logger';
+import { STARTUP_JOBS } from '$lib/server/startupJobList';
+import { getStartupJobOverview, isStartupJobRunning, runStartupJob } from '$lib/server/startupJobs';
+import { STARTUP_JOBS_DEPENDENCY } from '$lib/startupJobs';
 
-export const load: ServerLoad = ({ locals }) => {
+export const load: ServerLoad = ({ locals, depends }) => {
 	requireAdmin(locals);
+	depends(STARTUP_JOBS_DEPENDENCY);
 	// Decides what "Löschen" does: users with a participation are deactivated
 	// instead (see the delete action).
 	const participants = new Set(
@@ -36,7 +40,7 @@ export const load: ServerLoad = ({ locals }) => {
 			deactivated: deactivatedAt !== null,
 			hasParticipation: participants.has(u.id)
 		}));
-	return { users };
+	return { users, startupJobs: getStartupJobOverview(db, STARTUP_JOBS) };
 };
 
 type Fields = { email: string; username: string };
@@ -248,5 +252,21 @@ export const actions: Actions = {
 		return outcome === 'deleted'
 			? { action: 'delete', deleted: true }
 			: { action: 'delete', deactivated: true };
+	},
+
+	// Runs a startup job again (see startupJobs.ts) – not awaited: the page
+	// follows it live, the job may take minutes.
+	restartJob: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const form = await request.formData();
+		const job = STARTUP_JOBS.find((j) => j.id === String(form.get('id') ?? ''));
+		if (!job) {
+			return fail(404, { action: 'restartJob', userMessage: 'Diesen Job gibt es nicht.' });
+		}
+		if (isStartupJobRunning(job.id)) {
+			return fail(409, { action: 'restartJob', userMessage: 'Dieser Job läuft bereits.' });
+		}
+		void runStartupJob(db, job, 'manual');
+		return { action: 'restartJob', restarted: true };
 	}
 };

@@ -2,6 +2,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
+	isViewablePresentation,
 	participantLabel,
 	type ArchivedRevealedBottle,
 	type DashboardLastTasting,
@@ -129,7 +130,10 @@ function toOrder(
 		alias: b.alias,
 		score: b.score,
 		// The link only: the original file name waits for the reveal.
-		presentation: b.presentation && { bottleId: b.presentation.bottleId }
+		presentation: b.presentation && {
+			bottleId: b.presentation.bottleId,
+			viewable: b.presentation.viewable
+		}
 	}));
 }
 
@@ -222,7 +226,11 @@ function pouredBottles(
 
 function presentationRef(bottle: BottleRow): PresentationRef | null {
 	return bottle.presentationFile && bottle.presentationName
-		? { bottleId: bottle.id, name: bottle.presentationName }
+		? {
+				bottleId: bottle.id,
+				viewable: isViewablePresentation(bottle.presentationFile),
+				name: bottle.presentationName
+			}
 		: null;
 }
 
@@ -639,7 +647,10 @@ export function getHistory(db: Db, userId: string, now: Date = new Date()): Hist
 				broughtBy: participantLabel(b.username, b.deactivatedAt),
 				// File and name like presentationRef: the download route needs both
 				// and checks the participation again (404 otherwise).
-				presentation: isOwn && b.presentationFile && b.presentationName ? { bottleId: b.id } : null
+				presentation:
+					isOwn && b.presentationFile && b.presentationName
+						? { bottleId: b.id, viewable: isViewablePresentation(b.presentationFile) }
+						: null
 			};
 		});
 }

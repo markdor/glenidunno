@@ -386,7 +386,7 @@
 			/>
 			<p id={id('presentation-hint')} class="text-xs text-slate-500">
 				Optional, z. B. PowerPoint, höchstens {MAX_PRESENTATION_MB} MB. Alle können sie ab der Reihenfolge
-				herunterladen, den Dateinamen sehen sie erst bei der Auflösung.
+				ansehen und herunterladen, den Dateinamen sehen sie erst bei der Auflösung.
 			</p>
 			{#if bottle?.presentationName}
 				<p class="text-sm break-all text-slate-700">Hochgeladen: {bottle.presentationName}</p>

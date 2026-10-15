@@ -22,6 +22,7 @@ import {
 	histogramIntervals,
 	histogramPosition,
 	isLabeled,
+	isViewablePresentation,
 	labelStep,
 	normalizeScoreFactors,
 	participantLabel,
@@ -34,6 +35,23 @@ import {
 describe('SCORE_FACTORS_BY_WEIGHT', () => {
 	it('lists the factors heaviest weight first', () => {
 		expect(SCORE_FACTORS_BY_WEIGHT).toEqual(['smoke', 'cask', 'value', 'abv']);
+	});
+});
+
+describe('isViewablePresentation', () => {
+	it.each(['pdf', 'pptx', 'ppt', 'odp', 'docx', 'doc', 'odt', 'PPTX'])(
+		'shows a .%s file in the viewer',
+		(extension) => {
+			expect(isViewablePresentation(`Tasting_2026-10-24_Nebel.${extension}`)).toBe(true);
+		}
+	);
+
+	it.each([
+		'Tasting_2026-10-24_Nebel.zip',
+		'Tasting_2026-10-24_Nebel.key',
+		'Tasting_2026-10-24_Nebel'
+	])('only offers the download for %s', (file) => {
+		expect(isViewablePresentation(file)).toBe(false);
 	});
 });
 

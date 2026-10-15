@@ -300,12 +300,22 @@ describe('Tasting participant page', () => {
 		renderView({
 			phase: 'order',
 			tasting,
-			order: [{ position: 1, alias: 'Nebel', score: 75.2, presentation: { bottleId: 'b1' } }]
+			order: [
+				{
+					position: 1,
+					alias: 'Nebel',
+					score: 75.2,
+					presentation: { bottleId: 'b1', viewable: true }
+				}
+			]
 		});
 
 		await expect
-			.element(page.getByRole('link', { name: 'Präsentation zu Nebel' }))
+			.element(page.getByRole('link', { name: 'Präsentation zu Nebel', exact: true }))
 			.toHaveAttribute('href', `/tasting/${SLUG}/presentation/b1`);
+		await expect
+			.element(page.getByRole('link', { name: 'Präsentation zu Nebel ansehen' }))
+			.toHaveAttribute('href', `/tasting/${SLUG}/presentation/b1/view`);
 	});
 
 	test('links presentations through the tasting link after the reveal', async () => {
@@ -328,7 +338,7 @@ describe('Tasting participant page', () => {
 					value: 3,
 					broughtBy: 'Anna',
 					score: 67,
-					presentation: { bottleId: 'b1', name: 'Ardbeg.pptx' }
+					presentation: { bottleId: 'b1', viewable: true, name: 'Ardbeg.pptx' }
 				}
 			]
 		});
@@ -336,6 +346,9 @@ describe('Tasting participant page', () => {
 		await expect
 			.element(page.getByRole('link', { name: 'Präsentation: Ardbeg.pptx' }))
 			.toHaveAttribute('href', `/tasting/${SLUG}/presentation/b1`);
+		await expect
+			.element(page.getByRole('link', { name: 'Präsentation zu Nebel ansehen' }))
+			.toHaveAttribute('href', `/tasting/${SLUG}/presentation/b1/view`);
 	});
 
 	test('reports a general save failure as a toast', async () => {

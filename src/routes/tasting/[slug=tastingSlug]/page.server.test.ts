@@ -19,6 +19,13 @@ vi.mock('$lib/server/logger', () => ({
 const mockEnv = vi.hoisted((): Record<string, string | undefined> => ({}));
 vi.mock('$env/dynamic/private', () => ({ env: mockEnv }));
 
+// The conversion itself (Gotenberg) is covered in presentationPdf.test.ts;
+// here only that saving a presentation starts it.
+vi.mock('$lib/server/presentationPdf', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/presentationPdf')>()),
+	convertInBackground: vi.fn()
+}));
+
 import { existsSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -27,6 +34,7 @@ import { TASTING_BOTTLING_LENGTH, TASTING_PRESENTATION_MAX_BYTES } from '$lib/va
 import { db } from '$lib/server/db';
 import { tasting, tastingBottle, tastingWriteThrottle, user } from '$lib/server/db/schema';
 import { logger } from '$lib/server/logger';
+import { convertInBackground } from '$lib/server/presentationPdf';
 import { TASTING_WRITE_LIMIT } from '$lib/server/tastingWriteThrottle';
 import {
 	createTasting,
@@ -472,6 +480,11 @@ describe('participant page save with a presentation', () => {
 		expect(loadFor(ANNA).view).toMatchObject({
 			bottles: [{ presentationName: 'Ardbeg.pptx' }]
 		});
+	});
+
+	it('starts the conversion for the viewer in the background', async () => {
+		await save(ANNA, { ...validBottle, presentation: deck() });
+		expect(convertInBackground).toHaveBeenLastCalledWith(DECK_FILE);
 	});
 
 	it('keeps the presentation when saving without a new file', async () => {

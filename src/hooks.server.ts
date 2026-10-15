@@ -1,10 +1,23 @@
-import { redirect, type Handle } from '@sveltejs/kit';
+import { redirect, type Handle, type ServerInit } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 import { auth } from '$lib/server/auth';
 import { exceedsBodyLimit } from '$lib/server/bodyLimit';
+import { db } from '$lib/server/db';
 import { evaluateGuard } from '$lib/server/guard';
+import { logger } from '$lib/server/logger';
 import { getSecurityHeaders } from '$lib/server/securityHeaders';
+import { STARTUP_JOBS } from '$lib/server/startupJobList';
+import { runPendingStartupJobs } from '$lib/server/startupJobs';
+
+// After migrations and the admin bootstrap (db/index.ts): the startup jobs
+// that haven't succeeded yet, in the background – not awaited, the app
+// serves meanwhile (see startupJobs.ts).
+export const init: ServerInit = () => {
+	runPendingStartupJobs(db, STARTUP_JOBS).catch((err: unknown) => {
+		logger.error({ err }, 'startup jobs failed');
+	});
+};
 
 // BODY_SIZE_LIMIT is raised for the presentation upload (Dockerfile) and would
 // otherwise apply to every route – including the anonymous Better Auth

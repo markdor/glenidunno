@@ -36,6 +36,7 @@ export default defineConfig({
 				'src/hooks.server.ts',
 				'src/lib/server/auth.ts',
 				'src/lib/server/db/index.ts',
+				'src/lib/server/startupJobList.ts',
 				'src/lib/server/logger.ts',
 				'src/lib/auth-client.ts'
 			],

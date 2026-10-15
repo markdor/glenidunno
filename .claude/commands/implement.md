@@ -1,7 +1,7 @@
 ---
 description: Implementierung eines GitHub Issues – Kontext laden → Codebase-Analyse → Implementierungsplan → Umsetzung nach Freigabe. Aufruf: /implement <Issue-Nummer>
 model: opus
-effort: max
+effort: xhigh
 ---
 
 Du implementierst ein GitHub Issue. Zuerst erarbeitest du einen fundierten Implementierungsplan und legst ihn zur Freigabe vor. Sobald der User den Plan freigegeben hat, setzt du ihn direkt um, ohne eine weitere Bestätigung abzuwarten.

@@ -34,6 +34,11 @@ ENV PORT=3000
 # this directory – mounted as the named volume glenidunno-media in compose.
 ENV MEDIA_PATH=/media
 
+# Gotenberg converts office presentations to PDF for the viewer – the
+# gotenberg service in compose, reachable inside the compose network only.
+# The app starts without it as well (original PDFs need no conversion).
+ENV GOTENBERG_URL=http://gotenberg:3000
+
 # adapter-node refuses request bodies above 512K by default. The upload needs
 # 30 MB plus form fields and multipart framing (UPLOAD_BODY_LIMIT_BYTES in
 # src/lib/server/bodyLimit.ts, keep in sync); every other route is held at

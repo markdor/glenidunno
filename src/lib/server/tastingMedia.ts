@@ -3,22 +3,21 @@ import { createReadStream } from 'node:fs';
 import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { env } from '$env/dynamic/private';
+import { isViewablePresentation } from '$lib/tasting';
 import { TASTING_PRESENTATION_MAX_BYTES, TASTING_PRESENTATION_NAME_LENGTH } from '$lib/validation';
 import { logger } from './logger';
+import { mediaDir } from './mediaDir';
 import {
 	presentationExtension,
 	PRESENTATION_FILE_RE,
 	UPLOAD_TEMP_FILE_RE,
 	type FileChange
 } from './presentationFiles';
+import { convertInBackground, discardPdf, ensurePdf, needsConversion } from './presentationPdf';
 
-// Presentation uploads (usually PowerPoint) live as plain files in MEDIA_PATH –
-// in Docker the named volume glenidunno-media, locally ./media – named after
-// the scheme in presentationFiles.ts.
-function mediaDir(): string {
-	return env.MEDIA_PATH || './media';
-}
+// Presentation uploads (usually PowerPoint) live as plain files in MEDIA_PATH,
+// named after the scheme in presentationFiles.ts; their converted PDFs in a
+// cache folder next to them (presentationPdf.ts).
 
 /** A stored presentation: its file in MEDIA_PATH plus the original name. */
 export type StoredPresentation = { file: string; name: string };
@@ -72,15 +71,21 @@ export async function stageUpload(upload: File): Promise<PendingUpload> {
 /**
  * Carries out the moves and deletions a committed change asks for, in order.
  * Never throws: the database is already committed, a failed step is logged.
+ *
+ * The central hook of the PDF cache as well: after every step – also a failed
+ * one – the PDFs of all names involved are stale, and a stored office file
+ * gets converted in the background.
  */
 export async function applyFileChanges(changes: readonly FileChange[]): Promise<void> {
 	for (const change of changes) {
+		let stored: string | null = null;
 		try {
 			if ('move' in change) {
 				if (!isOwnFile(change.move) || !isOwnFile(change.to)) {
 					throw new Error('unexpected presentation file name');
 				}
 				await rename(join(mediaDir(), change.move), join(mediaDir(), change.to));
+				stored = change.to;
 			} else {
 				if (!isOwnFile(change.delete)) throw new Error('unexpected presentation file name');
 				await rm(join(mediaDir(), change.delete), { force: true });
@@ -88,6 +93,16 @@ export async function applyFileChanges(changes: readonly FileChange[]): Promise<
 		} catch (err) {
 			logger.error({ err, change }, 'presentation file change failed');
 		}
+		// Only after the step: a conversion that read the old file meanwhile
+		// sees the new generation and drops its result (presentationPdf.ts).
+		for (const file of 'move' in change ? [change.move, change.to] : [change.delete]) {
+			try {
+				await discardPdf(file);
+			} catch (err) {
+				logger.error({ err, file }, 'presentation pdf cleanup failed');
+			}
+		}
+		if (stored) convertInBackground(stored);
 	}
 }
 
@@ -98,31 +113,73 @@ function contentDisposition(name: string): string {
 }
 
 /**
+ * A file from MEDIA_PATH as an attachment, `null` if it is gone. Always with
+ * nosniff and a sandbox CSP: an uploaded HTML or SVG file must never render
+ * (and run scripts) on the app's origin.
+ */
+async function fileResponse(
+	path: string,
+	contentType: string,
+	name: string
+): Promise<Response | null> {
+	let size: number;
+	try {
+		size = (await stat(path)).size;
+	} catch {
+		return null;
+	}
+	const body = Readable.toWeb(createReadStream(path)) as unknown as ReadableStream<Uint8Array>;
+	return new Response(body, {
+		headers: {
+			'content-type': contentType,
+			'content-length': String(size),
+			'content-disposition': contentDisposition(name),
+			'x-content-type-options': 'nosniff',
+			'content-security-policy': "default-src 'none'; sandbox"
+		}
+	});
+}
+
+function missingFile(file: string): null {
+	logger.warn({ file }, 'presentation file missing on disk');
+	return null;
+}
+
+/**
  * Download response for a stored presentation, `null` if the file is gone.
- * Always served as an attachment with a neutral content type and nosniff:
- * an uploaded HTML or SVG file must never render (and run scripts) on the
- * app's origin. The download keeps the original file name.
+ * Served with a neutral content type, under the name the caller picked (the
+ * original one only after the reveal).
  */
 export async function presentationResponse(
 	presentation: StoredPresentation
 ): Promise<Response | null> {
 	if (!PRESENTATION_FILE_RE.test(presentation.file)) return null;
 	const path = join(mediaDir(), presentation.file);
-	let size: number;
-	try {
-		size = (await stat(path)).size;
-	} catch {
-		logger.warn({ file: presentation.file }, 'presentation file missing on disk');
-		return null;
-	}
-	const body = Readable.toWeb(createReadStream(path)) as unknown as ReadableStream<Uint8Array>;
-	return new Response(body, {
-		headers: {
-			'content-type': 'application/octet-stream',
-			'content-length': String(size),
-			'content-disposition': contentDisposition(presentation.name),
-			'x-content-type-options': 'nosniff',
-			'content-security-policy': "default-src 'none'; sandbox"
+	return (
+		(await fileResponse(path, 'application/octet-stream', presentation.name)) ??
+		missingFile(presentation.file)
+	);
+}
+
+/**
+ * The presentation as PDF for the viewer, `null` if it can't be viewed or its
+ * file is gone. Original PDFs come straight from MEDIA_PATH, office files
+ * from the PDF cache – converted first if needed, which throws if that fails.
+ * Named after the stored file with ".pdf": no original name before the reveal.
+ */
+export async function presentationPdfResponse(file: string): Promise<Response | null> {
+	if (!PRESENTATION_FILE_RE.test(file) || !isViewablePresentation(file)) return null;
+	const source = join(mediaDir(), file);
+	let pdf = source;
+	if (needsConversion(file)) {
+		// A vanished file is a 404 like on the download, not a failed conversion.
+		try {
+			await stat(source);
+		} catch {
+			return missingFile(file);
 		}
-	});
+		pdf = await ensurePdf(file);
+	}
+	const name = `${file.slice(0, file.length - presentationExtension(file).length)}.pdf`;
+	return (await fileResponse(pdf, 'application/pdf', name)) ?? missingFile(file);
 }

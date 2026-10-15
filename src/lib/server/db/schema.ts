@@ -250,6 +250,23 @@ export const tastingWriteThrottle = sqliteTable('tasting_write_throttle', {
 	windowStart: integer('window_start', { mode: 'timestamp' }).notNull()
 });
 
+// One-off background jobs after a deployment (startupJobs.ts): one row per job
+// that ever ran, none while it is pending. Shown on the admin page.
+export const startupJob = sqliteTable(
+	'startup_job',
+	{
+		id: text('id').primaryKey(),
+		status: text('status', { enum: ['running', 'succeeded', 'failed'] }).notNull(),
+		startedAt: integer('started_at', { mode: 'timestamp' }).notNull(),
+		finishedAt: integer('finished_at', { mode: 'timestamp' }),
+		// The job's summary or a text safe to show, never an internal error.
+		message: text('message'),
+		progressDone: integer('progress_done'),
+		progressTotal: integer('progress_total')
+	},
+	(t) => [check('startup_job_status', sql`${t.status} IN ('running', 'succeeded', 'failed')`)]
+);
+
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
 export type Session = typeof session.$inferSelect;

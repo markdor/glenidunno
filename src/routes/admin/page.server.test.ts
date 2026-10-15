@@ -18,6 +18,19 @@ vi.mock('$lib/server/logger', () => ({
 	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
 }));
 
+// One job that runs until the test lets it finish.
+const testJob = vi.hoisted(() => ({ finish: (_summary: string) => {} }));
+vi.mock('$lib/server/startupJobList', () => ({
+	STARTUP_JOBS: [
+		{
+			id: '2026-01-test',
+			title: 'Testjob',
+			description: 'Läuft, bis der Test ihn beendet.',
+			run: () => new Promise<string>((resolve) => (testJob.finish = resolve))
+		}
+	]
+}));
+
 import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import { user, session, tasting } from '$lib/server/db/schema';
@@ -38,7 +51,10 @@ function makeEvent(form: Record<string, string>, currentUser: unknown = ADMIN): 
 }
 
 function loadEvent(currentUser: unknown) {
-	return { locals: { user: currentUser, session: null } } as unknown as Parameters<typeof load>[0];
+	return {
+		locals: { user: currentUser, session: null },
+		depends: vi.fn()
+	} as unknown as Parameters<typeof load>[0];
 }
 
 function insertUser(opts: { id?: string; email: string; username: string; isAdmin?: boolean }) {
@@ -433,6 +449,52 @@ describe('admin delete', () => {
 		expect(logger.error).toHaveBeenCalledWith({ err }, 'admin delete user failed');
 
 		deleteSpy.mockRestore();
+	});
+});
+
+describe('admin startup jobs', () => {
+	const jobs = () => (load(loadEvent(ADMIN)) as { startupJobs: { status: string }[] }).startupJobs;
+
+	it('lists the jobs and reloads on their own dependency', () => {
+		const event = loadEvent(ADMIN);
+		const { startupJobs } = load(event) as { startupJobs: unknown[] };
+		expect(startupJobs).toEqual([
+			expect.objectContaining({ id: '2026-01-test', title: 'Testjob', status: 'pending' })
+		]);
+		expect(event.depends).toHaveBeenCalledWith('app:startup-jobs');
+	});
+
+	it('restarts a job without waiting for it, but never twice at once', async () => {
+		expect(await actions.restartJob(makeEvent({ id: '2026-01-test' }))).toEqual({
+			action: 'restartJob',
+			restarted: true
+		});
+		expect(jobs()).toEqual([expect.objectContaining({ status: 'running' })]);
+
+		expect(await actions.restartJob(makeEvent({ id: '2026-01-test' }))).toMatchObject({
+			status: 409,
+			data: { action: 'restartJob', userMessage: 'Dieser Job läuft bereits.' }
+		});
+
+		testJob.finish('erledigt');
+		await vi.waitFor(() =>
+			expect(jobs()).toEqual([
+				expect.objectContaining({ status: 'succeeded', message: 'erledigt' })
+			])
+		);
+	});
+
+	it('answers an unknown job with 404', async () => {
+		expect(await actions.restartJob(makeEvent({ id: 'nope' }))).toMatchObject({
+			status: 404,
+			data: { action: 'restartJob', userMessage: 'Diesen Job gibt es nicht.' }
+		});
+	});
+
+	it('is for admins only', async () => {
+		await expect(
+			actions.restartJob(makeEvent({ id: '2026-01-test' }, { id: 'u', isAdmin: false }))
+		).rejects.toMatchObject(NOT_FOUND_REDIRECT);
 	});
 });
 

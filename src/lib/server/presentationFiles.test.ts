@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
 	fileNameKey,
+	PDF_CACHE_FILE_RE,
 	presentationBaseName,
 	presentationExtension,
 	PRESENTATION_FILE_RE,
@@ -63,5 +64,25 @@ describe('uniquePresentationFileName', () => {
 		expect(uniquePresentationFileName(base, '.pdf', new Set([fileNameKey(`${base}.pptx`)]))).toBe(
 			`${base}.pdf`
 		);
+	});
+});
+
+describe('PDF_CACHE_FILE_RE', () => {
+	it.each(['Tasting_2026-10-24_Nebel.pptx.pdf', 'Tasting_2026-10-24_Ölfass_2.odp.pdf'])(
+		'accepts the cache name %s',
+		(name) => {
+			expect(PDF_CACHE_FILE_RE.test(name)).toBe(true);
+		}
+	);
+
+	it.each([
+		// The bare stored name: the cache always appends ".pdf".
+		'Tasting_2026-10-24_Nebel.pptx',
+		'Tasting_2026-10-24_Nebel',
+		'../Tasting_2026-10-24_Nebel.pptx.pdf',
+		'Tasting_2026-10-24_Nebel.pptx.pdf/../x.pdf',
+		'.convert-0f6e8f43-6bb5-4f4c-9d8a-7d8f4b1c2e3a'
+	])('rejects %s', (name) => {
+		expect(PDF_CACHE_FILE_RE.test(name)).toBe(false);
 	});
 });

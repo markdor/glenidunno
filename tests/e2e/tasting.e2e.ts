@@ -8,6 +8,8 @@ import { test, expect } from '@playwright/test';
 // enters a single bottle there, only so the history has a real row for its
 // layout check and the statistics a record to link to it: entering bottles
 // and the presentation downloads are covered by route and component tests.
+// Its presentation is a small PDF, so the viewer can show its first slide in
+// the built app (pdf.js worker bundling) without Gotenberg.
 
 // A week ahead is in the future in any time zone.
 function dateInDays(days: number): string {
@@ -21,6 +23,8 @@ const UNKNOWN_SLUG_LINK = '/tasting/fluffy-nothing';
 
 // Long names on purpose: the table must not scroll sideways on a phone.
 const BOTTLE_ALIAS = 'E2E-Torfmoor';
+// Three plain slides – red, green, blue – shared with the viewer's component test.
+const SLIDES_PDF = 'tests/fixtures/slides.pdf';
 const TABLE_COLUMNS = [
 	'Whisky',
 	'Datum',
@@ -120,6 +124,7 @@ test.describe('Tasting – Ablauf', () => {
 				.getByLabel('Abfüllung')
 				.fill('Port Charlotte Islay Barley Heavily Peated Cask Strength Sherry Butt Finish');
 			await form.getByLabel('Alkohol in % *').fill('58.4');
+			await form.getByLabel('Präsentation', { exact: true }).setInputFiles(SLIDES_PDF);
 			await form.getByRole('button', { name: 'Flasche 1 speichern' }).click();
 			await expect(page.getByText('Flasche 1 gespeichert.')).toBeVisible();
 
@@ -148,6 +153,31 @@ test.describe('Tasting – Ablauf', () => {
 					/^Der Admin hat die Reihenfolge am .+ um \d\d:\d\d Uhr vorzeitig freigegeben\.$/
 				)
 			).toBeVisible();
+		});
+
+		await test.step('Viewer: ab der Reihenfolge zeigt er die erste Folie der Präsentation', async () => {
+			await page.goto('/');
+			await page.getByRole('heading', { name: 'Nächstes Tasting' }).click();
+			await page.getByRole('link', { name: `Präsentation zu ${BOTTLE_ALIAS} ansehen` }).click();
+			await expect(page).toHaveURL(/\/tasting\/[a-z]+-[a-z]+\/presentation\/[0-9a-f-]{36}\/view$/);
+			await expect(page).toHaveTitle('Whisky-Tasting');
+
+			// Rendered by pdf.js with the worker from the build: the first slide is red.
+			await expect(page.getByRole('img', { name: 'Folie 1 von 3' })).toBeVisible();
+			await expect(page.getByText('1 / 3')).toBeVisible();
+			await expect
+				.poll(() =>
+					page.evaluate(() => {
+						const canvas = document.querySelector('canvas')!;
+						const { data } = canvas
+							.getContext('2d')!
+							.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1);
+						return [data[0], data[1], data[2]];
+					})
+				)
+				.toEqual([204, 26, 26]);
+
+			await page.goto(detailUrl);
 		});
 
 		await test.step('9-Uhr-Button: Tasting vorzeitig auflösen', async () => {
@@ -201,7 +231,10 @@ test.describe('Tasting – Ablauf', () => {
 				}
 			}
 			await expectOneLine(mainColumns);
-			await expect(table.locator('dd').filter({ hasText: BOTTLE_ALIAS })).toBeVisible();
+			// Exact: the links' screen reader text names the alias as well.
+			await expect(
+				table.locator('dd').filter({ hasText: new RegExp(`^${BOTTLE_ALIAS}$`) })
+			).toBeVisible();
 			expect(await pageScrollsSideways()).toBe(false);
 			expect(
 				await table.evaluate((t) => t.parentElement!.scrollWidth <= t.parentElement!.clientWidth)
@@ -261,6 +294,8 @@ test.describe('Tasting – Zugriff ohne Login', () => {
 		'/history',
 		UNKNOWN_SLUG_LINK,
 		`${UNKNOWN_SLUG_LINK}/presentation/some-id`,
+		`${UNKNOWN_SLUG_LINK}/presentation/some-id/pdf`,
+		`${UNKNOWN_SLUG_LINK}/presentation/some-id/view`,
 		// The anonymous token links of old are gone for good.
 		OLD_TOKEN_LINK
 	]) {
@@ -282,6 +317,7 @@ test.describe('Tasting – Zugriff mit Login', () => {
 	// response for all of them, so it doesn't reveal which case applied.
 	for (const path of [
 		UNKNOWN_SLUG_LINK,
+		`${UNKNOWN_SLUG_LINK}/presentation/some-id/view`,
 		OLD_TOKEN_LINK,
 		'/gibt-es-nicht',
 		'/admin/tastings/00000000-0000-4000-8000-000000000000'

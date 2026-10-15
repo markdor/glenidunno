@@ -16,6 +16,8 @@ services:
       - glenidunno-data:/data
       # Presentation uploads, stored 1:1 (MEDIA_PATH, see Dockerfile).
       - glenidunno-media:/media
+    # Deliberately no depends_on on gotenberg: without it the app still starts
+    # and shows original PDFs, only office files fall back to the download.
     healthcheck:
       test:
         [
@@ -27,6 +29,35 @@ services:
       interval: 30s
       timeout: 3s
       retries: 3
+
+  # Converts uploaded office presentations to PDF for the viewer
+  # (GOTENBERG_URL, see Dockerfile). The LibreOffice-only image without
+  # Chromium, pinned and kept current by Dependabot since it parses uploaded
+  # files. Only reachable by the app: no ports, no Traefik.
+  gotenberg:
+    image: gotenberg/gotenberg:8.37.0-libreoffice
+    container_name: glenidunno-gotenberg
+    restart: unless-stopped
+    command:
+      - gotenberg
+      # Large PowerPoints need longer than the default 30s; the app waits a
+      # bit longer still (CONVERSION_TIMEOUT_MS in presentationPdf.ts).
+      - --api-timeout=120s
+      # The app only ever sends files: no URLs to download, no webhooks.
+      - --api-disable-download-from=true
+      - --webhook-disable=true
+      # Linked content in an uploaded document must not reach internal services.
+      - --libreoffice-deny-private-ips=true
+      # Ready for the first conversion right after the start.
+      - --libreoffice-auto-start=true
+      - --api-disable-health-check-logging=true
+    healthcheck:
+      # The image ships curl for exactly this.
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   glenidunno-data:

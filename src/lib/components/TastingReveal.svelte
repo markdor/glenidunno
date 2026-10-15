@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Eye } from '@lucide/svelte';
 	import type { ResolvedPathname } from '$app/types';
 	import {
 		formatOneDecimal,
@@ -9,11 +10,14 @@
 
 	let {
 		reveal,
-		presentationHref
+		presentationHref,
+		viewHref
 	}: {
 		reveal: Reveal;
 		/** Download URL of a bottle's presentation – runs through the tasting's link. */
 		presentationHref: (bottleId: string) => ResolvedPathname;
+		/** The presentation viewer of a bottle – also through the tasting's link. */
+		viewHref: (bottleId: string) => ResolvedPathname;
 	} = $props();
 </script>
 
@@ -48,9 +52,9 @@
 	{/if}
 
 	{#if b.presentation}
-		<!-- Served as an attachment by a +server.ts route: `download` keeps the
-		     client router out of it. -->
-		<p class="text-sm">
+		<!-- The download is served as an attachment by a +server.ts route:
+		     `download` keeps the client router out of it. -->
+		<p class="flex flex-wrap items-center gap-x-3 text-sm">
 			<a
 				href={presentationHref(b.presentation.bottleId)}
 				download
@@ -58,6 +62,16 @@
 			>
 				Präsentation: {b.presentation.name}
 			</a>
+			{#if b.presentation.viewable}
+				<a
+					href={viewHref(b.presentation.bottleId)}
+					aria-label="Präsentation zu {b.alias} ansehen"
+					class="inline-flex items-center gap-1 py-1 font-medium text-brand underline hover:text-brand-hover"
+				>
+					<Eye size={16} strokeWidth={2} aria-hidden="true" />
+					Ansehen
+				</a>
+			{/if}
 		</p>
 	{/if}
 {/snippet}
