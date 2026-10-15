@@ -29,7 +29,7 @@ import {
 	user
 } from '$lib/server/db/schema';
 import { logger } from '$lib/server/logger';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyFileChanges, stageUpload } from '$lib/server/tastingMedia';
@@ -225,6 +225,14 @@ async function uploadPresentation(slot: number, content: TastingBottle) {
 	if (result.status === 'saved') await applyFileChanges(result.fileChanges);
 }
 
+// A converted PDF of the presentation in the viewer's cache; returns the folder.
+async function cachePdf(mediaDir: string, file: string) {
+	const cache = join(mediaDir, 'pdf-cache');
+	await mkdir(cache, { recursive: true });
+	await writeFile(join(cache, `${file}.pdf`), '%PDF');
+	return cache;
+}
+
 describe('updateDate', () => {
 	it('moves the tasting during entry', async () => {
 		expect(await act('updateDate', { tastingDate: '2026-11-07' })).toEqual({
@@ -244,6 +252,21 @@ describe('updateDate', () => {
 			await act('updateDate', { tastingDate: '2026-11-07' });
 
 			expect(await readdir(mediaDir)).toEqual(['Tasting_2026-11-07_Nebel.pptx']);
+		} finally {
+			await rm(mediaDir, { recursive: true, force: true });
+		}
+	});
+
+	it('drops the converted PDFs of the renamed files', async () => {
+		const mediaDir = await mkdtemp(join(tmpdir(), 'glenidunno-media-'));
+		mockEnv.MEDIA_PATH = mediaDir;
+		try {
+			await uploadPresentation(1, bottle);
+			const cache = await cachePdf(mediaDir, 'Tasting_2026-10-24_Nebel.pptx');
+
+			await act('updateDate', { tastingDate: '2026-11-07' });
+
+			expect(await readdir(cache)).toEqual([]);
 		} finally {
 			await rm(mediaDir, { recursive: true, force: true });
 		}
@@ -443,6 +466,21 @@ describe('delete', () => {
 			expect(db.select().from(tastingBottle).all()).toEqual([]);
 			expect(db.select().from(tastingWriteThrottle).all()).toEqual([]);
 			expect(await readdir(mediaDir)).toEqual([]);
+		} finally {
+			await rm(mediaDir, { recursive: true, force: true });
+		}
+	});
+
+	it('drops the converted PDFs of its presentations', async () => {
+		const mediaDir = await mkdtemp(join(tmpdir(), 'glenidunno-media-'));
+		mockEnv.MEDIA_PATH = mediaDir;
+		try {
+			await uploadPresentation(1, bottle);
+			const cache = await cachePdf(mediaDir, 'Tasting_2026-10-24_Nebel.pptx');
+
+			await expect(act('delete')).rejects.toMatchObject({ status: 303 });
+
+			expect(await readdir(cache)).toEqual([]);
 		} finally {
 			await rm(mediaDir, { recursive: true, force: true });
 		}

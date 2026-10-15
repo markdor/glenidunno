@@ -32,3 +32,15 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+
+  # The Gotenberg image in compose.yaml: LibreOffice parses uploaded files,
+  # so it has to stay current. Dependabot keeps the "-libreoffice" suffix of
+  # the tag.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

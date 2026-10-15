@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowDown, ArrowUp, ArrowUpDown } from '@lucide/svelte';
+	import { ArrowDown, ArrowUp, ArrowUpDown, Eye } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -62,6 +62,14 @@
 		return resolve('/tasting/[slug=tastingSlug]/presentation/[bottleId]', { slug, bottleId });
 	}
 
+	// The viewer's back link returns here (without the table's filters).
+	function viewHref(slug: string, bottleId: string) {
+		return resolve('/tasting/[slug=tastingSlug]/presentation/[bottleId]/view?from=history', {
+			slug,
+			bottleId
+		});
+	}
+
 	const controlClass =
 		'mt-1 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base focus:border-brand focus:ring-1 focus:ring-brand focus:outline-none';
 </script>
@@ -118,6 +126,16 @@
 		>
 			Präsentation <span class="sr-only">zu {bottle.alias}</span>
 		</a>
+		{#if bottle.presentation.viewable}
+			<a
+				href={viewHref(bottle.slug, bottle.presentation.bottleId)}
+				aria-label="Präsentation zu {bottle.alias} ansehen"
+				class="inline-flex items-center gap-1 py-1 font-medium text-brand underline hover:text-brand-hover"
+			>
+				<Eye size={16} strokeWidth={2} aria-hidden="true" />
+				Ansehen
+			</a>
+		{/if}
 	{/if}
 {/snippet}
 

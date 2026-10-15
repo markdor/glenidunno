@@ -1,7 +1,8 @@
 # Override for `npm run docker:test` (playwright.docker.config.ts).
 # Isolates e2e runs from the dev/prod `glenidunno-data` volume and exposes the
 # test-only magic-link capture file to the host so Playwright's auth.setup.ts
-# can read it (see CLAUDE.md > Teststrategie > E2E-Login).
+# can read it (see CLAUDE.md > Teststrategie > E2E-Login). The gotenberg
+# service comes along unchanged from compose.yaml.
 services:
   app:
     environment:

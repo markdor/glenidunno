@@ -592,7 +592,7 @@ describe('getParticipantView', () => {
 				whiskybaseUrl: 'https://www.whiskybase.com/whiskies/whisky/2',
 				abv: 40,
 				broughtBy: 'Cem',
-				presentation: { bottleId: 'b-Birke', name: 'Birke.pptx' }
+				presentation: { bottleId: 'b-Birke', viewable: true, name: 'Birke.pptx' }
 			});
 			const serialized = JSON.stringify(view);
 			for (const hidden of ['smoke', 'cask', '"value"', 'score', 'position', 'breakdown']) {
@@ -1250,7 +1250,10 @@ describe('presentations', () => {
 
 		// The slides are shown during the tasting: linked, but under no name yet.
 		const order = getParticipantView(db, ctx.ben, ORDER);
-		expect(order.phase === 'order' && order.order[0].presentation).toEqual({ bottleId });
+		expect(order.phase === 'order' && order.order[0].presentation).toEqual({
+			bottleId,
+			viewable: true
+		});
 		const participantOrder = JSON.stringify(order);
 		expect(participantOrder).not.toContain('Uigeadail');
 		expect(participantOrder).not.toContain(DECK_FILE);
@@ -1266,10 +1269,29 @@ describe('presentations', () => {
 		const revealed = getParticipantView(db, ctx.ben, REVEALED);
 		expect(revealed.phase === 'revealed' && revealed.bottles[0].presentation).toEqual({
 			bottleId,
+			viewable: true,
 			name: DECK.name
 		});
 		// The view never carries the stored file name (only the download before the reveal).
 		expect(JSON.stringify(revealed)).not.toContain(DECK_FILE);
+	});
+
+	it('marks only PDFs and office formats LibreOffice converts as viewable', () => {
+		const ctx = setup();
+		saveBottle(db, ctx.anna, 1, bottle({ alias: 'Folien' }), ENTRY, upload('a.PPTX'));
+		saveBottle(db, ctx.anna, 2, bottle({ alias: 'Dokument' }), ENTRY, upload('b.pdf', '.upload-2'));
+		saveBottle(db, ctx.ben, 1, bottle({ alias: 'Archiv' }), ENTRY, upload('c.zip', '.upload-3'));
+		saveBottle(db, ctx.cem, 1, bottle({ alias: 'Ohne' }), ENTRY, upload('Vortrag', '.upload-4'));
+
+		const viewable = (view: ReturnType<typeof getParticipantView>) =>
+			Object.fromEntries(
+				(view.phase === 'order' ? view.order : view.phase === 'revealed' ? view.bottles : []).map(
+					(b) => [b.alias, b.presentation?.viewable]
+				)
+			);
+		const expected = { Folien: true, Dokument: true, Archiv: false, Ohne: false };
+		expect(viewable(getParticipantView(db, ctx.ben, ORDER))).toEqual(expected);
+		expect(viewable(getParticipantView(db, ctx.ben, REVEALED))).toEqual(expected);
 	});
 
 	it('hands out the file from the order on and only within the tasting', () => {
@@ -1490,7 +1512,7 @@ describe('getHistory', () => {
 
 		const own = getHistory(db, 'u-anna', REVEALED)!;
 		expect(own.map((b) => [b.slug, b.presentation])).toEqual([
-			[ctx.slug, { bottleId: annaBottle }],
+			[ctx.slug, { bottleId: annaBottle, viewable: true }],
 			[ctx.slug, null]
 		]);
 		// Neither file name leaves the server, not even for the own tasting.
@@ -1532,6 +1554,20 @@ describe('getHistory', () => {
 		expect(getHistory(db, 'u-anna', REVEALED)!.map((b) => [b.alias, b.presentation])).toEqual([
 			['Nebel 2026-10-24', null],
 			['Torf 2026-10-24', null]
+		]);
+	});
+
+	it('offers the viewer only for viewable formats', () => {
+		const ctx = setupWithBottles();
+		const annaBottle = addPresentation(ctx.anna.id);
+		const benBottle = addPresentation(ctx.ben.id);
+		db.update(schema.tastingBottle)
+			.set({ presentationFile: 'Tasting_2026-10-24_Torf.zip' })
+			.where(eq(schema.tastingBottle.id, benBottle))
+			.run();
+		expect(getHistory(db, 'u-anna', REVEALED)!.map((b) => b.presentation)).toEqual([
+			{ bottleId: annaBottle, viewable: true },
+			{ bottleId: benBottle, viewable: false }
 		]);
 	});
 

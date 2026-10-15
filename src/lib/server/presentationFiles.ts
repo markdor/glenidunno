@@ -57,5 +57,15 @@ export function uniquePresentationFileName(
 export const PRESENTATION_FILE_RE =
 	/^Tasting_\d{4}-\d{2}-\d{2}_[\p{L}\p{N}_-]+(\.[a-z0-9]{1,10})?$/u;
 
+/**
+ * A presentation's converted PDF in the cache folder: the stored name plus
+ * ".pdf" (Tasting_2026-10-24_Nebel.pptx.pdf). Not the bare name with .pdf –
+ * that may be another bottle's original PDF.
+ */
+export const PDF_CACHE_FILE_RE = new RegExp(
+	`${PRESENTATION_FILE_RE.source.slice(0, -1)}\\.pdf$`,
+	PRESENTATION_FILE_RE.flags
+);
+
 /** An upload waiting for its database row; renamed to its final name afterwards. */
 export const UPLOAD_TEMP_FILE_RE = /^\.upload-[0-9a-f-]{36}$/;

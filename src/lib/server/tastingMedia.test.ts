@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,12 +9,19 @@ vi.mock('$env/dynamic/private', () => ({ env: mockEnv }));
 vi.mock('$lib/server/logger', () => ({
 	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
 }));
+// The conversion itself is covered in presentationPdf.test.ts.
+vi.mock('./presentationPdf', async (importOriginal) => ({
+	...(await importOriginal<typeof import('./presentationPdf')>()),
+	convertInBackground: vi.fn()
+}));
 
 import { TASTING_PRESENTATION_MAX_BYTES } from '$lib/validation';
 import { logger } from './logger';
+import { convertInBackground } from './presentationPdf';
 import {
 	applyFileChanges,
 	checkPresentationUpload,
+	presentationPdfResponse,
 	presentationResponse,
 	stageUpload
 } from './tastingMedia';
@@ -108,11 +115,50 @@ describe('applyFileChanges', () => {
 
 		expect(existsSync(victim)).toBe(true);
 		expect(logger.error).toHaveBeenCalledTimes(2);
+		// Nothing was stored, so nothing gets converted.
+		expect(convertInBackground).not.toHaveBeenCalled();
 	});
 
 	it('ignores deleting a file that is already gone', async () => {
 		await applyFileChanges([{ delete: NAME }]);
 		expect(logger.error).not.toHaveBeenCalled();
+	});
+});
+
+describe('applyFileChanges and the PDF cache', () => {
+	const OLD = 'Tasting_2026-10-24_Alt.pptx';
+	const cached = (file: string) => join(mediaDir, 'pdf-cache', `${file}.pdf`);
+
+	async function storeWithPdf(file: string) {
+		await mkdir(join(mediaDir, 'pdf-cache'), { recursive: true });
+		await writeFile(join(mediaDir, file), 'deck');
+		await writeFile(cached(file), '%PDF');
+	}
+
+	it('drops the PDFs of both names on a move and converts the moved file', async () => {
+		await storeWithPdf(OLD);
+		await storeWithPdf(NAME);
+
+		await applyFileChanges([{ move: OLD, to: NAME }]);
+
+		expect(existsSync(cached(OLD))).toBe(false);
+		expect(existsSync(cached(NAME))).toBe(false);
+		expect(convertInBackground).toHaveBeenCalledExactlyOnceWith(NAME);
+	});
+
+	it('converts a stored upload in the background', async () => {
+		const pending = await stageUpload(new File([bytes], 'deck.pptx'));
+		await applyFileChanges([{ move: pending.tempFile, to: NAME }]);
+		expect(convertInBackground).toHaveBeenCalledExactlyOnceWith(NAME);
+	});
+
+	it('drops the PDF of a deleted file without converting anything', async () => {
+		await storeWithPdf(NAME);
+
+		await applyFileChanges([{ delete: NAME }]);
+
+		expect(existsSync(cached(NAME))).toBe(false);
+		expect(convertInBackground).not.toHaveBeenCalled();
 	});
 });
 
@@ -139,5 +185,59 @@ describe('presentationResponse', () => {
 	it('returns null if the file is missing or the name is not a scheme name', async () => {
 		expect(await presentationResponse({ file: NAME, name: 'x' })).toBeNull();
 		expect(await presentationResponse({ file: '../etc/passwd', name: 'x' })).toBeNull();
+	});
+});
+
+describe('presentationPdfResponse', () => {
+	const ORIGINAL_PDF = 'Tasting_2026-10-24_Nebel.pdf';
+
+	const pdfHeaders = {
+		'content-type': 'application/pdf',
+		'content-disposition':
+			'attachment; filename="Tasting_2026-10-24_Nebel.pdf"; ' +
+			"filename*=UTF-8''Tasting_2026-10-24_Nebel.pdf",
+		'x-content-type-options': 'nosniff',
+		'content-security-policy': "default-src 'none'; sandbox"
+	};
+
+	beforeEach(async () => {
+		await mkdir(mediaDir, { recursive: true });
+	});
+
+	it('serves an original PDF as it is, never as a page on the app origin', async () => {
+		await writeFile(join(mediaDir, ORIGINAL_PDF), '%PDF original');
+
+		const response = (await presentationPdfResponse(ORIGINAL_PDF))!;
+
+		expect(Object.fromEntries(response.headers)).toMatchObject({
+			...pdfHeaders,
+			'content-length': '13'
+		});
+		expect(await response.text()).toBe('%PDF original');
+		expect(existsSync(join(mediaDir, 'pdf-cache'))).toBe(false);
+	});
+
+	it('serves an office file from the PDF cache under the stored name with .pdf', async () => {
+		await writeFile(join(mediaDir, NAME), 'deck');
+		await mkdir(join(mediaDir, 'pdf-cache'));
+		await writeFile(join(mediaDir, 'pdf-cache', `${NAME}.pdf`), '%PDF converted');
+
+		const response = (await presentationPdfResponse(NAME))!;
+
+		expect(Object.fromEntries(response.headers)).toMatchObject(pdfHeaders);
+		expect(await response.text()).toBe('%PDF converted');
+	});
+
+	it('throws if the office file can not be converted', async () => {
+		await writeFile(join(mediaDir, NAME), 'deck');
+		// No GOTENBERG_URL in the tests.
+		await expect(presentationPdfResponse(NAME)).rejects.toThrow('GOTENBERG_URL');
+	});
+
+	it('returns null for files the viewer can not show or that are gone', async () => {
+		expect(await presentationPdfResponse('Tasting_2026-10-24_Nebel.zip')).toBeNull();
+		expect(await presentationPdfResponse('../etc/passwd.pdf')).toBeNull();
+		expect(await presentationPdfResponse(ORIGINAL_PDF)).toBeNull();
+		expect(await presentationPdfResponse(NAME)).toBeNull();
 	});
 });

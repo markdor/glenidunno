@@ -89,10 +89,32 @@ export type DashboardLastTasting = Pick<
 >;
 
 /**
- * Link to an uploaded presentation, from the `order` phase on (the slides are
- * shown during the tasting): the bottle id addresses the download route.
+ * Extensions the presentation viewer can show: PDFs as they are, the others
+ * converted to PDF by LibreOffice (Gotenberg). Every other file, also one
+ * without an extension, can only be downloaded.
  */
-export type PresentationLink = { bottleId: string };
+export const VIEWABLE_PRESENTATION_EXTENSIONS: ReadonlySet<string> = new Set([
+	'pdf',
+	'pptx',
+	'ppt',
+	'odp',
+	'docx',
+	'doc',
+	'odt'
+]);
+
+/** Whether the viewer can show a stored presentation, judged by its file's extension. */
+export function isViewablePresentation(file: string): boolean {
+	const dot = file.lastIndexOf('.');
+	return dot > 0 && VIEWABLE_PRESENTATION_EXTENSIONS.has(file.slice(dot + 1).toLowerCase());
+}
+
+/**
+ * Link to an uploaded presentation, from the `order` phase on (the slides are
+ * shown during the tasting): the bottle id addresses the download route and,
+ * if `viewable`, the viewer.
+ */
+export type PresentationLink = { bottleId: string; viewable: boolean };
 
 /**
  * Position in the pouring order with the total score and the presentation

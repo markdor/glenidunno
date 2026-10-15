@@ -57,9 +57,17 @@
 		if (form?.slot === slot) dismissed = form;
 	}
 
-	// Downloads run through this tasting's link (see presentation/[bottleId]).
+	// Downloads and the viewer run through this tasting's link (see
+	// presentation/[bottleId]); the viewer's back link returns here.
 	function presentationHref(bottleId: string) {
 		return resolve('/tasting/[slug=tastingSlug]/presentation/[bottleId]', {
+			slug: page.params.slug ?? '',
+			bottleId
+		});
+	}
+
+	function viewHref(bottleId: string) {
+		return resolve('/tasting/[slug=tastingSlug]/presentation/[bottleId]/view', {
 			slug: page.params.slug ?? '',
 			bottleId
 		});
@@ -113,7 +121,7 @@
 			<p class="text-sm text-slate-500">
 				Die Auflösung erscheint am Tag danach ab {TASTING_REVEAL_HOUR} Uhr.
 			</p>
-			<TastingOrderList order={view.order} {presentationHref} />
+			<TastingOrderList order={view.order} {presentationHref} {viewHref} />
 		</section>
 		<TastingOrderChart order={view.order} />
 		<TastingScoreExplainer />
@@ -121,7 +129,7 @@
 		<TastingManualNotice manual={view.manual} />
 		<section class="space-y-3">
 			<h2 class="text-lg font-semibold">Auflösung</h2>
-			<TastingReveal reveal={view} {presentationHref} />
+			<TastingReveal reveal={view} {presentationHref} {viewHref} />
 		</section>
 		<!-- Archived bottles have no factors: no score to chart, no order to explain. -->
 		{#if !view.archived}

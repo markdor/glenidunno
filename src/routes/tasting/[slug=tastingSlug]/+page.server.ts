@@ -11,7 +11,6 @@ import {
 	TASTING_DISTILLERY_LENGTH,
 	TASTING_SCALE
 } from '$lib/validation';
-import { redirectNotFound, requireUser } from '$lib/server/authGuards';
 import { db } from '$lib/server/db';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
 import { logger } from '$lib/server/logger';
@@ -21,31 +20,22 @@ import {
 	stageUpload,
 	type PendingUpload
 } from '$lib/server/tastingMedia';
+import { requireParticipant } from '$lib/server/tastingGuards';
 import { consumeTastingWriteLimit } from '$lib/server/tastingWriteThrottle';
 import type { FileChange } from '$lib/server/presentationFiles';
 import {
-	findParticipant,
 	getParticipantView,
 	removeBottle,
 	saveBottle,
 	TastingValidationError,
-	type Participant,
 	type SaveBottleResult
 } from '$lib/server/tastings';
 
-// The participant page of a tasting (its presentation downloads live in
-// presentation/[bottleId]/+server.ts). The participant always comes from the
-// slug plus the logged-in user, never from form data. GET has no side effects
-// – messengers and mail scanners fetch links for previews.
-
-function requireParticipant(locals: App.Locals, slug: string): Participant {
-	const user = requireUser(locals);
-	// Unknown slug and a user who doesn't take part – the admin included – end
-	// in the very same redirect as every other missing page.
-	const participant = findParticipant(db, slug, user.id);
-	if (!participant) redirectNotFound();
-	return participant;
-}
+// The participant page of a tasting (its presentation downloads and the
+// viewer live under presentation/[bottleId]). The participant always comes
+// from the slug plus the logged-in user (requireParticipant), never from form
+// data. GET has no side effects – messengers and mail scanners fetch links
+// for previews.
 
 export const load: PageServerLoad = ({ locals, params }) => {
 	const participant = requireParticipant(locals, params.slug);
