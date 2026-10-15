@@ -1,11 +1,11 @@
-import { createRequire } from 'node:module';
 import pino from 'pino';
+import pretty from 'pino-pretty';
 import { dev } from '$app/environment';
 
-// Since pino 10.4 a bare transport target is resolved relative to the synchronous
-// call sites (util.getCallSites). Under Vite's SSR module runner the only one left
-// is the evaluated module without a usable file name, so pass an absolute path.
-export const logger = pino({
-	level: dev ? 'debug' : 'info',
-	transport: dev ? { target: createRequire(import.meta.url).resolve('pino-pretty') } : undefined
-});
+// pino-pretty runs as a stream in the main thread, not as a transport: a transport
+// writes UTF-8 bytes from its worker straight to file descriptor 1, which a Windows
+// console decodes with its OEM code page ("ä" turns into "├ñ"). process.stdout
+// converts the text for the console instead.
+export const logger = dev
+	? pino({ level: 'debug' }, pretty({ destination: process.stdout }))
+	: pino({ level: 'info' });

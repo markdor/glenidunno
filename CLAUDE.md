@@ -466,16 +466,15 @@ Holt die Metadaten via `dependabot/fetch-metadata`, aktiviert Auto-Merge (squash
 - **pino** + **pino-pretty** (nur in Dev).
 - Zentraler Logger in `src/lib/server/logger.ts`:
   ```ts
-  import { createRequire } from 'node:module';
   import pino from 'pino';
+  import pretty from 'pino-pretty';
   import { dev } from '$app/environment';
 
-  export const logger = pino({
-    level: dev ? 'debug' : 'info',
-    transport: dev ? { target: createRequire(import.meta.url).resolve('pino-pretty') } : undefined
-  });
+  export const logger = dev
+    ? pino({ level: 'debug' }, pretty({ destination: process.stdout }))
+    : pino({ level: 'info' });
   ```
-- **Transport-Target als absoluter Pfad**: Seit pino 10.4 löst pino ein nacktes `'pino-pretty'` über `util.getCallSites()` relativ zum Aufrufer auf. Unter Vites SSR-Module-Runner bleibt dabei nur das eval'te Modul ohne brauchbaren Dateinamen übrig, und `vite dev` bricht mit „unable to determine transport target“ ab.
+- **pino-pretty als Stream im Hauptthread, kein Transport**: Ein Transport schreibt aus seinem Worker die UTF-8-Bytes direkt auf Dateideskriptor 1, und die Windows-Konsole dekodiert sie mit ihrer OEM-Codepage 850 („Präsentationen“ → „Pr├ñsentationen“). `process.stdout` wandelt den Text für die Konsole um. Nebenbei entfällt die Auflösung des Transport-Targets, an der `vite dev` seit pino 10.4 scheiterte („unable to determine transport target“, im SSR-Module-Runner fehlt ein brauchbarer Dateiname für `util.getCallSites()`).
 
 ### Error Handling
 
