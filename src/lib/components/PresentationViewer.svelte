@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import type { ResolvedPathname } from '$app/types';
-	import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from '@lucide/svelte';
+	import { ChevronLeft, ChevronRight, Maximize, X, ZoomIn, ZoomOut } from '@lucide/svelte';
 	import type { PDFDocumentLoadingTask, PDFDocumentProxy } from 'pdfjs-dist';
 	import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -34,11 +34,33 @@
 	let aspect = $state(9 / 16);
 	let canvas = $state<HTMLCanvasElement>();
 	let frame = $state<HTMLDivElement>();
+	let stage = $state<HTMLDivElement>();
+	let stageWidth = $state(0);
+	let stageHeight = $state(0);
+
+	// Full screen: `native` via the Fullscreen API (button only – browsers
+	// refuse it without a tap), `overlay` where that is missing (iPhone
+	// Safari): a layer over the whole page. A phone held in landscape gets
+	// the same layer on its own, until closed or turned back.
+	let fullscreen = $state<'off' | 'native' | 'overlay'>('off');
+	let landscapePhone = $state(false);
+	let landscapeDismissed = $state(false);
+	const immersive = $derived(
+		status === 'ready' && (fullscreen !== 'off' || (landscapePhone && !landscapeDismissed))
+	);
 
 	const pageCount = $derived(pdf?.numPages ?? 0);
-	const frameWidth = $derived(measuredWidth > 0 ? measuredWidth : FALLBACK_WIDTH);
-	const slideWidth = $derived(frameWidth * ZOOM_STEPS[zoomIndex]);
-	const zoomed = $derived(zoomIndex > 0);
+	// Full screen fits the whole slide into the screen, otherwise it is as
+	// wide as the page.
+	const frameWidth = $derived(
+		immersive && stageWidth > 0 && stageHeight > 0
+			? Math.min(stageWidth, stageHeight / aspect)
+			: measuredWidth > 0
+				? measuredWidth
+				: FALLBACK_WIDTH
+	);
+	const slideWidth = $derived(frameWidth * ZOOM_STEPS[immersive ? 0 : zoomIndex]);
+	const zoomed = $derived(!immersive && zoomIndex > 0);
 
 	// Fetched only after the mount, never in the load: hovering a link preloads
 	// it, and the first request may convert an office file. pdf.js only ever
@@ -106,7 +128,8 @@
 				target.height = offscreen.height;
 				target.getContext('2d')?.drawImage(offscreen, 0, 0);
 				// The next slide is prepared (parsed), not rendered.
-				if (number < doc.numPages) void doc.getPage(number + 1);
+				// Rejects if the viewer is gone meanwhile, which is fine.
+				if (number < doc.numPages) doc.getPage(number + 1).catch(() => {});
 			} catch (err) {
 				// Cancelled by a newer render; anything else ends in the error state.
 				if (!stale && !(pdfjs && err instanceof pdfjs.RenderingCancelledException)) {
@@ -141,7 +164,69 @@
 		frame.scrollTop = centerY * ZOOM_STEPS[index] - frame.clientHeight / 2;
 	}
 
+	// Phones only: a desktop window is landscape as well.
+	onMount(() => {
+		const query = window.matchMedia('(orientation: landscape) and (pointer: coarse)');
+		const update = () => {
+			landscapePhone = query.matches;
+			// Turned back to portrait: the next landscape opens full screen again.
+			if (!query.matches) landscapeDismissed = false;
+		};
+		update();
+		query.addEventListener('change', update);
+		// Left native full screen with the browser's own means (Esc, back gesture).
+		const onFullscreenChange = () => {
+			if (!document.fullscreenElement && fullscreen === 'native') closeFullscreen();
+		};
+		document.addEventListener('fullscreenchange', onFullscreenChange);
+		return () => {
+			query.removeEventListener('change', update);
+			document.removeEventListener('fullscreenchange', onFullscreenChange);
+		};
+	});
+
+	// The layer covers the page, so the page behind it must not scroll.
+	$effect(() => {
+		if (!immersive || fullscreen === 'native') return;
+		const root = document.documentElement;
+		const before = root.style.overflow;
+		root.style.overflow = 'hidden';
+		return () => {
+			root.style.overflow = before;
+		};
+	});
+
+	async function openFullscreen() {
+		// Called right from the tap: requestFullscreen needs that gesture.
+		if (stage && document.fullscreenEnabled) {
+			try {
+				await stage.requestFullscreen();
+				fullscreen = 'native';
+				// Slides are landscape. Only Android can lock it, and only in full screen.
+				const orientation = screen.orientation as ScreenOrientation & {
+					lock?: (orientation: 'landscape') => Promise<void>;
+				};
+				await orientation.lock?.('landscape').catch(() => {});
+				return;
+			} catch {
+				// Refused – the layer instead.
+			}
+		}
+		fullscreen = 'overlay';
+	}
+
+	function closeFullscreen() {
+		fullscreen = 'off';
+		// Still landscape: closing means "not now", not "open it again".
+		if (landscapePhone) landscapeDismissed = true;
+		if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+	}
+
 	function onkeydown(event: KeyboardEvent) {
+		if (immersive && event.key === 'Escape') {
+			closeFullscreen();
+			return;
+		}
 		if (status !== 'ready' || event.defaultPrevented) return;
 		if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
 		if (event.target instanceof Element && event.target.closest('input, select, textarea')) return;
@@ -172,9 +257,36 @@
 
 	const controlClass =
 		'flex h-11 w-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white';
+	const immersiveControlClass =
+		'flex h-11 w-11 items-center justify-center rounded-lg hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent';
 </script>
 
 <svelte:window {onkeydown} />
+
+{#snippet pager(buttonClass: string)}
+	<button
+		type="button"
+		onclick={previous}
+		disabled={pageNumber <= 1}
+		aria-label="Vorherige Folie"
+		class={buttonClass}
+	>
+		<ChevronLeft size={20} strokeWidth={2} aria-hidden="true" />
+	</button>
+	<p class="min-w-16 text-center text-sm font-medium tabular-nums" aria-live="polite">
+		<span aria-hidden="true">{pageNumber} / {pageCount}</span>
+		<span class="sr-only">Folie {pageNumber} von {pageCount}</span>
+	</p>
+	<button
+		type="button"
+		onclick={next}
+		disabled={pageNumber >= pageCount}
+		aria-label="Nächste Folie"
+		class={buttonClass}
+	>
+		<ChevronRight size={20} strokeWidth={2} aria-hidden="true" />
+	</button>
+{/snippet}
 
 <div class="space-y-3">
 	<!-- Measures an empty line: its width never depends on the slide drawn
@@ -182,77 +294,101 @@
 	<div bind:clientWidth={measuredWidth} aria-hidden="true"></div>
 
 	{#if status === 'ready'}
-		<!-- An image to assistive technology: the slide has no text layer, the
-		     buttons below turn it. Swiping is only a shortcut for touch. -->
+		<!-- The stage: in the page flow, or in full screen fixed over the whole
+		     screen. Position inline, so its size never depends on the slide –
+		     also without Tailwind (component tests). -->
 		<div
-			bind:this={frame}
-			role="img"
-			aria-label="Folie {pageNumber} von {pageCount}"
-			class={[
-				'rounded-xl bg-white ring-1 ring-slate-200',
-				zoomed ? 'overflow-auto' : 'overflow-hidden'
-			]}
-			style:height="{frameWidth * aspect}px"
-			style:touch-action={zoomed ? 'auto' : 'pan-y pinch-zoom'}
-			{onpointerdown}
-			{onpointerup}
-			onpointercancel={() => (swipe = null)}
+			bind:this={stage}
+			class={[immersive && 'flex items-center justify-center bg-black']}
+			style:position={immersive ? 'fixed' : null}
+			style:inset={immersive ? '0' : null}
+			style:z-index={immersive ? '50' : null}
 		>
-			<canvas
-				bind:this={canvas}
-				aria-hidden="true"
-				class="block max-w-none"
-				style:width="{slideWidth}px"
-				style:height="{slideWidth * aspect}px"
-			></canvas>
+			{#if immersive}
+				<!-- Measures the screen with an empty layer, like the line above
+				     measures the page: drawing the slide can't resize it. -->
+				<div
+					bind:clientWidth={stageWidth}
+					bind:clientHeight={stageHeight}
+					aria-hidden="true"
+					style:position="absolute"
+					style:inset="0"
+					style:pointer-events="none"
+				></div>
+			{/if}
+			<!-- An image to assistive technology: the slide has no text layer, the
+			     buttons turn it. Swiping is only a shortcut for touch. -->
+			<div
+				bind:this={frame}
+				role="img"
+				aria-label="Folie {pageNumber} von {pageCount}"
+				class={[
+					'bg-white',
+					!immersive && 'rounded-xl ring-1 ring-slate-200',
+					zoomed ? 'overflow-auto' : 'overflow-hidden'
+				]}
+				style:width={immersive ? `${frameWidth}px` : null}
+				style:height="{frameWidth * aspect}px"
+				style:touch-action={zoomed ? 'auto' : 'pan-y pinch-zoom'}
+				{onpointerdown}
+				{onpointerup}
+				onpointercancel={() => (swipe = null)}
+			>
+				<canvas
+					bind:this={canvas}
+					aria-hidden="true"
+					class="block max-w-none"
+					style:width="{slideWidth}px"
+					style:height="{slideWidth * aspect}px"
+				></canvas>
+			</div>
+
+			{#if immersive}
+				<!-- Unobtrusive over the slide: turning, where we are, closing. -->
+				<div
+					class="absolute right-3 bottom-3 flex items-center gap-1 rounded-xl bg-black/60 p-1 text-white"
+				>
+					{@render pager(immersiveControlClass)}
+					<button
+						type="button"
+						onclick={closeFullscreen}
+						aria-label="Vollbild beenden"
+						class={immersiveControlClass}
+					>
+						<X size={20} strokeWidth={2} aria-hidden="true" />
+					</button>
+				</div>
+			{/if}
 		</div>
 
-		<div class="flex items-center justify-between gap-3">
-			<div class="flex items-center gap-2">
-				<button
-					type="button"
-					onclick={previous}
-					disabled={pageNumber <= 1}
-					aria-label="Vorherige Folie"
-					class={controlClass}
-				>
-					<ChevronLeft size={20} strokeWidth={2} aria-hidden="true" />
-				</button>
-				<p class="min-w-16 text-center text-sm font-medium tabular-nums" aria-live="polite">
-					<span aria-hidden="true">{pageNumber} / {pageCount}</span>
-					<span class="sr-only">Folie {pageNumber} von {pageCount}</span>
-				</p>
-				<button
-					type="button"
-					onclick={next}
-					disabled={pageNumber >= pageCount}
-					aria-label="Nächste Folie"
-					class={controlClass}
-				>
-					<ChevronRight size={20} strokeWidth={2} aria-hidden="true" />
-				</button>
+		{#if !immersive}
+			<div class="flex items-center justify-between gap-3">
+				<div class="flex items-center gap-2">{@render pager(controlClass)}</div>
+				<div class="flex items-center gap-2">
+					<button
+						type="button"
+						onclick={() => zoomTo(zoomIndex - 1)}
+						disabled={zoomIndex === 0}
+						aria-label="Verkleinern"
+						class={controlClass}
+					>
+						<ZoomOut size={20} strokeWidth={2} aria-hidden="true" />
+					</button>
+					<button
+						type="button"
+						onclick={() => zoomTo(zoomIndex + 1)}
+						disabled={zoomIndex === ZOOM_STEPS.length - 1}
+						aria-label="Vergrößern"
+						class={controlClass}
+					>
+						<ZoomIn size={20} strokeWidth={2} aria-hidden="true" />
+					</button>
+					<button type="button" onclick={openFullscreen} aria-label="Vollbild" class={controlClass}>
+						<Maximize size={20} strokeWidth={2} aria-hidden="true" />
+					</button>
+				</div>
 			</div>
-			<div class="flex items-center gap-2">
-				<button
-					type="button"
-					onclick={() => zoomTo(zoomIndex - 1)}
-					disabled={zoomIndex === 0}
-					aria-label="Verkleinern"
-					class={controlClass}
-				>
-					<ZoomOut size={20} strokeWidth={2} aria-hidden="true" />
-				</button>
-				<button
-					type="button"
-					onclick={() => zoomTo(zoomIndex + 1)}
-					disabled={zoomIndex === ZOOM_STEPS.length - 1}
-					aria-label="Vergrößern"
-					class={controlClass}
-				>
-					<ZoomIn size={20} strokeWidth={2} aria-hidden="true" />
-				</button>
-			</div>
-		</div>
+		{/if}
 	{:else if status === 'error'}
 		<div
 			class="flex aspect-video flex-col items-center justify-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 text-center text-sm text-red-900"

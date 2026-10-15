@@ -48,7 +48,50 @@ async function expectSlide(number: number, colour: number[]) {
 
 afterEach(() => {
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
 });
+
+/** The Fullscreen API answering like a browser that has it (or refuses it). */
+function mockFullscreenApi(request: () => Promise<void> = async () => {}) {
+	vi.spyOn(document, 'fullscreenEnabled', 'get').mockReturnValue(true);
+	const requestFullscreen = vi
+		.spyOn(HTMLElement.prototype, 'requestFullscreen')
+		.mockImplementation(request);
+	const lock = vi.fn(async () => {});
+	vi.spyOn(screen, 'orientation', 'get').mockReturnValue({ lock } as unknown as ScreenOrientation);
+	return { requestFullscreen, lock };
+}
+
+/** A phone's orientation query that the test turns around. */
+function mockOrientation(landscape: boolean) {
+	const listeners = new Set<() => void>();
+	const query = {
+		matches: landscape,
+		addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+		removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener)
+	};
+	vi.stubGlobal(
+		'matchMedia',
+		vi.fn(() => query)
+	);
+	return (turned: boolean) => {
+		query.matches = turned;
+		for (const listener of listeners) listener();
+	};
+}
+
+const fullscreenButton = () => page.getByRole('button', { name: 'Vollbild', exact: true });
+const closeButton = () => page.getByRole('button', { name: 'Vollbild beenden' });
+const stage = () => slide().element().parentElement!;
+
+/** Whether the slide fills the screen: fixed over it, as wide or as high as it. */
+function fitted() {
+	const { clientWidth, clientHeight } = stage();
+	return (
+		stage().style.position === 'fixed' &&
+		canvas().style.width === `${Math.min(clientWidth, (clientHeight * 16) / 9)}px`
+	);
+}
 
 describe('PresentationViewer', () => {
 	test('shows the first slide as wide as its container', async () => {
@@ -175,6 +218,85 @@ describe('PresentationViewer', () => {
 		expect(slide().element().style.touchAction).toBe('pan-y pinch-zoom');
 		swipe(-120);
 		await expectSlide(2, GREEN);
+	});
+
+	test('shows the slide in full screen, in landscape on phones that can lock it', async () => {
+		const { requestFullscreen, lock } = mockFullscreenApi();
+		show();
+		await expectSlide(1, RED);
+		await page.getByRole('button', { name: 'Vergrößern' }).click();
+
+		await fullscreenButton().click();
+
+		expect(requestFullscreen).toHaveBeenCalledOnce();
+		expect(lock).toHaveBeenCalledWith('landscape');
+		await expect.element(closeButton()).toBeVisible();
+		// Fitted at 100 %, the page's controls make way for the small ones.
+		await expect.poll(() => stage().style.position).toBe('fixed');
+		await expect.poll(fitted).toBe(true);
+		expect(page.getByRole('button', { name: 'Vergrößern' }).elements()).toHaveLength(0);
+		await page.getByRole('button', { name: 'Nächste Folie' }).click();
+		await expectSlide(2, GREEN);
+
+		await closeButton().click();
+		await expect.element(fullscreenButton()).toBeVisible();
+		expect(stage().style.position).toBe('');
+	});
+
+	test('ends full screen when the browser leaves it (Esc, back gesture)', async () => {
+		mockFullscreenApi();
+		show();
+		await expectSlide(1, RED);
+		await fullscreenButton().click();
+		await expect.element(closeButton()).toBeVisible();
+
+		document.dispatchEvent(new Event('fullscreenchange'));
+
+		await expect.element(fullscreenButton()).toBeVisible();
+	});
+
+	test.each([
+		{ label: 'without the Fullscreen API (iPhone)', api: false },
+		{ label: 'when the browser refuses it', api: true }
+	])('covers the page with a layer $label', async ({ api }) => {
+		if (api) mockFullscreenApi(() => Promise.reject(new Error('refused')));
+		else vi.spyOn(document, 'fullscreenEnabled', 'get').mockReturnValue(false);
+		show();
+		await expectSlide(1, RED);
+
+		await fullscreenButton().click();
+
+		await expect.element(closeButton()).toBeVisible();
+		await expect.poll(fitted).toBe(true);
+		// The page behind doesn't scroll.
+		expect(document.documentElement.style.overflow).toBe('hidden');
+		swipe(-120);
+		await expectSlide(2, GREEN);
+
+		await userEvent.keyboard('{Escape}');
+		await expect.element(fullscreenButton()).toBeVisible();
+		expect(document.documentElement.style.overflow).toBe('');
+	});
+
+	test('goes full screen by itself when the phone is turned to landscape', async () => {
+		const turn = mockOrientation(false);
+		show();
+		await expectSlide(1, RED);
+		await expect.element(fullscreenButton()).toBeVisible();
+
+		turn(true);
+		await expect.element(closeButton()).toBeVisible();
+		await expect.poll(fitted).toBe(true);
+
+		// Closed in landscape it stays closed – until the next turn.
+		await closeButton().click();
+		await expect.element(fullscreenButton()).toBeVisible();
+		turn(false);
+		turn(true);
+		await expect.element(closeButton()).toBeVisible();
+
+		turn(false);
+		await expect.element(fullscreenButton()).toBeVisible();
 	});
 
 	test('shows a loading state until the PDF arrives', async () => {
