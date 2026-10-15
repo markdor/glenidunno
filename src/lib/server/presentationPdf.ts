@@ -72,6 +72,36 @@ async function exists(path: string): Promise<boolean> {
 	}
 }
 
+/** Whether the cache holds the office file's PDF already. */
+export async function hasPdf(file: string): Promise<boolean> {
+	const cached = cachePath(file);
+	return cached !== null && (await exists(cached));
+}
+
+/**
+ * Waits until Gotenberg answers its health check, `false` if it never does –
+ * after a deployment it may well start after the app (no depends_on).
+ */
+export async function waitForGotenberg(
+	fetchImpl: typeof fetch = fetch,
+	attempts = 24,
+	intervalMs = 5_000
+): Promise<boolean> {
+	const gotenberg = env.GOTENBERG_URL;
+	if (!gotenberg) return false;
+	for (let attempt = 1; attempt <= attempts; attempt++) {
+		try {
+			const response = await fetchImpl(`${gotenberg.replace(/\/+$/, '')}/health`);
+			await response.body?.cancel();
+			if (response.ok) return true;
+		} catch {
+			// Not up yet.
+		}
+		if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, intervalMs));
+	}
+	return false;
+}
+
 /**
  * Path of an office file's converted PDF: from the cache, otherwise converted
  * by Gotenberg first. Throws if the file needs no conversion, Gotenberg isn't

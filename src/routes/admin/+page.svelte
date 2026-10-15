@@ -1,10 +1,31 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
+	import { invalidate } from '$app/navigation';
 	import { confirmDialog } from '$lib/components/confirmDialogStore.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
+	import {
+		STARTUP_JOBS_DEPENDENCY,
+		STARTUP_JOBS_POLL_MS,
+		type StartupJobStatus
+	} from '$lib/startupJobs';
+	import { formatTastingTimestamp } from '$lib/tasting';
 
 	let { data, form } = $props();
+
+	// Live while a job runs: reload the list until none does any more.
+	$effect(() => {
+		if (!data.startupJobs.some((job) => job.status === 'running')) return;
+		const timer = setInterval(() => void invalidate(STARTUP_JOBS_DEPENDENCY), STARTUP_JOBS_POLL_MS);
+		return () => clearInterval(timer);
+	});
+
+	const JOB_STATUS: Record<StartupJobStatus, { label: string; class: string }> = {
+		pending: { label: 'Ausstehend', class: 'bg-slate-100 text-slate-700' },
+		running: { label: 'Läuft', class: 'bg-sky-100 text-sky-900' },
+		succeeded: { label: 'Erfolgreich', class: 'bg-emerald-100 text-emerald-900' },
+		failed: { label: 'Fehlgeschlagen', class: 'bg-red-100 text-red-900' }
+	};
 
 	let editingId = $state<string | null>(null);
 
@@ -226,6 +247,85 @@
 							</div>
 						</div>
 					{/if}
+				</li>
+			{/each}
+		</ul>
+	</section>
+
+	<!-- ── Startup jobs ──────────────────────────────────────────── -->
+	<section class="space-y-4" aria-labelledby="startup-jobs">
+		<div class="space-y-1">
+			<h2 id="startup-jobs" class="text-lg font-semibold">Hintergrund-Jobs</h2>
+			<p class="text-sm text-slate-500">
+				Laufen einmal nach einem Deployment. Fehlgeschlagene und unterbrochene Jobs starten beim
+				nächsten Start der App erneut.
+			</p>
+		</div>
+
+		<ul class="space-y-2">
+			{#each data.startupJobs as job (job.id)}
+				{@const restartLabel = job.status === 'pending' ? 'Starten' : 'Neu starten'}
+				<li class="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+					<div class="flex items-start justify-between gap-3">
+						<div class="min-w-0 space-y-1">
+							<h3 class="font-medium break-words">{job.title}</h3>
+							<p class="text-sm text-slate-500">{job.description}</p>
+						</div>
+						<span
+							class={[
+								'shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium',
+								JOB_STATUS[job.status].class
+							]}
+						>
+							{JOB_STATUS[job.status].label}
+						</span>
+					</div>
+
+					{#if job.status === 'running' && job.progress}
+						<div class="space-y-1">
+							<div
+								role="progressbar"
+								aria-label="Fortschritt"
+								aria-valuemin={0}
+								aria-valuemax={job.progress.total}
+								aria-valuenow={job.progress.done}
+								class="h-2 overflow-hidden rounded-full bg-slate-100"
+							>
+								<div
+									class="h-full bg-brand"
+									style:width="{job.progress.total > 0
+										? (job.progress.done / job.progress.total) * 100
+										: 0}%"
+								></div>
+							</div>
+							<p class="text-sm text-slate-700">
+								{job.progress.done} von {job.progress.total}
+							</p>
+						</div>
+					{/if}
+					{#if job.message}
+						<p class={['text-sm', job.status === 'failed' ? 'text-red-700' : 'text-slate-700']}>
+							{job.message}
+						</p>
+					{/if}
+					{#if job.startedAt}
+						<p class="text-xs text-slate-400">
+							Gestartet {formatTastingTimestamp(job.startedAt)}{#if job.finishedAt}
+								· beendet {formatTastingTimestamp(job.finishedAt)}{/if}
+						</p>
+					{/if}
+
+					<form method="POST" action="?/restartJob" use:enhance>
+						<input type="hidden" name="id" value={job.id} />
+						<button
+							type="submit"
+							disabled={job.status === 'running'}
+							aria-label="{restartLabel}: {job.title}"
+							class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+						>
+							{restartLabel}
+						</button>
+					</form>
 				</li>
 			{/each}
 		</ul>

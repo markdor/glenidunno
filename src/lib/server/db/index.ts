@@ -20,7 +20,8 @@ const sqlite = new Database(dbPath);
 sqlite.pragma('journal_mode = WAL');
 
 // Boot order: migrate -> admin bootstrap -> (SvelteKit server starts after this
-// module finishes evaluating). Drizzle skips already-applied migrations.
+// module finishes evaluating) -> startup jobs in the background (init hook in
+// hooks.server.ts). Drizzle skips already-applied migrations.
 // runMigrations() leaves foreign keys switched on (see migrate.ts for why they
 // must be off while migrating).
 runMigrations(sqlite, './drizzle');

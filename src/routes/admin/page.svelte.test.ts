@@ -1,9 +1,22 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
+
+// Only the job list's polling; everything else (enhance) stays real.
+vi.mock('$app/navigation', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$app/navigation')>()),
+	invalidate: vi.fn()
+}));
+
+import { invalidate } from '$app/navigation';
 import Page from './+page.svelte';
 import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 import { toast } from '$lib/components/toastStore.svelte';
+import {
+	STARTUP_JOBS_DEPENDENCY,
+	STARTUP_JOBS_POLL_MS,
+	type StartupJobOverview
+} from '$lib/startupJobs';
 
 beforeEach(() => {
 	for (const t of [...toast.toasts]) toast.dismiss(t.id);
@@ -35,6 +48,7 @@ function makeData(over: Partial<Record<string, unknown>> = {}) {
 	return {
 		user: currentUser,
 		users: [adminUser, kidUser],
+		startupJobs: [] as StartupJobOverview[],
 		...over
 	};
 }
@@ -214,6 +228,115 @@ describe('Admin page', () => {
 			await dialog.getByRole('button', { name: 'Deaktivieren' }).click();
 
 			await expect.poll(() => deleteRequests).toHaveLength(1);
+		});
+	});
+
+	describe('startup jobs', () => {
+		const STARTED = new Date('2026-10-15T08:00:00Z');
+		const job = (over: Partial<StartupJobOverview>): StartupJobOverview => ({
+			id: 'job',
+			title: 'Testjob',
+			description: 'Macht etwas nach dem Deployment.',
+			status: 'pending',
+			startedAt: null,
+			finishedAt: null,
+			message: null,
+			progress: null,
+			...over
+		});
+		const running = job({
+			id: 'running',
+			title: 'PDFs',
+			status: 'running',
+			startedAt: STARTED,
+			progress: { done: 12, total: 109 }
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+			vi.restoreAllMocks();
+		});
+
+		test('lists every job with its status, progress and message', async () => {
+			render(Page, {
+				data: makeData({
+					startupJobs: [
+						running,
+						job({
+							id: 'failed',
+							title: 'Länder',
+							status: 'failed',
+							startedAt: STARTED,
+							finishedAt: STARTED,
+							message: 'Gotenberg ist nicht erreichbar.'
+						}),
+						job({
+							id: 'done',
+							title: 'Alt',
+							status: 'succeeded',
+							startedAt: STARTED,
+							finishedAt: STARTED,
+							message: '3 Präsentationen umgewandelt.'
+						}),
+						job({ id: 'new', title: 'Neu' })
+					]
+				}),
+				form: null
+			});
+
+			const jobs = page.getByRole('region', { name: 'Hintergrund-Jobs' });
+			await expect.element(jobs.getByText('Läuft', { exact: true })).toBeVisible();
+			await expect.element(jobs.getByText('Fehlgeschlagen', { exact: true })).toBeVisible();
+			await expect.element(jobs.getByText('Erfolgreich', { exact: true })).toBeVisible();
+			await expect.element(jobs.getByText('Ausstehend', { exact: true })).toBeVisible();
+			await expect.element(jobs.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '12');
+			await expect.element(jobs.getByText('12 von 109')).toBeVisible();
+			await expect.element(jobs.getByText('Gotenberg ist nicht erreichbar.')).toBeVisible();
+			await expect
+				.element(jobs.getByRole('listitem').filter({ hasText: 'Länder' }))
+				.toHaveTextContent(
+					/Gestartet Do\., 15\.10\.2026 um 10:00 Uhr\s*·\s*beendet Do\., 15\.10\.2026 um 10:00 Uhr/
+				);
+
+			// A running job can't be started twice, every other one can.
+			await expect.element(jobs.getByRole('button', { name: 'Neu starten: PDFs' })).toBeDisabled();
+			await expect.element(jobs.getByRole('button', { name: 'Neu starten: Länder' })).toBeEnabled();
+			await expect.element(jobs.getByRole('button', { name: 'Starten: Neu' })).toBeEnabled();
+		});
+
+		test('reloads the job list while a job runs, and only then', async () => {
+			vi.useFakeTimers();
+			const view = render(Page, { data: makeData({ startupJobs: [running] }), form: null });
+
+			await vi.advanceTimersByTimeAsync(STARTUP_JOBS_POLL_MS);
+			expect(invalidate).toHaveBeenCalledWith(STARTUP_JOBS_DEPENDENCY);
+
+			vi.mocked(invalidate).mockClear();
+			await view.rerender({
+				data: makeData({ startupJobs: [{ ...running, status: 'succeeded' }] }),
+				form: null
+			});
+			await vi.advanceTimersByTimeAsync(STARTUP_JOBS_POLL_MS * 2);
+			expect(invalidate).not.toHaveBeenCalled();
+		});
+
+		test('restarts a job by its id', async () => {
+			const restarts: string[] = [];
+			const passThrough = window.fetch.bind(window);
+			vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
+				const url = input instanceof Request ? input.url : String(input);
+				if (!url.includes('?/restartJob')) return passThrough(input, init);
+				restarts.push(String((init?.body as FormData).get('id')));
+				return new Promise<Response>(() => {});
+			});
+			render(Page, {
+				data: makeData({ startupJobs: [job({ id: 'failed', status: 'failed' })] }),
+				form: null
+			});
+
+			await page.getByRole('button', { name: 'Neu starten: Testjob' }).click();
+
+			await expect.poll(() => restarts).toEqual(['failed']);
 		});
 	});
 
