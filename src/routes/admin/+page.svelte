@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { invalidate } from '$app/navigation';
+	import AdminDistilleryTable from '$lib/components/AdminDistilleryTable.svelte';
 	import { confirmDialog } from '$lib/components/confirmDialogStore.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import {
@@ -39,7 +40,8 @@
 	const errorText: Record<string, string> = {
 		required: 'Pflichtfeld',
 		invalid: 'Ungültig',
-		taken: 'Bereits vergeben'
+		taken: 'Bereits vergeben',
+		tooLong: 'Zu lang'
 	};
 
 	function fieldError(field: string): string | null {
@@ -330,4 +332,20 @@
 			{/each}
 		</ul>
 	</section>
+
+	<!-- ── Distilleries ──────────────────────────────────────────── -->
+	<AdminDistilleryTable
+		distilleries={data.distilleries}
+		costMicroUsd={data.researchCostMicroUsd}
+		prompt={data.researchPrompt}
+		editErrors={form?.action === 'updateDistillery' && form.key && form.fieldErrors
+			? {
+					key: form.key,
+					country: fieldError('country'),
+					region: fieldError('region'),
+					capacity: fieldError('capacity')
+				}
+			: null}
+		promptError={form?.action === 'saveResearchPrompt' ? fieldError('prompt') : null}
+	/>
 </main>

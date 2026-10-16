@@ -4,6 +4,8 @@ import { svelteKitHandler } from 'better-auth/svelte-kit';
 import { auth } from '$lib/server/auth';
 import { exceedsBodyLimit } from '$lib/server/bodyLimit';
 import { db } from '$lib/server/db';
+import { researchDistilleriesInBackground } from '$lib/server/distilleryResearchJob';
+import { startDistilleryResearchTimer } from '$lib/server/distilleryResearchTimer';
 import { evaluateGuard } from '$lib/server/guard';
 import { logger } from '$lib/server/logger';
 import { getSecurityHeaders } from '$lib/server/securityHeaders';
@@ -12,11 +14,13 @@ import { runPendingStartupJobs } from '$lib/server/startupJobs';
 
 // After migrations and the admin bootstrap (db/index.ts): the startup jobs
 // that haven't succeeded yet, in the background – not awaited, the app
-// serves meanwhile (see startupJobs.ts).
+// serves meanwhile (see startupJobs.ts). Plus the daily distillery research
+// at 21:00 Berlin time (a no-op without ANTHROPIC_API_KEY).
 export const init: ServerInit = () => {
 	runPendingStartupJobs(db, STARTUP_JOBS).catch((err: unknown) => {
 		logger.error({ err }, 'startup jobs failed');
 	});
+	startDistilleryResearchTimer({ run: () => researchDistilleriesInBackground(db) });
 };
 
 // BODY_SIZE_LIMIT is raised for the presentation upload (Dockerfile) and would

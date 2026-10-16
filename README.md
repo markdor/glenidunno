@@ -112,6 +112,16 @@ Dann in `.env.local` setzen und `npm run dev` (neu) starten:
 GOTENBERG_URL=http://localhost:3001
 ```
 
+### Destillerie-Recherche lokal testen
+
+Land, Region und Kapazität der Destillerien recherchiert die App per Claude
+API, sobald `ANTHROPIC_API_KEY` in `.env.local` gesetzt ist: beim Start der
+Startup-Job „Destillerie-Daten“, täglich um 21:00 und nach „Jetzt auflösen“.
+Jeder Lauf kostet Geld, die Schätzung steht auf `/admin` im Abschnitt
+„Destillerien“. Ohne Key läuft die App normal, der Job meldet dann einen
+Fehler. Unit- und E2E-Tests brauchen keinen Key, Playwright setzt ihn
+ausdrücklich leer.
+
 Der `gotenberg`-Service aus `compose.yaml` veröffentlicht bewusst keinen
 Port und ist deshalb für `npm run dev` nicht erreichbar. Seine Flags braucht
 es lokal nicht; ohne `--api-timeout=120s` bricht Gotenberg allerdings nach
@@ -137,6 +147,87 @@ docker compose up -d
 
 DB-Migrationen laufen automatisch beim Container-Start, ebenso der
 Admin-Bootstrap.
+
+Für die Destillerie-Recherche braucht `.env` auf dem VPS einen
+`ANTHROPIC_API_KEY` (nicht im `Dockerfile`). Ohne ihn startet die App
+trotzdem, recherchiert aber nichts.
+
+## Historien-Import
+
+Tastings aus der Zeit vor Glen Idunno kommen einmalig per Skript in die
+App: als aufgelöste Archiv-Tastings samt Präsentationen, ohne Rauch, Fass
+und Kaliber und damit ohne Reihenfolge und Charts. Optional bringt die
+Datei auch Land, Region und Kapazität der Destillerien mit, die sonst die
+Destillerie-Recherche ermittelt.
+
+```bash
+# Dry-Run: prüft alles, auch gegen die DB, und schreibt nichts
+DB_PATH=<kopie>/glenidunno.db MEDIA_PATH=<leerer-ordner> npm run db:import-history -- <pfad/history.json>
+
+# Import: alle Tastings in einer einzigen Transaktion
+DB_PATH=<kopie>/glenidunno.db MEDIA_PATH=<leerer-ordner> npm run db:import-history -- <pfad/history.json> --apply
+```
+
+Ohne die beiden Variablen gelten `DB_PATH` und `MEDIA_PATH` aus `.env`
+bzw. `.env.local` (unter PowerShell vorher `$env:DB_PATH = '…'` setzen).
+Das Skript meldet alle Fehler auf einmal, jeweils mit Tasting-Datum und
+Index. Es legt nie User an und migriert nie: Es bricht ab, wenn der
+Migrationsstand der DB nicht zum ausgecheckten Stand passt oder ein
+Tasting mit demselben Datum schon existiert.
+
+### Format
+
+Ein vollständiges Beispiel mit allen Feldern steht in
+[`history-import-sample.json`](./history-import-sample.json). Namen, Werte
+und Links darin sind Beispiele; importieren lässt sich die Datei nur mit
+passenden Usern und einer Präsentation am angegebenen Pfad.
+
+Ein fehlendes optionales Feld zählt wie `null`. Leere Strings und
+Leerzeichen am Rand sind Fehler (statt `""` immer `null`), unbekannte
+Felder ebenfalls – meist sind es Tippfehler.
+
+| Feld | Pflicht | Regel |
+|---|---|---|
+| `version` | ja | `1` oder `2`, `distilleries` nur mit `2` |
+| `tastings[].date` | ja | `YYYY-MM-DD`, spätestens vorgestern (Berliner Zeit), damit das Tasting aufgelöst ist; eindeutig in der Datei und in der DB |
+| `tastings[].name` | ja | 1–60 Zeichen |
+| `tastings[].motto` | nein | 1–120 Zeichen |
+| `tastings[].bottles` | ja | mindestens eine Flasche; 2–12 verschiedene Teilnehmer (`broughtBy`), höchstens 6 Flaschen pro Teilnehmer, der Slot folgt der Reihenfolge im Array |
+| `broughtBy` | ja | Username eines bestehenden Users (Groß-/Kleinschreibung egal), auch eines deaktivierten |
+| `alias` | ja | Synonym, 1–30 Zeichen, eindeutig im Tasting |
+| `distillery` | ja | 1–60 Zeichen; „Blend“ und „Unbekannt“ sind Platzhalter |
+| `bottler` | nein | unabhängiger Abfüller, 1–60 Zeichen; `null` = Originalabfüllung |
+| `bottling` | nein | 1–120 Zeichen, ohne eine Altersangabe, die schon in `age` steht |
+| `age` | nein | ganze Zahl 1–80; `null` = NAS |
+| `abv` | ja | 35–75 % vol., höchstens eine Nachkommastelle |
+| `whiskybaseUrl` | nein | `https`-Link zu whiskybase.com, höchstens 300 Zeichen |
+| `presentation` | nein | Pfad relativ zur JSON-Datei, innerhalb ihres Ordners; dieselbe Datei darf an mehreren Flaschen hängen (jede bekommt eine eigene Kopie), über 30 MB gibt es nur eine Warnung |
+| `distilleries[].name` | ja | Destillerie einer Flasche derselben Datei (Groß-/Kleinschreibung egal), höchstens einmal, kein Platzhalter |
+| `distilleries[].country` | nein | Land auf Deutsch, 1–60 Zeichen; Schottland, England, Wales und Nordirland zählen als Länder |
+| `distilleries[].region` | nein | `Islay`, `Campbeltown`, `Inseln`, `Speyside`, `Highlands` oder `Lowlands`, nur mit `country` `Schottland` im selben Eintrag |
+| `distilleries[].capacity` | nein | Liter reiner Alkohol pro Jahr, ganze Zahl 1–1.000.000.000 |
+| `distilleries[].countrySource`, `regionSource`, `capacitySource` | nein | `http(s)`-Link als Quelle des Werts, nur zusammen mit ihm, höchstens 2048 Zeichen |
+
+Importierte Destillerie-Werte gelten als recherchiert und werden nie neu
+gesucht; einen fehlenden Wert ermittelt später die Destillerie-Recherche.
+Werte, die in der DB schon recherchiert oder vom Admin gesetzt sind,
+überschreibt der Import nie, der Dry-Run meldet sie als Warnung.
+
+### Ablauf in Prod
+
+1. Prod auf das Release bringen, dessen Stand lokal ausgecheckt wird: Die
+   Migrationsstände müssen übereinstimmen.
+2. Den Container `app` stoppen, die Volumes sichern und die DB-Datei
+   (`glenidunno.db*`) aus dem Volume kopieren.
+3. Lokal denselben Release-Tag auschecken, den Dry-Run gegen die Kopie und
+   einen leeren Medienordner laufen lassen, Fehler in der JSON beheben,
+   dann mit `--apply` importieren.
+4. Das Ergebnis mit `npm run dev` gegen eine **zweite** Kopie ansehen, nicht
+   gegen die, die zurück nach Prod geht: Der Dev-Start legt Admin, Sessions
+   und Rate-Limit-Zeilen an.
+5. Die DB-Datei zurück ins Volume kopieren (ein altes `-wal`/`-shm` dort
+   vorher entfernen), den Inhalt des Medienordners ins Volume
+   `glenidunno-media` kopieren und den Container starten.
 
 ## Lizenz
 

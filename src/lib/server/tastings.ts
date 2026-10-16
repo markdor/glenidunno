@@ -35,7 +35,7 @@ import {
 	uniquePresentationFileName,
 	type FileChange
 } from './presentationFiles';
-import { getBerlinToday, getTastingPhase } from './tastingPhase';
+import { getBerlinToday, getTastingPhase, isTastingReleased } from './tastingPhase';
 import { buildStatistics, numberBottles } from './statistics';
 import type { PendingUpload, StoredPresentation } from './tastingMedia';
 import { sortForPouring, type BottleScore } from './tastingScore';
@@ -587,6 +587,63 @@ function revealedBottles(db: Db, userId: string, now: Date) {
 		.all();
 
 	return { tastings, own, bottles: numberBottles(tastings, rows) };
+}
+
+// All tastings in date order (same-day ones in creation order, see
+// revealedBottles) with what their phase depends on.
+function tastingsInOrder(db: Db) {
+	return db
+		.select({ id: tasting.id, ...phaseColumns })
+		.from(tasting)
+		.orderBy(asc(tasting.tastingDate), asc(tasting.createdAt), sql`${tasting}.rowid`)
+		.all();
+}
+
+// The distillery names of these tastings' bottles in standard order
+// (numberBottles), so the first spelling of a name is the one the statistics
+// show. Nothing else of the bottles leaves the query.
+function distilleryNames(db: Db, tastings: Array<{ id: string }>): string[] {
+	if (tastings.length === 0) return [];
+	const rows = db
+		.select({
+			tastingId: tastingParticipant.tastingId,
+			username: user.username,
+			slot: tastingBottle.slot,
+			distillery: tastingBottle.distillery
+		})
+		.from(tastingBottle)
+		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+		.innerJoin(user, eq(user.id, tastingParticipant.userId))
+		.where(
+			inArray(
+				tastingParticipant.tastingId,
+				tastings.map((t) => t.id)
+			)
+		)
+		.all();
+	return numberBottles(tastings, rows).map((bottle) => bottle.distillery);
+}
+
+/**
+ * Distillery names of the released tastings (isTastingReleased: from 21:00 on
+ * the tasting day or revealed) – what the distillery research may look up.
+ */
+export function listReleasedDistilleryNames(db: Db, now: Date = new Date()): string[] {
+	return distilleryNames(
+		db,
+		tastingsInOrder(db).filter((t) => isTastingReleased(t.tastingDate, now, t))
+	);
+}
+
+/**
+ * Distillery names of the revealed tastings only – what the admin's distillery
+ * table may show, like the statistics and the history.
+ */
+export function listRevealedDistilleryNames(db: Db, now: Date = new Date()): string[] {
+	return distilleryNames(
+		db,
+		tastingsInOrder(db).filter((t) => getTastingPhase(t.tastingDate, now, t) === 'revealed')
+	);
 }
 
 /**

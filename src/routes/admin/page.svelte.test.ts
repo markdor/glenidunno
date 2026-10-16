@@ -17,6 +17,7 @@ import {
 	STARTUP_JOBS_POLL_MS,
 	type StartupJobOverview
 } from '$lib/startupJobs';
+import type { AdminDistillery } from '$lib/tasting';
 
 beforeEach(() => {
 	for (const t of [...toast.toasts]) toast.dismiss(t.id);
@@ -49,6 +50,9 @@ function makeData(over: Partial<Record<string, unknown>> = {}) {
 		user: currentUser,
 		users: [adminUser, kidUser],
 		startupJobs: [] as StartupJobOverview[],
+		distilleries: [] as AdminDistillery[],
+		researchCostMicroUsd: 0,
+		researchPrompt: { text: 'Regeln', custom: false },
 		...over
 	};
 }
@@ -351,5 +355,63 @@ describe('Admin page', () => {
 		await expect.element(page.getByText('(inaktiv)')).toBeVisible();
 		expect(page.getByRole('button', { name: 'Löschen' }).elements()).toHaveLength(0);
 		await expect.element(page.getByRole('button', { name: 'Bearbeiten' }).nth(1)).toBeVisible();
+	});
+
+	describe('distilleries', () => {
+		const ardbeg: AdminDistillery = {
+			key: 'ardbeg',
+			name: 'Ardbeg',
+			country: { value: 'Schottland', state: 'found', source: 'https://example.com/ardbeg' },
+			region: { value: 'Islay', state: 'found', source: null },
+			capacity: { value: null, state: 'pending', source: null },
+			costMicroUsd: 250_000
+		};
+
+		test('shows the section below the startup jobs, with the costs', async () => {
+			render(Page, {
+				data: makeData({ distilleries: [ardbeg], researchCostMicroUsd: 2_500_000 }),
+				form: null
+			});
+
+			const section = page.getByRole('region', { name: 'Destillerien' });
+			await expect.element(section.getByText('2,50 $')).toBeVisible();
+			await expect
+				.element(section.getByRole('cell', { name: 'Ardbeg', exact: true }))
+				.toBeVisible();
+			const headings = [...document.querySelectorAll('h2')].map((h) => h.textContent?.trim());
+			expect(headings.slice(-2)).toEqual(['Hintergrund-Jobs', 'Destillerien']);
+		});
+
+		test('shows the field errors of a failed edit at its row', async () => {
+			const { rerender } = render(Page, { data: makeData({ distilleries: [ardbeg] }), form: null });
+			await page.getByRole('button', { name: 'Ardbeg bearbeiten' }).first().click();
+
+			await rerender({
+				data: makeData({ distilleries: [ardbeg] }),
+				form: {
+					action: 'updateDistillery',
+					key: 'ardbeg',
+					fieldErrors: { capacity: 'invalid' }
+				}
+			});
+
+			await expect.element(page.getByText('Ungültig')).toBeVisible();
+		});
+
+		test('shows a too long research prompt at the text field', async () => {
+			const { rerender } = render(Page, { data: makeData(), form: null });
+			await page.getByText('Recherche-Prompt').click();
+			await page
+				.getByRole('region', { name: 'Destillerien' })
+				.getByRole('button', { name: 'Bearbeiten' })
+				.click();
+
+			await rerender({
+				data: makeData(),
+				form: { action: 'saveResearchPrompt', fieldErrors: { prompt: 'tooLong' } }
+			});
+
+			await expect.element(page.getByText('Zu lang')).toBeVisible();
+		});
 	});
 });

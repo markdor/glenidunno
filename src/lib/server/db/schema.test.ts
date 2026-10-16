@@ -3,6 +3,9 @@ import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { getTableConfig, SQLiteSyncDialect, type SQLiteTable } from 'drizzle-orm/sqlite-core';
 import {
+	DISTILLERY_CAPACITY,
+	DISTILLERY_COUNTRY_LENGTH,
+	DISTILLERY_SOURCE_LENGTH,
 	TASTING_ABV,
 	TASTING_AGE,
 	TASTING_ALIAS_LENGTH,
@@ -251,5 +254,120 @@ describe('migrated tasting tables', () => {
 				})
 				.run()
 		).toThrow(/UNIQUE constraint failed/);
+	});
+});
+
+describe('distillery tables', () => {
+	let db: BetterSQLite3Database<typeof schema>;
+
+	beforeEach(() => {
+		const sqlite = new Database(':memory:');
+		runMigrations(sqlite, './drizzle');
+		db = drizzle(sqlite, { schema });
+	});
+
+	function insert(values: Partial<typeof schema.distillery.$inferInsert> = {}) {
+		db.insert(schema.distillery)
+			.values({ nameKey: 'ardbeg', updatedAt: new Date(), ...values })
+			.run();
+	}
+
+	it('inline the bounds of their CHECKs', () => {
+		const checks = [schema.distillery, schema.distilleryResearchCall].flatMap(checksOf);
+		expect(checks.length).toBeGreaterThan(0);
+		for (const c of checks) {
+			expect(c.params, c.name).toEqual([]);
+			expect(c.sql, c.name).not.toContain('?');
+		}
+		const sqlByName = Object.fromEntries(checksOf(schema.distillery).map((c) => [c.name, c.sql]));
+		expect(sqlByName).toMatchObject({
+			distillery_country_length: `length("distillery"."country") BETWEEN 1 AND ${DISTILLERY_COUNTRY_LENGTH.max}`,
+			distillery_capacity_range: `"distillery"."capacity" BETWEEN ${DISTILLERY_CAPACITY.min} AND ${DISTILLERY_CAPACITY.max}`,
+			distillery_country_source_length: `length("distillery"."country_source") BETWEEN 1 AND ${DISTILLERY_SOURCE_LENGTH.max}`,
+			distillery_region_list: `"distillery"."region" IN ('Islay', 'Campbeltown', 'Inseln', 'Speyside', 'Highlands', 'Lowlands')`,
+			distillery_region_country: `"distillery"."region" IS NULL OR "distillery"."country" = 'Schottland'`
+		});
+	});
+
+	it('start every value as never researched', () => {
+		insert();
+		expect(db.select().from(schema.distillery).get()).toMatchObject({
+			countryState: 'pending',
+			regionState: 'pending',
+			capacityState: 'pending'
+		});
+	});
+
+	it('accept a researched Scottish distillery', () => {
+		insert({
+			country: 'Schottland',
+			countryState: 'found',
+			countrySource: 'https://en.wikipedia.org/wiki/Ardbeg',
+			countryRules: 'abc',
+			region: 'Islay',
+			regionState: 'admin',
+			capacity: DISTILLERY_CAPACITY.max,
+			capacityState: 'found'
+		});
+		expect(db.select().from(schema.distillery).all()).toHaveLength(1);
+	});
+
+	it.each([
+		['an unknown state', { countryState: 'guessed' as 'found' }],
+		['a value without found or admin state', { country: 'Schottland' }],
+		['a found state without value', { countryState: 'found' as const }],
+		[
+			'a source on an admin value',
+			{ country: 'Japan', countryState: 'admin' as const, countrySource: 'https://x.y' }
+		],
+		['a rules hash on a pending value', { capacityRules: 'abc' }],
+		[
+			'a country that is too long',
+			{ country: 'x'.repeat(DISTILLERY_COUNTRY_LENGTH.max + 1), countryState: 'admin' as const }
+		],
+		['a capacity of 0', { capacity: 0, capacityState: 'admin' as const }],
+		[
+			'a region outside the list',
+			{
+				country: 'Schottland',
+				countryState: 'admin' as const,
+				region: 'Skye' as 'Islay',
+				regionState: 'admin' as const
+			}
+		],
+		[
+			'a region outside Scotland',
+			{
+				country: 'Irland',
+				countryState: 'admin' as const,
+				region: 'Islay' as const,
+				regionState: 'admin' as const
+			}
+		]
+	])('reject %s', (_, values) => {
+		expect(() => insert(values)).toThrow(/CHECK constraint failed/);
+	});
+
+	it('accept only stage 1 or 2 for a research call', () => {
+		const call = (stage: number) =>
+			db
+				.insert(schema.distilleryResearchCall)
+				.values({
+					createdAt: new Date(),
+					nameKey: 'ardbeg',
+					stage,
+					model: 'claude-opus-5-5',
+					inputTokens: 1,
+					outputTokens: 1,
+					cacheCreationInputTokens: 0,
+					cacheReadInputTokens: 0,
+					webSearchRequests: 0,
+					webFetchRequests: 0,
+					costMicroUsd: 24
+				})
+				.run();
+		call(1);
+		call(2);
+		expect(() => call(3)).toThrow(/CHECK constraint failed/);
 	});
 });

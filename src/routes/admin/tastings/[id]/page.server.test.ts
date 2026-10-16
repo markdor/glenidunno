@@ -19,6 +19,12 @@ vi.mock('$lib/server/logger', () => ({
 const mockEnv = vi.hoisted((): Record<string, string | undefined> => ({}));
 vi.mock('$env/dynamic/private', () => ({ env: mockEnv }));
 
+// The research after "Jetzt auflösen" runs in the background and calls the API.
+const research = vi.hoisted(() => ({ inBackground: vi.fn() }));
+vi.mock('$lib/server/distilleryResearchJob', () => ({
+	researchDistilleriesInBackground: research.inBackground
+}));
+
 import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import {
@@ -385,7 +391,10 @@ describe('openOrder and reveal (18-Uhr and 9-Uhr buttons)', () => {
 
 	it('reveals ahead of time once the order is out', async () => {
 		await act('openOrder');
+		research.inBackground.mockClear();
 		expect(await act('reveal')).toEqual({ action: 'reveal', phaseChanged: true });
+		// Its distilleries are released now: researched in the background, not awaited.
+		expect(research.inBackground).toHaveBeenCalledExactlyOnceWith(db);
 		expect(loadAs(ADMIN).detail).toMatchObject({
 			phase: 'revealed',
 			manual: { orderOpenedAt: expect.any(Date), revealedAt: expect.any(Date) }
@@ -393,11 +402,19 @@ describe('openOrder and reveal (18-Uhr and 9-Uhr buttons)', () => {
 	});
 
 	it('refuses to reveal while the entry is still open', async () => {
+		research.inBackground.mockClear();
 		expect(await act('reveal')).toMatchObject({
 			status: 422,
 			data: { action: 'reveal', userMessage: 'Gib zuerst die Reihenfolge frei.' }
 		});
 		expect(loadAs(ADMIN).detail).toMatchObject({ phase: 'entry', manual: { revealedAt: null } });
+		expect(research.inBackground).not.toHaveBeenCalled();
+	});
+
+	it('starts no research when opening the order', async () => {
+		research.inBackground.mockClear();
+		await act('openOrder');
+		expect(research.inBackground).not.toHaveBeenCalled();
 	});
 
 	it('refuses a button whose phase is already reached', async () => {
@@ -421,6 +438,7 @@ describe('openOrder and reveal (18-Uhr and 9-Uhr buttons)', () => {
 
 	it('logs and returns 500 on an unexpected database error', async () => {
 		vi.setSystemTime(ORDER);
+		research.inBackground.mockClear();
 		const err = new Error('disk full');
 		const spy = vi.spyOn(db, 'update').mockImplementationOnce(() => {
 			throw err;
@@ -433,6 +451,7 @@ describe('openOrder and reveal (18-Uhr and 9-Uhr buttons)', () => {
 			{ err, action: 'reveal' },
 			'manual tasting phase change failed'
 		);
+		expect(research.inBackground).not.toHaveBeenCalled();
 		spy.mockRestore();
 	});
 });

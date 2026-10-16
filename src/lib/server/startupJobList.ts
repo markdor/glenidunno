@@ -1,4 +1,5 @@
 import { db } from './db';
+import { distilleryFactsJob } from './distilleryResearchJob';
 import { presentationPdfJob } from './presentationPdfJob';
 import type { StartupJob } from './startupJobs';
 
@@ -7,4 +8,4 @@ import type { StartupJob } from './startupJobs';
  * appends it here (see startupJobs.ts). A job stays in the list once it ran,
  * the admin page shows it and can restart it.
  */
-export const STARTUP_JOBS: readonly StartupJob[] = [presentationPdfJob(db)];
+export const STARTUP_JOBS: readonly StartupJob[] = [presentationPdfJob(db), distilleryFactsJob(db)];

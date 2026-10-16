@@ -20,6 +20,12 @@ import {
 	type StatisticsBottle
 } from '$lib/tasting';
 import { whiskybaseId } from '$lib/validation';
+import {
+	groupByName,
+	isPlaceholderDistillery,
+	nameKey,
+	PLACEHOLDER_DISTILLERIES
+} from './distilleryNames';
 
 /** A revealed tasting, in date order. */
 export type StatisticsTastingInput = { id: string; tastingDate: string };
@@ -68,22 +74,7 @@ export function numberBottles<T extends { tastingId: string; username: string; s
 		.map(({ bottle, tastingIndex }, i) => ({ ...bottle, number: i + 1, tastingIndex }));
 }
 
-/**
- * Placeholders of the tasting history: they stand in the table, but count as
- * a distillery neither in the number of distilleries nor on the podium.
- */
-const PLACEHOLDER_DISTILLERIES = new Set(['blend', 'unbekannt']);
-
 const collator = new Intl.Collator('de');
-
-/** Distilleries and bottlers are grouped by name, ignoring case. */
-function nameKey(name: string): string {
-	return name.trim().toLocaleLowerCase('de-DE');
-}
-
-function isPlaceholder(distillery: string): boolean {
-	return PLACEHOLDER_DISTILLERIES.has(nameKey(distillery));
-}
 
 function sum(values: number[]): number {
 	return values.reduce((total, value) => total + value, 0);
@@ -107,17 +98,6 @@ function round1(value: number | null): number | null {
 
 function share(count: number, total: number): Share {
 	return { count, percent: total > 0 ? Math.round((count / total) * 100) : 0 };
-}
-
-/** Counts per name key; the name shown is the first spelling in standard order. */
-function groupByName(names: string[]): Array<{ name: string; count: number }> {
-	const groups = new Map<string, { name: string; count: number }>();
-	for (const name of names) {
-		const group = groups.get(nameKey(name));
-		if (group) group.count++;
-		else groups.set(nameKey(name), { name: name.trim(), count: 1 });
-	}
-	return [...groups.values()];
 }
 
 /** The names with the highest count, alphabetically. */
@@ -164,7 +144,7 @@ function people(entries: Entry[], distilleryCounts: Map<string, number>): Statis
 				nas: share(own.length - ages.length, own.length),
 				uniqueDistilleries: own.filter(
 					(entry) =>
-						!isPlaceholder(entry.input.distillery) &&
+						!isPlaceholderDistillery(entry.input.distillery) &&
 						distilleryCounts.get(nameKey(entry.input.distillery)) === 1
 				).length,
 				strongest: own.find((entry) => entry.input.abv === strongestAbv)!.bottle.number
@@ -193,7 +173,7 @@ function people(entries: Entry[], distilleryCounts: Map<string, number>): Statis
 
 function distilleries(entries: Entry[], tastings: StatisticsTastingInput[]) {
 	const groups = groupByName(
-		entries.map((entry) => entry.input.distillery).filter((name) => !isPlaceholder(name))
+		entries.map((entry) => entry.input.distillery).filter((name) => !isPlaceholderDistillery(name))
 	);
 	// Dense ranking: several distilleries on one place don't push the next
 	// count off the podium.

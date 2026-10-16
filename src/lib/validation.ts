@@ -89,6 +89,16 @@ export function isValidTastingDate(value: string): boolean {
 	);
 }
 
+/** True for an absolute `http:`/`https:` URL – never `javascript:` or the like. */
+export function isHttpUrl(value: string): boolean {
+	try {
+		const { protocol } = new URL(value);
+		return protocol === 'http:' || protocol === 'https:';
+	} catch {
+		return false;
+	}
+}
+
 const WHISKYBASE_HOSTS = new Set(['whiskybase.com', 'www.whiskybase.com']);
 
 /**
@@ -129,4 +139,94 @@ export function whiskybaseId(value: string): string | null {
 	}
 	if (!WHISKYBASE_HOSTS.has(url.hostname)) return null;
 	return WHISKYBASE_WHISKY_PATH.exec(url.pathname)?.[1] ?? null;
+}
+
+// ── Distilleries ────────────────────────────────────────────────────────────
+// Facts the app researches once per distillery (src/lib/server/distilleryResearch.ts)
+// and the admin corrects on /admin. Single source for the admin form, the
+// server-side validation, the history import, the enum of the research's result
+// tool and the CHECK constraints of the `distillery` table.
+
+/** Country, in German; Scotland, England, Wales and Northern Ireland count as countries. */
+export const DISTILLERY_COUNTRY_LENGTH = { max: 60 } as const;
+/** Production capacity in litres of pure alcohol per year; grain distilleries exceed 100 million. */
+export const DISTILLERY_CAPACITY = { min: 1, max: 1_000_000_000 } as const;
+/** Source link of a researched or imported value. */
+export const DISTILLERY_SOURCE_LENGTH = { max: 2048 } as const;
+/** The editable rules of the research prompt (the admin's deviation from the default). */
+export const DISTILLERY_PROMPT_LENGTH = { max: 20_000 } as const;
+
+/** The only country with a region. */
+export const SCOTLAND = 'Schottland';
+
+/**
+ * Whisky regions of Scotland in the order the rules check them: the first one
+ * that applies wins, also with contradicting sources (Highlands before Lowlands).
+ */
+export const SCOTTISH_REGIONS = [
+	'Islay',
+	'Campbeltown',
+	'Inseln',
+	'Speyside',
+	'Highlands',
+	'Lowlands'
+] as const;
+export type ScottishRegion = (typeof SCOTTISH_REGIONS)[number];
+
+export function isScottishRegion(value: string): value is ScottishRegion {
+	return (SCOTTISH_REGIONS as readonly string[]).includes(value);
+}
+
+/**
+ * State of one value (country, region, capacity) of a distillery:
+ * - `pending`: never researched
+ * - `found`: researched or imported, with its source
+ * - `admin`: set by the admin
+ * - `empty`: not found (`null`) – researched without result or cleared by the admin
+ */
+export const DISTILLERY_VALUE_STATES = ['pending', 'found', 'admin', 'empty'] as const;
+export type DistilleryValueState = (typeof DISTILLERY_VALUE_STATES)[number];
+
+export type DistilleryFacts = {
+	country: string | null;
+	region: string | null;
+	capacity: number | null;
+};
+
+/**
+ * Checks country, region and capacity (`null` = no value) by the rules the
+ * admin's edit and the history import share: the country is free text within
+ * its length, the region one of SCOTTISH_REGIONS and only for exactly
+ * `Schottland`, the capacity a whole number in range. Returns the invalid fields.
+ */
+export function checkDistilleryFacts(
+	facts: DistilleryFacts
+): Partial<Record<keyof DistilleryFacts, 'invalid'>> {
+	const errors: Partial<Record<keyof DistilleryFacts, 'invalid'>> = {};
+	const { country, region, capacity } = facts;
+	if (
+		country !== null &&
+		(country.length === 0 ||
+			country.trim() !== country ||
+			country.length > DISTILLERY_COUNTRY_LENGTH.max)
+	) {
+		errors.country = 'invalid';
+	}
+	if (region !== null && (!isScottishRegion(region) || country !== SCOTLAND)) {
+		errors.region = 'invalid';
+	}
+	if (
+		capacity !== null &&
+		(!Number.isInteger(capacity) ||
+			capacity < DISTILLERY_CAPACITY.min ||
+			capacity > DISTILLERY_CAPACITY.max)
+	) {
+		errors.capacity = 'invalid';
+	}
+	return errors;
+}
+
+/** A source link the app stores and renders: `http(s)` only and within its length. */
+export function isValidDistillerySource(value: string): boolean {
+	return isHttpUrl(value) && value.length <= DISTILLERY_SOURCE_LENGTH.max;
 }

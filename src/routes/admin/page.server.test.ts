@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { RequestEvent } from '@sveltejs/kit';
-import { EMAIL_LENGTH } from '$lib/validation';
+import { DISTILLERY_PROMPT_LENGTH, EMAIL_LENGTH } from '$lib/validation';
 
 vi.mock('$lib/server/db', async () => {
 	const Database = (await import('better-sqlite3')).default;
@@ -33,7 +33,17 @@ vi.mock('$lib/server/startupJobList', () => ({
 
 import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
-import { user, session, tasting } from '$lib/server/db/schema';
+import {
+	appSetting,
+	distillery,
+	distilleryResearchCall,
+	session,
+	tasting,
+	tastingBottle,
+	tastingParticipant,
+	user
+} from '$lib/server/db/schema';
+import { DEFAULT_RESEARCH_RULES } from '$lib/server/distilleryResearch';
 import { logger } from '$lib/server/logger';
 import { createTasting } from '$lib/server/tastings';
 import { actions, load } from './+page.server';
@@ -101,6 +111,9 @@ beforeEach(() => {
 	// Participations restrict deleting their users, so the tastings go first.
 	db.delete(tasting).run();
 	db.delete(user).run();
+	db.delete(distillery).run();
+	db.delete(distilleryResearchCall).run();
+	db.delete(appSetting).run();
 	// The current admin always exists (bootstrap guarantees this in prod).
 	insertUser({ id: ADMIN.id, email: 'admin@glenidunno.de', username: 'admin', isAdmin: true });
 });
@@ -506,4 +519,213 @@ describe('admin guards on actions', () => {
 			)
 		).rejects.toMatchObject(NOT_FOUND_REDIRECT);
 	});
+});
+
+/** A tasting with the admin's bottles of these distilleries, inserted directly. */
+function tastingWith(id: string, date: string, distilleries: string[]) {
+	db.insert(tasting)
+		.values({ id, slug: `slug-${id}`, name: id, tastingDate: date, createdAt: new Date() })
+		.run();
+	db.insert(tastingParticipant)
+		.values({ id: `${id}-p`, tastingId: id, userId: ADMIN.id, createdAt: new Date() })
+		.run();
+	distilleries.forEach((name, index) => {
+		db.insert(tastingBottle)
+			.values({
+				id: `${id}-${index}`,
+				participantId: `${id}-p`,
+				slot: index + 1,
+				alias: `${id}${index}`,
+				distillery: name,
+				abv: 46,
+				smoke: 1,
+				cask: 1,
+				value: 1,
+				updatedAt: new Date()
+			})
+			.run();
+	});
+}
+
+function researchCall(nameKey: string, costMicroUsd: number) {
+	db.insert(distilleryResearchCall)
+		.values({
+			createdAt: new Date(),
+			nameKey,
+			stage: 1,
+			model: 'claude-opus-5-5',
+			inputTokens: 1,
+			outputTokens: 1,
+			cacheCreationInputTokens: 0,
+			cacheReadInputTokens: 0,
+			webSearchRequests: 1,
+			webFetchRequests: 0,
+			costMicroUsd
+		})
+		.run();
+}
+
+type DistilleryData = {
+	distilleries: Array<{ key: string; name: string; costMicroUsd: number }>;
+	researchCostMicroUsd: number;
+	researchPrompt: { text: string; custom: boolean };
+};
+
+describe('admin distilleries', () => {
+	beforeEach(() => {
+		// Long revealed – and one far ahead, still in the entry.
+		tastingWith('past', '2020-01-01', ['Ardbeg', 'Blend', 'Bushmills']);
+		tastingWith('future', '2999-01-01', ['Geheimbrennerei']);
+	});
+
+	it('loads only distilleries of revealed tastings, the costs of all and the prompt', () => {
+		researchCall('ardbeg', 400_000);
+		researchCall('geheimbrennerei', 100_000);
+
+		const data = load(loadEvent(ADMIN)) as unknown as DistilleryData;
+
+		expect(data.distilleries.map((d) => [d.key, d.name, d.costMicroUsd])).toEqual([
+			['ardbeg', 'Ardbeg', 400_000],
+			['bushmills', 'Bushmills', 0]
+		]);
+		// Blind: no trace of the unrevealed distillery anywhere in the data.
+		expect(JSON.stringify(data)).not.toMatch(/geheimbrennerei/i);
+		expect(data.researchCostMicroUsd).toBe(500_000);
+		expect(data.researchPrompt).toEqual({ text: DEFAULT_RESEARCH_RULES, custom: false });
+	});
+
+	it("stores the admin's values", async () => {
+		const result = await actions.updateDistillery(
+			makeEvent({ key: 'ardbeg', country: ' Schottland ', region: 'Islay', capacity: '2.400.000' })
+		);
+
+		expect(result).toEqual({ action: 'updateDistillery', updated: true });
+		expect(db.select().from(distillery).get()).toMatchObject({
+			nameKey: 'ardbeg',
+			country: 'Schottland',
+			countryState: 'admin',
+			region: 'Islay',
+			regionState: 'admin',
+			capacity: 2_400_000,
+			capacityState: 'admin'
+		});
+	});
+
+	it.each([
+		[{ country: 'Irland', region: 'Islay', capacity: '' }, { region: 'invalid' }],
+		[{ country: '', region: 'Islay', capacity: '' }, { region: 'invalid' }],
+		[{ country: 'x'.repeat(61), region: '', capacity: '' }, { country: 'invalid' }],
+		[{ country: 'Japan', region: '', capacity: '1,5' }, { capacity: 'invalid' }],
+		[{ country: 'Japan', region: '', capacity: '0' }, { capacity: 'invalid' }]
+	])('rejects %o with field errors', async (fields, fieldErrors) => {
+		const result = await actions.updateDistillery(makeEvent({ key: 'ardbeg', ...fields }));
+
+		expect(result).toMatchObject({
+			status: 400,
+			data: { action: 'updateDistillery', key: 'ardbeg', fieldErrors }
+		});
+		expect(db.select().from(distillery).all()).toEqual([]);
+	});
+
+	it('answers 404 for a distillery that is not in the table', async () => {
+		for (const key of ['geheimbrennerei', 'nowhere']) {
+			const result = await actions.updateDistillery(
+				makeEvent({ key, country: 'Japan', region: '', capacity: '' })
+			);
+			expect(result).toMatchObject({
+				status: 404,
+				data: { action: 'updateDistillery', userMessage: expect.any(String) }
+			});
+		}
+		expect(db.select().from(distillery).all()).toEqual([]);
+	});
+
+	it('answers 500 with a generic text when storing fails', async () => {
+		const spy = vi.spyOn(db, 'transaction').mockImplementationOnce(() => {
+			throw new Error('disk full');
+		});
+		const result = await actions.updateDistillery(
+			makeEvent({ key: 'ardbeg', country: 'Japan', region: '', capacity: '' })
+		);
+		spy.mockRestore();
+
+		expect(result).toMatchObject({
+			status: 500,
+			data: { action: 'updateDistillery', userMessage: expect.any(String) }
+		});
+		expect(JSON.stringify(result)).not.toContain('disk full');
+		expect(logger.error).toHaveBeenCalled();
+	});
+
+	it('saves the research prompt as a deviation', async () => {
+		const result = await actions.saveResearchPrompt(
+			makeEvent({ prompt: '  Regel 1\r\nRegel 2 \r\n' })
+		);
+
+		expect(result).toEqual({ action: 'saveResearchPrompt', saved: true });
+		const data = load(loadEvent(ADMIN)) as unknown as DistilleryData;
+		expect(data.researchPrompt).toEqual({ text: 'Regel 1\nRegel 2', custom: true });
+	});
+
+	it('removes the deviation when the default text is saved', async () => {
+		await actions.saveResearchPrompt(makeEvent({ prompt: 'Eigene Regeln' }));
+		await actions.saveResearchPrompt(makeEvent({ prompt: DEFAULT_RESEARCH_RULES }));
+
+		expect(db.select().from(appSetting).all()).toEqual([]);
+	});
+
+	it.each([
+		['', 'required'],
+		['   ', 'required'],
+		['x'.repeat(DISTILLERY_PROMPT_LENGTH.max + 1), 'tooLong']
+	])('rejects the prompt %#', async (prompt, code) => {
+		const result = await actions.saveResearchPrompt(makeEvent({ prompt }));
+
+		expect(result).toMatchObject({
+			status: 400,
+			data: { action: 'saveResearchPrompt', fieldErrors: { prompt: code } }
+		});
+		expect(db.select().from(appSetting).all()).toEqual([]);
+	});
+
+	it('resets the research prompt to the default', async () => {
+		await actions.saveResearchPrompt(makeEvent({ prompt: 'Eigene Regeln' }));
+
+		const result = await actions.resetResearchPrompt(makeEvent({}));
+
+		expect(result).toEqual({ action: 'resetResearchPrompt', reset: true });
+		expect(db.select().from(appSetting).all()).toEqual([]);
+	});
+
+	it.each([
+		['saveResearchPrompt', 'insert'],
+		['resetResearchPrompt', 'delete']
+	] as const)('answers 500 when %s fails', async (action, method) => {
+		const spy = vi.spyOn(db, method).mockImplementationOnce(() => {
+			throw new Error('disk full');
+		});
+		const result = await actions[action](makeEvent({ prompt: 'Eigene Regeln' }));
+		spy.mockRestore();
+
+		expect(result).toMatchObject({
+			status: 500,
+			data: { action, userMessage: expect.any(String) }
+		});
+	});
+
+	it.each(['updateDistillery', 'saveResearchPrompt', 'resetResearchPrompt'])(
+		'redirects a non-admin away from %s',
+		async (action) => {
+			await expect(
+				actions[action](
+					makeEvent(
+						{ key: 'ardbeg', country: 'Japan', prompt: 'Eigene Regeln' },
+						{ id: 'u', isAdmin: false }
+					)
+				)
+			).rejects.toMatchObject(NOT_FOUND_REDIRECT);
+			expect(db.select().from(distillery).all()).toEqual([]);
+			expect(db.select().from(appSetting).all()).toEqual([]);
+		}
+	);
 });

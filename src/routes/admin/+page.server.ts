@@ -1,10 +1,24 @@
 import { fail, type Actions, type ServerLoad } from '@sveltejs/kit';
 import { asc, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { isValidEmail, USERNAME_RE } from '$lib/validation';
+import {
+	checkDistilleryFacts,
+	DISTILLERY_PROMPT_LENGTH,
+	isValidEmail,
+	USERNAME_RE,
+	type DistilleryFacts
+} from '$lib/validation';
 import { db } from '$lib/server/db';
 import { session, tastingParticipant, user } from '$lib/server/db/schema';
 import { requireAdmin } from '$lib/server/authGuards';
+import {
+	getAdminDistilleries,
+	getResearchRules,
+	getTotalResearchCost,
+	resetResearchRules,
+	saveResearchRules,
+	updateDistilleryFacts
+} from '$lib/server/distilleries';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
 import { logger } from '$lib/server/logger';
 import { STARTUP_JOBS } from '$lib/server/startupJobList';
@@ -40,7 +54,14 @@ export const load: ServerLoad = ({ locals, depends }) => {
 			deactivated: deactivatedAt !== null,
 			hasParticipation: participants.has(u.id)
 		}));
-	return { users, startupJobs: getStartupJobOverview(db, STARTUP_JOBS) };
+	return {
+		users,
+		startupJobs: getStartupJobOverview(db, STARTUP_JOBS),
+		// Only distilleries of revealed tastings; the total includes all calls.
+		distilleries: getAdminDistilleries(db),
+		researchCostMicroUsd: getTotalResearchCost(db),
+		researchPrompt: getResearchRules(db)
+	};
 };
 
 type Fields = { email: string; username: string };
@@ -61,6 +82,28 @@ function validate(
 
 	return { email, username, fieldErrors };
 }
+
+type DistilleryField = keyof DistilleryFacts;
+
+// The admin's edit of a distillery row: empty means no value. The capacity
+// may carry thousands separators ("2.400.000").
+function parseDistilleryFacts(form: FormData): {
+	facts: DistilleryFacts;
+	fieldErrors: Partial<Record<DistilleryField, string>>;
+} {
+	const country = String(form.get('country') ?? '').trim();
+	const region = String(form.get('region') ?? '').trim();
+	const capacity = String(form.get('capacity') ?? '').replace(/[\s.]/g, '');
+	const facts: DistilleryFacts = {
+		country: country || null,
+		region: region || null,
+		capacity: capacity === '' ? null : /^\d+$/.test(capacity) ? Number(capacity) : NaN
+	};
+	return { facts, fieldErrors: checkDistilleryFacts(facts) };
+}
+
+const DISTILLERY_NOT_FOUND =
+	'Diese Destillerie wurde nicht gefunden – sie kommt in keinem aufgelösten Tasting mehr vor.';
 
 type DeleteOutcome = 'deleted' | 'deactivated' | 'not-found';
 
@@ -268,5 +311,59 @@ export const actions: Actions = {
 		}
 		void runStartupJob(db, job, 'manual');
 		return { action: 'restartJob', restarted: true };
+	},
+
+	// Values of one distillery: a set value counts as the admin's, a cleared
+	// one as "not found" (see updateDistilleryFacts).
+	updateDistillery: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const form = await request.formData();
+		const key = String(form.get('key') ?? '');
+		const { facts, fieldErrors } = parseDistilleryFacts(form);
+		if (Object.keys(fieldErrors).length > 0) {
+			return fail(400, { action: 'updateDistillery', key, fieldErrors });
+		}
+		try {
+			if (!updateDistilleryFacts(db, key, facts)) {
+				return fail(404, { action: 'updateDistillery', userMessage: DISTILLERY_NOT_FOUND });
+			}
+		} catch (err) {
+			logger.error({ err }, 'admin update distillery failed');
+			return fail(500, { action: 'updateDistillery', userMessage: UNEXPECTED_ERROR_MESSAGE });
+		}
+		return { action: 'updateDistillery', updated: true };
+	},
+
+	// Only the rules of the research prompt; the default text removes the deviation.
+	saveResearchPrompt: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const form = await request.formData();
+		const text = String(form.get('prompt') ?? '')
+			.replaceAll('\r\n', '\n')
+			.trim();
+		if (!text) {
+			return fail(400, { action: 'saveResearchPrompt', fieldErrors: { prompt: 'required' } });
+		}
+		if (text.length > DISTILLERY_PROMPT_LENGTH.max) {
+			return fail(400, { action: 'saveResearchPrompt', fieldErrors: { prompt: 'tooLong' } });
+		}
+		try {
+			saveResearchRules(db, text);
+		} catch (err) {
+			logger.error({ err }, 'admin save research prompt failed');
+			return fail(500, { action: 'saveResearchPrompt', userMessage: UNEXPECTED_ERROR_MESSAGE });
+		}
+		return { action: 'saveResearchPrompt', saved: true };
+	},
+
+	resetResearchPrompt: async ({ locals }) => {
+		requireAdmin(locals);
+		try {
+			resetResearchRules(db);
+		} catch (err) {
+			logger.error({ err }, 'admin reset research prompt failed');
+			return fail(500, { action: 'resetResearchPrompt', userMessage: UNEXPECTED_ERROR_MESSAGE });
+		}
+		return { action: 'resetResearchPrompt', reset: true };
 	}
 };
