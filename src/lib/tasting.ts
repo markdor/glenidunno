@@ -587,13 +587,21 @@ export type PersonStatistics = {
 	nas: Share;
 	/** Own bottles from distilleries that occur exactly once in the statistics. */
 	uniqueDistilleries: number;
+	/** Different countries of the own bottles' distilleries, as far as known. */
+	countries: number;
 	/** Number of the strongest own bottle. */
 	strongest: number;
 };
 
 /** Comparison rows whose highest value is highlighted (and partly earns a title). */
 export type PersonMetric =
-	'meanAbv' | 'caskStrength' | 'independent' | 'meanAge' | 'uniqueDistilleries';
+	'meanAbv' | 'caskStrength' | 'independent' | 'meanAge' | 'uniqueDistilleries' | 'countries';
+
+/**
+ * The distilleries with the highest resp. lowest known capacity (several only
+ * on a tie) and everybody who brought a bottle of them, alphabetically.
+ */
+export type CapacityRecord = { capacity: number; distilleries: string[]; persons: string[] };
 
 /** ABV from which a bottle counts as "Fassstärken-Niveau". */
 export const CASK_STRENGTH_ABV = 50;
@@ -606,6 +614,10 @@ export type Statistics = {
 		bottles: number;
 		/** Without the placeholders "Blend" and "Unbekannt". */
 		distilleries: number;
+		/** Different countries of these distilleries, as far as known. */
+		countries: number;
+		/** Distilleries whose country isn't known (yet). */
+		withoutCountry: number;
 		meanAbv: number | null;
 		medianAbv: number | null;
 		/** Without NAS. */
@@ -631,6 +643,8 @@ export type Statistics = {
 		persons: PersonStatistics[];
 		/** Per row the names with the highest value – none for 0 or no value. */
 		best: Record<PersonMetric, string[]>;
+		/** Largest and smallest distillery: only with at least two different known capacities. */
+		capacity: { largest: CapacityRecord; smallest: CapacityRecord } | null;
 	};
 	distilleries: {
 		/** Places 1–3: the three highest counts, each with all its distilleries. */

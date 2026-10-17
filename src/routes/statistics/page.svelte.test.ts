@@ -41,6 +41,8 @@ const STATISTICS: Statistics = {
 		tastings: 2,
 		bottles: 3,
 		distilleries: 3,
+		countries: 2,
+		withoutCountry: 1,
 		meanAbv: 54.5667,
 		medianAbv: 54.1,
 		meanAge: 16,
@@ -68,6 +70,7 @@ const STATISTICS: Statistics = {
 				meanAge: 24,
 				nas: share(0, 0),
 				uniqueDistilleries: 1,
+				countries: 1,
 				strongest: 1
 			},
 			{
@@ -79,6 +82,7 @@ const STATISTICS: Statistics = {
 				meanAge: 8,
 				nas: share(1, 50),
 				uniqueDistilleries: 2,
+				countries: 2,
 				strongest: 3
 			}
 		],
@@ -87,7 +91,12 @@ const STATISTICS: Statistics = {
 			caskStrength: ['Ben'],
 			independent: ['Anna'],
 			meanAge: ['Anna'],
-			uniqueDistilleries: []
+			uniqueDistilleries: [],
+			countries: ['Ben']
+		},
+		capacity: {
+			largest: { capacity: 3_000_000, distilleries: ['Deanston'], persons: ['Ben'] },
+			smallest: { capacity: 1_400_000, distilleries: ['Glen Spey'], persons: ['Anna'] }
 		}
 	},
 	distilleries: {
@@ -168,6 +177,22 @@ describe('Statistics page', () => {
 		await expect.element(page.getByText('Ø 16,0 Jahre (ohne NAS)')).toBeVisible();
 	});
 
+	/** Label, value and hint of the key figure tile with this label. */
+	function tile(label: string) {
+		const term = [...document.querySelectorAll('dt')].find((dt) => dt.textContent === label);
+		return [...(term?.parentElement?.children ?? [])].map((c) => c.textContent?.trim());
+	}
+
+	test('counts the countries and the distilleries without one', () => {
+		show();
+		expect(tile('Länder')).toEqual(['Länder', '2', '1 Destillerie ohne Angabe']);
+	});
+
+	test('drops the hint once every distillery has its country', () => {
+		show({ ...STATISTICS, overview: { ...STATISTICS.overview, withoutCountry: 0 } });
+		expect(tile('Länder')).toEqual(['Länder', '2']);
+	});
+
 	test('links the records to their row in the history, without a query string', async () => {
 		show();
 		const strongest = page.getByRole('link', { name: 'Deanston 2008/2022 (Signatory)' }).first();
@@ -195,14 +220,50 @@ describe('Statistics page', () => {
 			.filter((cell) => cell.textContent?.includes('(höchster Wert)'))
 			.map((cell) => cell.textContent?.replace('(höchster Wert)', '').trim());
 		// Not for the number of bottles and the NAS share; nobody without a value.
-		expect(best).toEqual(['54,8 %', '50 % (1)', '100 % (1)', '24,0 J.']);
+		expect(best).toEqual(['54,8 %', '50 % (1)', '100 % (1)', '24,0 J.', '2']);
 		await expect.element(page.getByText('Fassstärken-Fan:')).toBeVisible();
 		await expect.element(page.getByText('Indie-Scout:')).toBeVisible();
 		await expect.element(page.getByText('Altersweise:')).toBeVisible();
 		expect(page.getByText('Experimentierfreudigster:').elements()).toHaveLength(0);
+		const title = (name: string) => page.getByRole('listitem').filter({ hasText: name });
+		await expect
+			.element(title('Weltenbummler:'))
+			.toHaveTextContent(/Weltenbummler:\s+Ben\s+– die meisten verschiedenen Länder/);
+		await expect
+			.element(title('Industrie-Fan:'))
+			.toHaveTextContent(
+				/Industrie-Fan:\s+Ben\s+– größte Destillerie \(Deanston, 3\.000\.000 l A\/Jahr\)/
+			);
+		await expect
+			.element(title('Kleinod-Jäger:'))
+			.toHaveTextContent(
+				/Kleinod-Jäger:\s+Anna\s+– kleinste Destillerie \(Glen Spey, 1\.400\.000 l A\/Jahr\)/
+			);
 		await expect
 			.element(page.getByRole('listitem').filter({ hasText: 'Ben:' }).getByRole('link'))
 			.toHaveAttribute('href', '/history#bottle-3');
+	});
+
+	test('names several distilleries of the same size and all their bringers', async () => {
+		show({
+			...STATISTICS,
+			people: {
+				...STATISTICS.people,
+				capacity: {
+					...STATISTICS.people.capacity!,
+					smallest: {
+						capacity: 65_000,
+						distilleries: ['Abhainn Dearg', 'Daftmill'],
+						persons: ['Anna', 'Ben']
+					}
+				}
+			}
+		});
+		await expect
+			.element(page.getByRole('listitem').filter({ hasText: 'Kleinod-Jäger:' }))
+			.toHaveTextContent(
+				/Anna und Ben\s+– kleinste Destillerie \(Abhainn Dearg und Daftmill, je 65\.000 l A\/Jahr\)/
+			);
 	});
 
 	test('shows podium, repeaters, bottlers and déjà-vus', async () => {
@@ -270,8 +331,10 @@ describe('Statistics page', () => {
 					caskStrength: [],
 					independent: [],
 					meanAge: [],
-					uniqueDistilleries: []
-				}
+					uniqueDistilleries: [],
+					countries: []
+				},
+				capacity: null
 			},
 			timeline: { ...STATISTICS.timeline, longestBreak: null, milestones: [] }
 		});
@@ -280,6 +343,7 @@ describe('Statistics page', () => {
 		expect(page.getByText(/Härtestes Tasting/).elements()).toHaveLength(0);
 		expect(page.getByText(/Längste Pause/).elements()).toHaveLength(0);
 		expect(page.getByText('Meilensteine').elements()).toHaveLength(0);
+		expect(page.getByText(/Industrie-Fan|Kleinod-Jäger|Weltenbummler/).elements()).toHaveLength(0);
 	});
 });
 

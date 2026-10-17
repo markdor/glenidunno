@@ -1478,6 +1478,72 @@ describe('getStatistics', () => {
 			[3, 'Cem', 45]
 		]);
 	});
+
+	it('adds the known facts of the revealed distilleries, matched by name key', () => {
+		const ctx = setupWithBottles();
+		saveBottle(
+			db,
+			findParticipant(db, ctx.slug, 'u-cem')!,
+			1,
+			bottle({ alias: 'Moor', distillery: 'Lagavulin' }),
+			ENTRY
+		);
+		// Still in the entry phase: neither its country nor its capacity may count.
+		const later = setupWithBottles('2026-10-31');
+		db.update(schema.tastingBottle)
+			.set({ distillery: 'Kavalan' })
+			.where(eq(schema.tastingBottle.participantId, later.anna.id))
+			.run();
+		const facts = (nameKey: string, country: string, capacity: number) =>
+			db
+				.insert(schema.distillery)
+				.values({
+					nameKey,
+					country,
+					countryState: 'admin',
+					capacity,
+					capacityState: 'admin',
+					updatedAt: ENTRY
+				})
+				.run();
+		facts('ardbeg', 'Schottland', 2_400_000);
+		facts('lagavulin', 'Schottland', 2_530_000);
+		facts('kavalan', 'Taiwan', 9_000_000);
+
+		const result = getStatistics(db, 'u-anna', REVEALED)!;
+		expect(result.overview).toMatchObject({ distilleries: 2, countries: 1, withoutCountry: 0 });
+		expect(result.people.persons.map((p) => [p.name, p.countries])).toEqual([
+			['Anna', 1],
+			['Ben', 1],
+			['Cem', 1]
+		]);
+		expect(result.people.capacity).toEqual({
+			largest: { capacity: 2_530_000, distilleries: ['Lagavulin'], persons: ['Cem'] },
+			smallest: { capacity: 2_400_000, distilleries: ['Ardbeg'], persons: ['Anna', 'Ben'] }
+		});
+		const serialized = JSON.stringify(result);
+		expect(serialized).not.toContain('Kavalan');
+		expect(serialized).not.toContain('Taiwan');
+		expect(serialized).not.toContain('9000000');
+	});
+
+	it('counts distilleries without a known country, also without any facts at all', () => {
+		setupWithBottles();
+		expect(getStatistics(db, 'u-anna', REVEALED)!.overview).toMatchObject({
+			countries: 0,
+			withoutCountry: 1
+		});
+		expect(getStatistics(db, 'u-anna', REVEALED)!.people.capacity).toBeNull();
+	});
+
+	it('looks up no facts for a revealed tasting without bottles', () => {
+		setup();
+		expect(getStatistics(db, 'u-anna', REVEALED)!.overview).toMatchObject({
+			bottles: 0,
+			countries: 0,
+			withoutCountry: 0
+		});
+	});
 });
 
 describe('getHistory', () => {

@@ -3,9 +3,11 @@
 	import {
 		CASK_STRENGTH_ABV,
 		formatBottleName,
+		formatCapacity,
 		formatInteger,
 		formatNameList,
 		formatOneDecimal,
+		type CapacityRecord,
 		type PersonMetric,
 		type PersonStatistics,
 		type Share,
@@ -59,7 +61,8 @@
 			label: 'Einmalige Destillerien',
 			value: (p) => whole(p.uniqueDistilleries),
 			highlight: 'uniqueDistilleries'
-		}
+		},
+		{ label: 'Verschiedene Länder', value: (p) => whole(p.countries), highlight: 'countries' }
 	];
 
 	const TITLES: Array<{ metric: PersonMetric; title: string; reason: string }> = [
@@ -74,10 +77,40 @@
 			metric: 'uniqueDistilleries',
 			title: 'Experimentierfreudigster',
 			reason: 'die meisten einmaligen Destillerien'
-		}
+		},
+		{ metric: 'countries', title: 'Weltenbummler', reason: 'die meisten verschiedenen Länder' }
 	];
 
-	const titles = $derived(TITLES.filter((t) => people.best[t.metric].length > 0));
+	/** "Glenfiddich, 21.000.000 l A/Jahr" – "je" for several distilleries of the same size. */
+	function distilleriesWith(record: CapacityRecord): string {
+		const each = record.distilleries.length > 1 ? 'je ' : '';
+		return `${formatNameList(record.distilleries)}, ${each}${formatCapacity(record.capacity)}`;
+	}
+
+	const titles = $derived([
+		...TITLES.filter((t) => people.best[t.metric].length > 0).map((t) => ({
+			key: t.metric,
+			title: t.title,
+			names: people.best[t.metric],
+			reason: t.reason
+		})),
+		...(people.capacity
+			? [
+					{
+						key: 'largest',
+						title: 'Industrie-Fan',
+						names: people.capacity.largest.persons,
+						reason: `größte Destillerie (${distilleriesWith(people.capacity.largest)})`
+					},
+					{
+						key: 'smallest',
+						title: 'Kleinod-Jäger',
+						names: people.capacity.smallest.persons,
+						reason: `kleinste Destillerie (${distilleriesWith(people.capacity.smallest)})`
+					}
+				]
+			: [])
+	]);
 
 	function isBest(metric: PersonMetric | null, person: PersonStatistics): boolean {
 		return metric !== null && people.best[metric].includes(person.name);
@@ -137,10 +170,10 @@
 			<div class="space-y-1">
 				<h3 class="font-semibold">Titel</h3>
 				<ul class="space-y-1 text-sm">
-					{#each titles as t (t.metric)}
+					{#each titles as t (t.key)}
 						<li class="break-words">
 							<span class="font-medium">{t.title}:</span>
-							{formatNameList(people.best[t.metric])}
+							{formatNameList(t.names)}
 							<span class="text-slate-500">– {t.reason}</span>
 						</li>
 					{/each}

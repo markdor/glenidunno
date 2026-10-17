@@ -21,6 +21,8 @@ function bottle(overrides: Partial<StatisticsBottleInput> = {}): StatisticsBottl
 		age: null,
 		abv: 46,
 		whiskybaseUrl: null,
+		country: null,
+		capacity: null,
 		username: 'Anna',
 		deactivatedAt: null,
 		...overrides
@@ -134,6 +136,25 @@ describe('buildStatistics – overview', () => {
 		expect(distilleries.repeaters).toEqual([{ name: 'Ardbeg', count: 2 }]);
 	});
 
+	it('counts the known countries ignoring case, and the distilleries without one', () => {
+		const { overview } = build(
+			[T1],
+			[
+				bottle({ slot: 1, distillery: 'Ardbeg', country: 'Schottland' }),
+				bottle({ slot: 2, distillery: 'Lagavulin', country: 'schottland' }),
+				bottle({ slot: 3, distillery: 'Kavalan', country: 'Taiwan' }),
+				bottle({ slot: 4, distillery: 'Penderyn', country: 'Wales' }),
+				// Two bottles of one distillery without a country count once.
+				bottle({ slot: 5, distillery: 'Mackmyra' }),
+				bottle({ slot: 6, distillery: 'mackmyra' }),
+				// The placeholders are no distillery, not even with a country.
+				bottle({ slot: 7, distillery: 'Blend', country: 'Japan' }),
+				bottle({ slot: 8, distillery: 'Unbekannt' })
+			]
+		);
+		expect(overview).toMatchObject({ distilleries: 5, countries: 3, withoutCountry: 1 });
+	});
+
 	it('leaves NAS out of the age figures but counts it', () => {
 		const { overview } = build(
 			[T1],
@@ -226,6 +247,7 @@ describe('buildStatistics – people', () => {
 				meanAge: 12,
 				nas: { count: 0, percent: 0 },
 				uniqueDistilleries: 0,
+				countries: 0,
 				strongest: 1
 			},
 			{
@@ -237,6 +259,7 @@ describe('buildStatistics – people', () => {
 				meanAge: 10,
 				nas: { count: 1, percent: 50 },
 				uniqueDistilleries: 0,
+				countries: 0,
 				strongest: 2
 			}
 		]);
@@ -246,8 +269,11 @@ describe('buildStatistics – people', () => {
 			independent: ['Ben'],
 			meanAge: ['Anna'],
 			// All bottles are Ardbeg: nobody has a distillery of their own.
-			uniqueDistilleries: []
+			uniqueDistilleries: [],
+			// No country known at all.
+			countries: []
 		});
+		expect(people.capacity).toBeNull();
 	});
 
 	it('counts a bottle from CASK_STRENGTH_ABV on as cask strength level', () => {
@@ -293,6 +319,73 @@ describe('buildStatistics – people', () => {
 			['Cem', 0]
 		]);
 		expect(people.best.uniqueDistilleries).toEqual(['Anna', 'Ben']);
+	});
+});
+
+describe('buildStatistics – countries and capacities', () => {
+	it('counts the different countries per bringer and names the most', () => {
+		const { people } = build(
+			[T1],
+			[
+				bottle({ username: 'Anna', slot: 1, distillery: 'Ardbeg', country: 'Schottland' }),
+				bottle({ username: 'Anna', slot: 2, distillery: 'Lagavulin', country: 'schottland' }),
+				bottle({ username: 'Anna', slot: 3, distillery: 'Kavalan', country: 'Taiwan' }),
+				bottle({ username: 'Ben', slot: 1, distillery: 'Penderyn', country: 'Wales' }),
+				bottle({ username: 'Ben', slot: 2, distillery: 'Amrut', country: 'Indien' }),
+				bottle({ username: 'Cem', slot: 1, distillery: 'Blend', country: 'Japan' }),
+				bottle({ username: 'Cem', slot: 2, distillery: 'Mackmyra' })
+			]
+		);
+		expect(people.persons.map((p) => [p.name, p.countries])).toEqual([
+			['Anna', 2],
+			['Ben', 2],
+			['Cem', 0]
+		]);
+		expect(people.best.countries).toEqual(['Anna', 'Ben']);
+	});
+
+	it('names the largest and the smallest distillery with everybody who brought one', () => {
+		const { people } = build(
+			[T1, T2],
+			[
+				bottle({ tastingId: 't1', username: 'Cem', distillery: 'Glenfiddich', capacity: 21e6 }),
+				bottle({ tastingId: 't1', username: 'Anna', distillery: 'Ardbeg', capacity: 2.4e6 }),
+				bottle({ tastingId: 't2', username: 'Ben', distillery: 'glenfiddich ', capacity: 21e6 }),
+				// Same size, another distillery: both are named.
+				bottle({ tastingId: 't2', username: 'Anna', distillery: 'Daftmill', capacity: 65_000 }),
+				bottle({
+					tastingId: 't2',
+					username: 'Anna',
+					slot: 2,
+					distillery: 'Abhainn Dearg',
+					capacity: 65_000
+				}),
+				bottle({ tastingId: 't2', username: 'Ben', slot: 2, distillery: 'Mackmyra' }),
+				// The placeholders never count, even with a capacity.
+				bottle({ tastingId: 't2', username: 'Cem', distillery: 'Blend', capacity: 100e6 }),
+				bottle({ tastingId: 't2', username: 'Cem', slot: 2, distillery: 'Unbekannt', capacity: 1 })
+			]
+		);
+		expect(people.capacity).toEqual({
+			// The first spelling in standard order, the bringers alphabetically.
+			largest: { capacity: 21e6, distilleries: ['Glenfiddich'], persons: ['Ben', 'Cem'] },
+			smallest: { capacity: 65_000, distilleries: ['Abhainn Dearg', 'Daftmill'], persons: ['Anna'] }
+		});
+	});
+
+	it('names no largest and smallest distillery without two different capacities', () => {
+		const capacity = (inputs: StatisticsBottleInput[]) => build([T1], inputs).people.capacity;
+		expect(capacity([bottle({ capacity: null })])).toBeNull();
+		expect(capacity(bottles('t1', 'Anna', ['Ardbeg', 'Lagavulin'], { capacity: 2e6 }))).toBeNull();
+		expect(
+			capacity([
+				bottle({ username: 'Anna', distillery: 'Ardbeg', capacity: 2e6 }),
+				bottle({ username: 'Ben', distillery: 'Lagavulin', capacity: 3e6 })
+			])
+		).toEqual({
+			largest: { capacity: 3e6, distilleries: ['Lagavulin'], persons: ['Ben'] },
+			smallest: { capacity: 2e6, distilleries: ['Ardbeg'], persons: ['Anna'] }
+		});
 	});
 });
 
@@ -429,6 +522,8 @@ describe('buildStatistics – revealed tastings without bottles', () => {
 			tastings: 1,
 			bottles: 0,
 			distilleries: 0,
+			countries: 0,
+			withoutCountry: 0,
 			meanAbv: null,
 			medianAbv: null,
 			meanAge: null,
@@ -452,8 +547,10 @@ describe('buildStatistics – revealed tastings without bottles', () => {
 				caskStrength: [],
 				independent: [],
 				meanAge: [],
-				uniqueDistilleries: []
-			}
+				uniqueDistilleries: [],
+				countries: []
+			},
+			capacity: null
 		});
 		expect(result.distilleries).toEqual({
 			podium: [],

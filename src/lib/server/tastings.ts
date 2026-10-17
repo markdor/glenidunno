@@ -21,6 +21,7 @@ import {
 import { isValidTastingDate, TASTING_BOTTLE_SLOTS, TASTING_MOTTO_LENGTH } from '$lib/validation';
 import type * as Schema from './db/schema';
 import {
+	distillery,
 	tasting,
 	tastingBottle,
 	tastingParticipant,
@@ -28,6 +29,7 @@ import {
 	tastingSlugAnimal,
 	user
 } from './db/schema';
+import { nameKey } from './distilleryNames';
 import {
 	fileNameKey,
 	presentationBaseName,
@@ -649,12 +651,29 @@ export function listRevealedDistilleryNames(db: Db, now: Date = new Date()): str
 /**
  * The statistics page over all revealed tastings (see revealedBottles):
  * neither slug nor presentation, Whiskybase link or alias – none of the
- * statistics shows them, the history's table does. `null` while nothing is
- * revealed.
+ * statistics shows them, the history's table does. Country and capacity of
+ * the distilleries only of these bottles, like the admin's distillery table.
+ * `null` while nothing is revealed.
  */
 export function getStatistics(db: Db, userId: string, now: Date = new Date()): Statistics | null {
 	const revealed = revealedBottles(db, userId, now);
 	if (!revealed) return null;
+	// The values are null unless found or set by the admin (CHECK in the schema).
+	const keys = [...new Set(revealed.bottles.map((b) => nameKey(b.distillery)))];
+	const facts = new Map(
+		keys.length === 0
+			? []
+			: db
+					.select({
+						key: distillery.nameKey,
+						country: distillery.country,
+						capacity: distillery.capacity
+					})
+					.from(distillery)
+					.where(inArray(distillery.nameKey, keys))
+					.all()
+					.map((row) => [row.key, row])
+	);
 	return buildStatistics(
 		revealed.tastings.map((t) => ({ id: t.id, tastingDate: t.tastingDate })),
 		revealed.bottles.map((b) => ({
@@ -668,6 +687,8 @@ export function getStatistics(db: Db, userId: string, now: Date = new Date()): S
 			age: b.age,
 			abv: b.abv,
 			whiskybaseUrl: b.whiskybaseUrl,
+			country: facts.get(nameKey(b.distillery))?.country ?? null,
+			capacity: facts.get(nameKey(b.distillery))?.capacity ?? null,
 			username: b.username,
 			deactivatedAt: b.deactivatedAt
 		}))
