@@ -246,6 +246,8 @@ describe('Admin page', () => {
 			finishedAt: null,
 			message: null,
 			progress: null,
+			manualOnly: false,
+			batchSizes: [],
 			...over
 		});
 		const running = job({
@@ -341,6 +343,50 @@ describe('Admin page', () => {
 			await page.getByRole('button', { name: 'Neu starten: Testjob' }).click();
 
 			await expect.poll(() => restarts).toEqual(['failed']);
+			expect(page.getByRole('combobox').elements()).toHaveLength(0);
+		});
+
+		test('offers the batch sizes of a manual job, the smallest first, and sends the choice', async () => {
+			const limits: string[] = [];
+			const passThrough = window.fetch.bind(window);
+			vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
+				const url = input instanceof Request ? input.url : String(input);
+				if (!url.includes('?/restartJob')) return passThrough(input, init);
+				limits.push(String((init?.body as FormData).get('limit')));
+				return new Promise<Response>(() => {});
+			});
+			render(Page, {
+				data: makeData({
+					startupJobs: [job({ title: 'Destillerien', manualOnly: true, batchSizes: [5, 10] })]
+				}),
+				form: null
+			});
+
+			await expect
+				.element(page.getByText('Startet nur per Button, nie nach einem Deployment.'))
+				.toBeVisible();
+			const size = page.getByRole('combobox', { name: 'Umfang: Destillerien' });
+			await expect.element(size).toHaveValue('5');
+			expect(
+				size
+					.getByRole('option')
+					.elements()
+					.map((o) => o.textContent)
+			).toEqual(['Nächste 5', 'Nächste 10', 'Alle']);
+
+			await size.selectOptions('Alle');
+			await page.getByRole('button', { name: 'Starten: Destillerien' }).click();
+
+			await expect.poll(() => limits).toEqual(['']);
+		});
+
+		test('locks the batch size while the job runs', async () => {
+			render(Page, {
+				data: makeData({ startupJobs: [{ ...running, manualOnly: true, batchSizes: [5, 10] }] }),
+				form: null
+			});
+
+			await expect.element(page.getByRole('combobox', { name: 'Umfang: PDFs' })).toBeDisabled();
 		});
 	});
 

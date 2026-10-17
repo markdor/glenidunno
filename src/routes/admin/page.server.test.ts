@@ -19,14 +19,21 @@ vi.mock('$lib/server/logger', () => ({
 }));
 
 // One job that runs until the test lets it finish.
-const testJob = vi.hoisted(() => ({ finish: (_summary: string) => {} }));
+const testJob = vi.hoisted(() => ({
+	finish: (_summary: string) => {},
+	limit: undefined as number | undefined
+}));
 vi.mock('$lib/server/startupJobList', () => ({
 	STARTUP_JOBS: [
 		{
 			id: '2026-01-test',
 			title: 'Testjob',
 			description: 'Läuft, bis der Test ihn beendet.',
-			run: () => new Promise<string>((resolve) => (testJob.finish = resolve))
+			batchSizes: [5, 10],
+			run: ({ limit }: { limit?: number }) => {
+				testJob.limit = limit;
+				return new Promise<string>((resolve) => (testJob.finish = resolve));
+			}
 		}
 	]
 }));
@@ -495,6 +502,33 @@ describe('admin startup jobs', () => {
 				expect.objectContaining({ status: 'succeeded', message: 'erledigt' })
 			])
 		);
+	});
+
+	it.each([
+		{ raw: '10', limit: 10 },
+		{ raw: '', limit: undefined }
+	])('passes the chosen batch size "$raw" on to the job', async ({ raw, limit }) => {
+		testJob.limit = -1;
+		expect(await actions.restartJob(makeEvent({ id: '2026-01-test', limit: raw }))).toEqual({
+			action: 'restartJob',
+			restarted: true
+		});
+		expect(testJob.limit).toBe(limit);
+
+		testJob.finish('erledigt');
+		await vi.waitFor(() =>
+			expect(jobs()).toEqual([expect.objectContaining({ status: 'succeeded' })])
+		);
+	});
+
+	it('refuses a batch size the job does not offer', async () => {
+		testJob.limit = -1;
+		expect(await actions.restartJob(makeEvent({ id: '2026-01-test', limit: '7' }))).toMatchObject({
+			status: 400,
+			data: { action: 'restartJob', userMessage: 'Diese Anzahl gibt es nicht.' }
+		});
+		// Never started.
+		expect(testJob.limit).toBe(-1);
 	});
 
 	it('answers an unknown job with 404', async () => {

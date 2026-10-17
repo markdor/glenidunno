@@ -13,9 +13,9 @@ import { STARTUP_JOBS } from '$lib/server/startupJobList';
 import { runPendingStartupJobs } from '$lib/server/startupJobs';
 
 // After migrations and the admin bootstrap (db/index.ts): the startup jobs
-// that haven't succeeded yet, in the background – not awaited, the app
-// serves meanwhile (see startupJobs.ts). Plus the daily distillery research
-// at 21:00 Berlin time (a no-op without ANTHROPIC_API_KEY).
+// that haven't succeeded yet and aren't manual, in the background – not
+// awaited, the app serves meanwhile (see startupJobs.ts). Plus the daily
+// distillery research at 21:00 Berlin time (a no-op without ANTHROPIC_API_KEY).
 export const init: ServerInit = () => {
 	runPendingStartupJobs(db, STARTUP_JOBS).catch((err: unknown) => {
 		logger.error({ err }, 'startup jobs failed');

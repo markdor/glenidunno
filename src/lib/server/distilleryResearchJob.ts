@@ -16,17 +16,23 @@ import { StartupJobError, type StartupJob } from './startupJobs';
 
 // Runs of the distillery research over all distilleries of released tastings.
 // Triggers: the daily timer at 21:00 (distilleryResearchTimer.ts), "Jetzt
-// auflösen", the startup job after a deployment and its "Neu starten". Never
-// after saving a bottle (rising costs would tell the admin that somebody
-// entered a new distillery), never in a load.
+// auflösen" and the startup job – the latter only from its button on the
+// admin page, never after a deployment (every run costs money). Never after
+// saving a bottle (rising costs would tell the admin that somebody entered a
+// new distillery), never in a load.
 
 type Db = BetterSQLite3Database<typeof Schema>;
 
-/** Counts of one run – no names: they may come from tastings not revealed yet. */
-export type ResearchSummary = { total: number; failed: number };
+/**
+ * Counts of one run – no names: they may come from tastings not revealed yet.
+ * `remaining`: the distilleries a limit left for a later run.
+ */
+export type ResearchSummary = { total: number; failed: number; remaining: number };
 
 export type ResearchRunOptions = {
 	createMessage: CreateMessage;
+	/** At most this many distilleries (the job's 5 or 10), all without. */
+	limit?: number;
 	progress?: (done: number, total: number) => void;
 	now?: () => Date;
 };
@@ -39,9 +45,11 @@ export type ResearchRunOptions = {
 export async function runDistilleryResearch(
 	db: Db,
 	mode: ResearchMode,
-	{ createMessage, progress, now = () => new Date() }: ResearchRunOptions
+	{ createMessage, limit, progress, now = () => new Date() }: ResearchRunOptions
 ): Promise<ResearchSummary> {
-	const targets = researchTargets(db, mode, now());
+	const all = researchTargets(db, mode, now());
+	const targets = all.slice(0, limit);
+	const remaining = all.length - targets.length;
 	// Fixed for the whole run: the system prompt stays cacheable.
 	const rules = getResearchRules(db).text;
 	let failed = 0;
@@ -67,8 +75,11 @@ export async function runDistilleryResearch(
 		}
 		progress?.(index + 1, targets.length);
 	}
-	logger.info({ mode, total: targets.length, failed }, 'distillery research run finished');
-	return { total: targets.length, failed };
+	logger.info(
+		{ mode, total: targets.length, failed, remaining },
+		'distillery research run finished'
+	);
+	return { total: targets.length, failed, remaining };
 }
 
 type Queued = {
@@ -102,9 +113,10 @@ function start(db: Db, mode: ResearchMode, options: ResearchRunOptions): Promise
 
 /**
  * Starts a run, or – while one is running – queues at most one follow-up for
- * afterwards. Every trigger meanwhile shares that follow-up (`manual` if any of
- * them asks for it, with the latest caller's options): a run that listed its
- * distilleries before "Jetzt auflösen" would miss the new ones otherwise.
+ * afterwards. Every trigger meanwhile shares that follow-up (`manual` and the
+ * largest limit if any of them asks for it, otherwise the latest caller's
+ * options): a run that listed its distilleries before "Jetzt auflösen" would
+ * miss the new ones otherwise.
  */
 export function requestDistilleryResearch(
 	db: Db,
@@ -114,7 +126,11 @@ export function requestDistilleryResearch(
 	if (!running) return start(db, mode, options);
 	if (queued) {
 		if (mode === 'manual') queued.mode = 'manual';
-		queued.options = options;
+		const [a, b] = [queued.options.limit, options.limit];
+		queued.options = {
+			...options,
+			limit: a === undefined || b === undefined ? undefined : Math.max(a, b)
+		};
 		return queued.promise;
 	}
 	let resolve!: Queued['resolve'];
@@ -154,9 +170,10 @@ export function researchDistilleriesInBackground(
 }
 
 /**
- * After a deployment the values never researched of all distilleries of
- * released tastings; "Neu starten" additionally the ones not found. Like every
- * startup job it only runs until it succeeded once – the timer takes over then.
+ * Only from the admin page's button, never after a deployment – every run
+ * costs money: the values never researched and the ones not found of all
+ * distilleries of released tastings, at most the chosen 5 or 10 (the never
+ * researched first). The timer and "Jetzt auflösen" research new ones anyway.
  */
 export function distilleryFactsJob(
 	db: Db,
@@ -166,8 +183,10 @@ export function distilleryFactsJob(
 		id: '2026-10-distillery-facts',
 		title: 'Destillerie-Daten',
 		description:
-			'Recherchiert per Claude API Land, Region und Kapazität der Destillerien freigegebener Tastings. Nach einem Deployment die noch nie recherchierten Werte, „Neu starten“ zusätzlich die nicht gefundenen.',
-		async run({ trigger, progress }) {
+			'Recherchiert per Claude API Land, Region und Kapazität der Destillerien freigegebener Tastings: zuerst die noch nie recherchierten Werte, dann erneut die nicht gefundenen. Noch nie recherchierte übernehmen außerdem der Timer um 21:00 und „Jetzt auflösen“.',
+		manualOnly: true,
+		batchSizes: [5, 10],
+		async run({ limit, progress }) {
 			const key = apiKey();
 			if (!key) {
 				throw new StartupJobError(
@@ -175,20 +194,21 @@ export function distilleryFactsJob(
 					'ANTHROPIC_API_KEY ist nicht gesetzt.'
 				);
 			}
-			const { total, failed } = await requestDistilleryResearch(
-				db,
-				trigger === 'manual' ? 'manual' : 'pending',
-				{ createMessage: createClient(key), progress }
-			);
+			const { total, failed, remaining } = await requestDistilleryResearch(db, 'manual', {
+				createMessage: createClient(key),
+				limit,
+				progress
+			});
 			if (total === 0) return 'Keine Destillerie zu recherchieren.';
 			const distilleries = formatCount(total, 'Destillerie', 'Destillerien');
+			const rest = remaining > 0 ? ` Noch ${remaining} weitere offen.` : '';
 			if (failed > 0) {
 				throw new StartupJobError(
 					`${failed} of ${total} distillery researches failed`,
-					`${failed} von ${distilleries} ließen sich nicht vollständig recherchieren, Details im Server-Log.`
+					`${failed} von ${distilleries} ließen sich nicht vollständig recherchieren, Details im Server-Log.${rest}`
 				);
 			}
-			return `${distilleries} recherchiert.`;
+			return `${distilleries} recherchiert.${rest}`;
 		}
 	};
 }

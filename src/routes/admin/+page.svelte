@@ -260,7 +260,7 @@
 			<h2 id="startup-jobs" class="text-lg font-semibold">Hintergrund-Jobs</h2>
 			<p class="text-sm text-slate-500">
 				Laufen einmal nach einem Deployment. Fehlgeschlagene und unterbrochene Jobs starten beim
-				nächsten Start der App erneut.
+				nächsten Start der App erneut – außer denen, die nur per Button starten.
 			</p>
 		</div>
 
@@ -272,6 +272,11 @@
 						<div class="min-w-0 space-y-1">
 							<h3 class="font-medium break-words">{job.title}</h3>
 							<p class="text-sm text-slate-500">{job.description}</p>
+							{#if job.manualOnly}
+								<p class="text-sm font-medium text-slate-700">
+									Startet nur per Button, nie nach einem Deployment.
+								</p>
+							{/if}
 						</div>
 						<span
 							class={[
@@ -317,8 +322,24 @@
 						</p>
 					{/if}
 
-					<form method="POST" action="?/restartJob" use:enhance>
+					<form method="POST" action="?/restartJob" use:enhance class="flex gap-2">
 						<input type="hidden" name="id" value={job.id} />
+						{#if job.batchSizes.length > 0}
+							<!-- The smallest batch preselected: every run of a paid job costs money.
+								Explicitly, the client render inserts "Alle" before the sizes. -->
+							<select
+								name="limit"
+								value={job.batchSizes[0]}
+								disabled={job.status === 'running'}
+								aria-label="Umfang: {job.title}"
+								class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+							>
+								{#each job.batchSizes as size (size)}
+									<option value={size}>Nächste {size}</option>
+								{/each}
+								<option value="">Alle</option>
+							</select>
+						{/if}
 						<button
 							type="submit"
 							disabled={job.status === 'running'}

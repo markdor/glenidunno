@@ -32,9 +32,9 @@ type NewDistillery = typeof distillery.$inferInsert;
 type Executor = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
 
 /**
- * `pending`: timer, deployment and "Jetzt auflösen" – only values never
- * researched. `manual` ("Neu starten"): additionally the `null` values, also
- * those the admin cleared.
+ * `pending`: timer and "Jetzt auflösen" – only values never researched.
+ * `manual` (the job's button): additionally the `null` values, also those the
+ * admin cleared.
  */
 export type ResearchMode = 'pending' | 'manual';
 
@@ -113,7 +113,11 @@ function rowsByKey(db: Db, keys: string[]): Map<string, DistilleryRow> {
 	return new Map(rows.map((row) => [row.nameKey, row]));
 }
 
-/** The distilleries of released tastings that still have a value to look for. */
+/**
+ * The distilleries of released tastings that still have a value to look for:
+ * those with a value never researched first, then the ones touched longest
+ * ago – a limited run doesn't take the same values not found every time.
+ */
 export function researchTargets(
 	db: Db,
 	mode: ResearchMode,
@@ -121,10 +125,18 @@ export function researchTargets(
 ): ResearchTarget[] {
 	const names = namesByKey(listReleasedDistilleryNames(db, now));
 	const rows = rowsByKey(db, [...names.keys()]);
-	return [...names].flatMap(([key, name]) => {
-		const target = fieldsToResearch(rows.get(key), mode);
-		return target.fields.length > 0 ? [{ key, name, ...target }] : [];
-	});
+	return [...names]
+		.flatMap(([key, name]) => {
+			const row = rows.get(key);
+			const target = fieldsToResearch(row, mode);
+			if (target.fields.length === 0) return [];
+			// Never researched: what the timer would look for, too.
+			const neverResearched = !row || fieldsToResearch(row, 'pending').fields.length > 0;
+			const rank = neverResearched ? 0 : row.updatedAt.getTime();
+			return [{ target: { key, name, ...target }, rank }];
+		})
+		.sort((a, b) => a.rank - b.rank)
+		.map(({ target }) => target);
 }
 
 /**

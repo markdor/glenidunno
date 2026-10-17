@@ -115,11 +115,12 @@ GOTENBERG_URL=http://localhost:3001
 ### Destillerie-Recherche lokal testen
 
 Land, Region und Kapazität der Destillerien recherchiert die App per Claude
-API, sobald `ANTHROPIC_API_KEY` in `.env.local` gesetzt ist: beim Start der
-Startup-Job „Destillerie-Daten“, täglich um 21:00 und nach „Jetzt auflösen“.
-Jeder Lauf kostet Geld, die Schätzung steht auf `/admin` im Abschnitt
-„Destillerien“. Ohne Key läuft die App normal, der Job meldet dann einen
-Fehler. Unit- und E2E-Tests brauchen keinen Key, Playwright setzt ihn
+API, sobald `ANTHROPIC_API_KEY` in `.env.local` gesetzt ist: täglich um 21:00,
+nach „Jetzt auflösen“ und per Button beim Job „Destillerie-Daten“ auf `/admin`
+(nächste 5, 10 oder alle). Der Job startet nie von selbst, auch nicht nach
+einem Deployment. Jeder Lauf kostet Geld, die Schätzung steht auf `/admin` im
+Abschnitt „Destillerien“. Ohne Key läuft die App normal, der Job meldet dann
+einen Fehler. Unit- und E2E-Tests brauchen keinen Key, Playwright setzt ihn
 ausdrücklich leer.
 
 Der `gotenberg`-Service aus `compose.yaml` veröffentlicht bewusst keinen

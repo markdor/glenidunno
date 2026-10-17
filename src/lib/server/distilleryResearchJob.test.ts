@@ -127,7 +127,8 @@ function fakeClient(behaviour: Record<string, 'refuse' | 'fail'> = {}) {
 	return { createMessage, researched, createClient: vi.fn(() => createMessage) };
 }
 
-const context = (trigger: 'startup' | 'manual') => ({ trigger, progress: vi.fn() });
+// The job only runs from the admin page's button.
+const context = (limit?: number) => ({ trigger: 'manual' as const, limit, progress: vi.fn() });
 
 const row = (key: string) =>
 	db.select().from(schema.distillery).where(eq(schema.distillery.nameKey, key)).get();
@@ -139,11 +140,15 @@ function expectNoNamesLogged() {
 }
 
 describe('distilleryFactsJob', () => {
+	it('never runs after a deployment and offers 5 or 10 besides all', () => {
+		expect(distilleryFactsJob(db)).toMatchObject({ manualOnly: true, batchSizes: [5, 10] });
+	});
+
 	it('fails with a notice without ANTHROPIC_API_KEY', async () => {
 		const { createClient } = fakeClient();
 		const job = distilleryFactsJob(db, createClient);
 
-		await expect(job.run(context('startup'))).rejects.toEqual(
+		await expect(job.run(context())).rejects.toEqual(
 			new StartupJobError('ANTHROPIC_API_KEY is not set', 'ANTHROPIC_API_KEY ist nicht gesetzt.')
 		);
 		expect(createClient).not.toHaveBeenCalled();
@@ -152,7 +157,7 @@ describe('distilleryFactsJob', () => {
 	it('researches every distillery of released tastings, without placeholders', async () => {
 		mockEnv.ANTHROPIC_API_KEY = 'sk-test';
 		const { createClient, researched } = fakeClient();
-		const ctx = context('startup');
+		const ctx = context();
 
 		expect(await distilleryFactsJob(db, createClient).run(ctx)).toBe(
 			'2 Destillerien recherchiert.'
@@ -178,15 +183,38 @@ describe('distilleryFactsJob', () => {
 	it('has nothing to do once every value is decided', async () => {
 		mockEnv.ANTHROPIC_API_KEY = 'sk-test';
 		const { createClient, researched } = fakeClient();
-		await distilleryFactsJob(db, createClient).run(context('startup'));
+		await distilleryFactsJob(db, createClient).run(context());
 
-		expect(await distilleryFactsJob(db, createClient).run(context('manual'))).toBe(
+		expect(await distilleryFactsJob(db, createClient).run(context())).toBe(
 			'Keine Destillerie zu recherchieren.'
 		);
 		expect(researched).toHaveLength(2);
 	});
 
-	it('retries the values not found only on "Neu starten"', async () => {
+	it('researches at most the chosen number, the rest stays for the next run', async () => {
+		mockEnv.ANTHROPIC_API_KEY = 'sk-test';
+		tasting('more', '2026-10-02', ['Bushmills']);
+		const { createClient, researched } = fakeClient();
+		const ctx = context(2);
+
+		expect(await distilleryFactsJob(db, createClient).run(ctx)).toBe(
+			'2 Destillerien recherchiert. Noch 1 weitere offen.'
+		);
+		expect(researched).toEqual(['Ardbeg', 'Lagavulin']);
+		expect(ctx.progress.mock.calls).toEqual([
+			[0, 2],
+			[1, 2],
+			[2, 2]
+		]);
+		expect(row('bushmills')).toBeUndefined();
+
+		expect(await distilleryFactsJob(db, createClient).run(context(2))).toBe(
+			'1 Destillerie recherchiert.'
+		);
+		expect(researched).toEqual(['Ardbeg', 'Lagavulin', 'Bushmills']);
+	});
+
+	it('retries the values not found, unlike the timer', async () => {
 		mockEnv.ANTHROPIC_API_KEY = 'sk-test';
 		for (const key of ['ardbeg', 'lagavulin']) {
 			db.insert(schema.distillery)
@@ -201,12 +229,14 @@ describe('distilleryFactsJob', () => {
 				})
 				.run();
 		}
-		const { createClient, researched } = fakeClient();
+		const { createClient, createMessage, researched } = fakeClient();
 
-		expect(await distilleryFactsJob(db, createClient).run(context('startup'))).toBe(
-			'Keine Destillerie zu recherchieren.'
-		);
-		expect(await distilleryFactsJob(db, createClient).run(context('manual'))).toBe(
+		expect(await runDistilleryResearch(db, 'pending', { createMessage })).toEqual({
+			total: 0,
+			failed: 0,
+			remaining: 0
+		});
+		expect(await distilleryFactsJob(db, createClient).run(context())).toBe(
 			'2 Destillerien recherchiert.'
 		);
 		expect(researched).toEqual(['Ardbeg', 'Lagavulin']);
@@ -221,10 +251,12 @@ describe('distilleryFactsJob', () => {
 		mockEnv.ANTHROPIC_API_KEY = 'sk-test';
 		const { createClient, researched } = fakeClient({ Ardbeg: 'fail', Lagavulin: 'refuse' });
 
-		await expect(distilleryFactsJob(db, createClient).run(context('startup'))).rejects.toEqual(
+		tasting('more', '2026-10-02', ['Bushmills']);
+
+		await expect(distilleryFactsJob(db, createClient).run(context(2))).rejects.toEqual(
 			new StartupJobError(
 				'2 of 2 distillery researches failed',
-				'2 von 2 Destillerien ließen sich nicht vollständig recherchieren, Details im Server-Log.'
+				'2 von 2 Destillerien ließen sich nicht vollständig recherchieren, Details im Server-Log. Noch 1 weitere offen.'
 			)
 		);
 
@@ -261,9 +293,9 @@ describe('requestDistilleryResearch', () => {
 		expect(third).toBe(second);
 
 		release();
-		expect(await first).toEqual({ total: 1, failed: 0 });
+		expect(await first).toEqual({ total: 1, failed: 0, remaining: 0 });
 		// Ardbeg isn't paid twice: the follow-up only finds Bushmills.
-		expect(await second).toEqual({ total: 1, failed: 0 });
+		expect(await second).toEqual({ total: 1, failed: 0, remaining: 0 });
 		expect(researched).toEqual(['Ardbeg', 'Bushmills']);
 	});
 
@@ -281,8 +313,38 @@ describe('requestDistilleryResearch', () => {
 		// The lock is free again.
 		expect(await runDistilleryResearch(db, 'pending', { createMessage })).toEqual({
 			total: 2,
-			failed: 0
+			failed: 0,
+			remaining: 0
 		});
+	});
+
+	it.each([
+		{ limits: [1, 2], researched: 2 },
+		{ limits: [1, undefined], researched: 3 }
+	])('gives the shared follow-up the largest limit of $limits', async ({ limits, researched }) => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		const client = fakeClient();
+		const slowFirst = vi.fn(async (params: Anthropic.MessageStreamParams) => {
+			if (client.researched.length === 0) await gate;
+			return client.createMessage(params);
+		});
+		db.delete(schema.tastingBottle).where(eq(schema.tastingBottle.distillery, 'Lagavulin')).run();
+
+		const first = requestDistilleryResearch(db, 'pending', { createMessage: slowFirst });
+		tasting('new', '2026-10-03', ['Bushmills', 'Talisker', 'Oban']);
+		const followUps = limits.map((limit) =>
+			requestDistilleryResearch(db, 'manual', { createMessage: slowFirst, limit })
+		);
+
+		release();
+		await first;
+		expect(await followUps[0]).toEqual({
+			total: researched,
+			failed: 0,
+			remaining: 3 - researched
+		});
+		expect(client.researched).toHaveLength(1 + researched);
 	});
 });
 

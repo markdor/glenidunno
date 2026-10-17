@@ -298,7 +298,8 @@ export const actions: Actions = {
 	},
 
 	// Runs a startup job again (see startupJobs.ts) – not awaited: the page
-	// follows it live, the job may take minutes.
+	// follows it live, the job may take minutes. An empty `limit` means all,
+	// anything else has to be one of the job's batch sizes.
 	restartJob: async ({ request, locals }) => {
 		requireAdmin(locals);
 		const form = await request.formData();
@@ -306,10 +307,15 @@ export const actions: Actions = {
 		if (!job) {
 			return fail(404, { action: 'restartJob', userMessage: 'Diesen Job gibt es nicht.' });
 		}
+		const rawLimit = String(form.get('limit') ?? '');
+		const limit = rawLimit === '' ? undefined : Number(rawLimit);
+		if (limit !== undefined && !job.batchSizes?.includes(limit)) {
+			return fail(400, { action: 'restartJob', userMessage: 'Diese Anzahl gibt es nicht.' });
+		}
 		if (isStartupJobRunning(job.id)) {
 			return fail(409, { action: 'restartJob', userMessage: 'Dieser Job läuft bereits.' });
 		}
-		void runStartupJob(db, job, 'manual');
+		void runStartupJob(db, job, 'manual', limit);
 		return { action: 'restartJob', restarted: true };
 	},
 
