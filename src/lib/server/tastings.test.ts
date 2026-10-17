@@ -487,6 +487,28 @@ describe('getParticipantView', () => {
 		expect(serialized).not.toContain('Ben');
 	});
 
+	it('offers the distilleries of revealed tastings during entry: one spelling each, no placeholder', () => {
+		const before = new Date('2026-10-01T10:00:00Z');
+		const past = setup('2026-10-03');
+		saveBottle(db, past.anna, 1, bottle({ alias: 'Alt', distillery: 'lagavulin' }), before);
+		saveBottle(db, past.ben, 1, bottle({ alias: 'Älter', distillery: 'Lagavulin ' }), before);
+		saveBottle(db, past.cem, 1, bottle({ alias: 'Mix', distillery: 'Blend' }), before);
+		saveBottle(db, past.cem, 2, bottle({ alias: 'Insel', distillery: 'Bowmore' }), before);
+		// Same day, 22:00: released for the research, but not revealed.
+		const tonight = setup('2026-10-19');
+		saveBottle(db, tonight.anna, 1, bottle({ alias: 'Heute', distillery: 'Talisker' }), before);
+		const ctx = setup();
+		fill(ctx);
+
+		const view = getParticipantView(db, ctx.anna, new Date('2026-10-19T20:00:00Z'));
+
+		expect(view).toMatchObject({ phase: 'entry', distilleryNames: ['Bowmore', 'lagavulin'] });
+		const serialized = JSON.stringify(view);
+		expect(serialized).not.toContain('Talisker');
+		expect(serialized).not.toContain('Glenkinchie');
+		expect(getParticipantView(db, past.anna, REVEALED)).not.toHaveProperty('distilleryNames');
+	});
+
 	it('shows only position, alias and total score from 18:00', () => {
 		const ctx = setup();
 		fill(ctx);

@@ -143,8 +143,16 @@ export function requestDistilleryResearch(
 	return promise;
 }
 
+/**
+ * Whether a run (or its follow-up) is going on: renaming a distillery waits
+ * until it's over, a run's targets would otherwise point to a key that's gone.
+ */
+export function isDistilleryResearchRunning(): boolean {
+	return running;
+}
+
 /** Read on every run, not at module load: a key added to `.env` counts after a restart. */
-function apiKey(): string | undefined {
+export function anthropicApiKey(): string | undefined {
 	return env.ANTHROPIC_API_KEY || undefined;
 }
 
@@ -157,7 +165,7 @@ export function researchDistilleriesInBackground(
 	db: Db,
 	createClient: (apiKey: string) => CreateMessage = anthropicMessages
 ): void {
-	const key = apiKey();
+	const key = anthropicApiKey();
 	if (!key) {
 		logger.debug('no ANTHROPIC_API_KEY, distillery research skipped');
 		return;
@@ -187,7 +195,7 @@ export function distilleryFactsJob(
 		manualOnly: true,
 		batchSizes: [5, 10],
 		async run({ limit, progress }) {
-			const key = apiKey();
+			const key = anthropicApiKey();
 			if (!key) {
 				throw new StartupJobError(
 					'ANTHROPIC_API_KEY is not set',

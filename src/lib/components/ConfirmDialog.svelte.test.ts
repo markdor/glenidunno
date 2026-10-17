@@ -57,6 +57,29 @@ describe('ConfirmDialog', () => {
 		expect(page.getByRole('dialog').elements()).toHaveLength(0);
 	});
 
+	test('lists the details below the message', async () => {
+		render(ConfirmDialog);
+		confirmDialog.ask('Zwei Flaschen ändern sich:', {
+			details: ['Bunnahabhain Stoisha', 'Bunnahabhain 12 Jahre Stoisha']
+		});
+
+		const items = page.getByRole('dialog').getByRole('listitem');
+		await expect.element(items.nth(0)).toHaveTextContent('Bunnahabhain Stoisha');
+		await expect.element(items.nth(1)).toHaveTextContent('Bunnahabhain 12 Jahre Stoisha');
+
+		confirmDialog.cancel();
+	});
+
+	test('has no list without details', async () => {
+		render(ConfirmDialog);
+		confirmDialog.ask('Fortfahren?');
+
+		await expect.element(page.getByRole('dialog')).toBeVisible();
+		expect(page.getByRole('dialog').getByRole('list').elements()).toHaveLength(0);
+
+		confirmDialog.cancel();
+	});
+
 	test('uses custom labels for the danger variant', async () => {
 		render(ConfirmDialog);
 		confirmDialog.ask('Wirklich löschen?', {

@@ -3,7 +3,12 @@
 // participant page and the admin pages render dates and bottle names in the
 // browser as well.
 
-import { TASTING_SCALE, type DistilleryValueState, type ScottishRegion } from '$lib/validation';
+import {
+	TASTING_SCALE,
+	type DistilleryValueState,
+	type DistilleryVariantKind,
+	type ScottishRegion
+} from '$lib/validation';
 
 /**
  * Time zone all tasting phases are computed in. The container runs in UTC
@@ -295,6 +300,19 @@ export function formatBottleName(
 	if (bottle.bottling) parts.push(bottle.bottling);
 	const name = parts.join(' ');
 	return bottle.bottler ? `${name} (${bottle.bottler})` : name;
+}
+
+/**
+ * The bottling with a brand in front, when the admin moves a brand entered as
+ * distillery ("Stoisha") into it: prefix and a space before the bottling, the
+ * prefix alone without one, unchanged if the bottling already starts with it
+ * (ignoring case). The caller checks the length.
+ */
+export function applyBrandPrefix(bottling: string | null, prefix: string): string {
+	const current = bottling?.trim() ?? '';
+	if (!current) return prefix;
+	const lower = (text: string) => text.toLocaleLowerCase('de-DE');
+	return lower(current).startsWith(lower(prefix)) ? current : `${prefix} ${current}`;
 }
 
 /**
@@ -695,4 +713,24 @@ export type AdminDistillery = {
 	capacity: DistilleryFact<number>;
 	/** Estimated API costs of all research calls for this distillery. */
 	costMicroUsd: number;
+	/**
+	 * The bottles of revealed tastings with this distillery, only what their
+	 * name needs besides the distillery: the preview of a rename with a brand
+	 * prefix (formatBottleName) and the number of bottles.
+	 */
+	bottles: Array<Pick<TastingBottle, 'age' | 'bottling' | 'bottler'>>;
+};
+
+/** An open suggestion of the variant search: rename `variantName` to `targetName`. */
+export type DistilleryVariantSuggestion = {
+	id: number;
+	/** nameKey() of the variant, the row of the admin's table to rename. */
+	variantKey: string;
+	variantName: string;
+	targetName: string;
+	kind: DistilleryVariantKind;
+	/** Only for a brand: what goes to the front of the bottling. */
+	prefix: string | null;
+	/** Bottles of revealed tastings with the variant. */
+	bottles: number;
 };

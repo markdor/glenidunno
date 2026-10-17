@@ -13,6 +13,7 @@ import * as schema from './db/schema';
 import { runMigrations } from './db/migrate';
 import {
 	distilleryFactsJob,
+	isDistilleryResearchRunning,
 	requestDistilleryResearch,
 	researchDistilleriesInBackground,
 	runDistilleryResearch
@@ -285,7 +286,9 @@ describe('requestDistilleryResearch', () => {
 		// Only Ardbeg to start with (Blend is a placeholder).
 		db.delete(schema.tastingBottle).where(eq(schema.tastingBottle.distillery, 'Lagavulin')).run();
 
+		expect(isDistilleryResearchRunning()).toBe(false);
 		const first = requestDistilleryResearch(db, 'pending', { createMessage: slowFirst });
+		expect(isDistilleryResearchRunning()).toBe(true);
 		// Revealed while the first run waits on the API: it listed its targets already.
 		tasting('new', '2026-10-03', ['Bushmills']);
 		const second = requestDistilleryResearch(db, 'pending', { createMessage: slowFirst });
@@ -297,6 +300,9 @@ describe('requestDistilleryResearch', () => {
 		// Ardbeg isn't paid twice: the follow-up only finds Bushmills.
 		expect(await second).toEqual({ total: 1, failed: 0, remaining: 0 });
 		expect(researched).toEqual(['Ardbeg', 'Bushmills']);
+		// Running until the follow-up is over, too.
+		await Promise.resolve();
+		expect(isDistilleryResearchRunning()).toBe(false);
 	});
 
 	it('passes a failed run on to whoever waits for it', async () => {

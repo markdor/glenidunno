@@ -187,6 +187,15 @@ export function isScottishRegion(value: string): value is ScottishRegion {
 export const DISTILLERY_VALUE_STATES = ['pending', 'found', 'admin', 'empty'] as const;
 export type DistilleryValueState = (typeof DISTILLERY_VALUE_STATES)[number];
 
+/**
+ * Kind of a variant the Claude API suggests (src/lib/server/distilleryVariants.ts):
+ * - `spelling`: another spelling of the same distillery
+ * - `brand`: a brand of the distillery entered as distillery; with a prefix
+ *   for the front of the bottling
+ */
+export const DISTILLERY_VARIANT_KINDS = ['spelling', 'brand'] as const;
+export type DistilleryVariantKind = (typeof DISTILLERY_VARIANT_KINDS)[number];
+
 export type DistilleryFacts = {
 	country: string | null;
 	region: string | null;

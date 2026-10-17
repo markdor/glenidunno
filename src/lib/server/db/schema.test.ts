@@ -11,6 +11,7 @@ import {
 	TASTING_ALIAS_LENGTH,
 	TASTING_BOTTLE_SLOTS,
 	TASTING_BOTTLING_LENGTH,
+	TASTING_DISTILLERY_LENGTH,
 	TASTING_SCALE
 } from '$lib/validation';
 import { runMigrations } from './migrate';
@@ -369,5 +370,92 @@ describe('distillery tables', () => {
 		call(1);
 		call(2);
 		expect(() => call(3)).toThrow(/CHECK constraint failed/);
+	});
+});
+
+describe('distillery variant tables', () => {
+	let db: BetterSQLite3Database<typeof schema>;
+
+	beforeEach(() => {
+		const sqlite = new Database(':memory:');
+		runMigrations(sqlite, './drizzle');
+		db = drizzle(sqlite, { schema });
+	});
+
+	function suggest(values: Partial<typeof schema.distilleryVariantSuggestion.$inferInsert> = {}) {
+		db.insert(schema.distilleryVariantSuggestion)
+			.values({
+				variantKey: 'stoisha',
+				targetKey: 'bunnahabhain',
+				targetName: 'Bunnahabhain',
+				kind: 'brand',
+				prefix: 'Stoisha',
+				createdAt: new Date(),
+				...values
+			})
+			.run();
+	}
+
+	it('inline the bounds of their CHECKs', () => {
+		const checks = checksOf(schema.distilleryVariantSuggestion);
+		for (const c of checks) {
+			expect(c.params, c.name).toEqual([]);
+			expect(c.sql, c.name).not.toContain('?');
+		}
+		expect(Object.fromEntries(checks.map((c) => [c.name, c.sql]))).toMatchObject({
+			distillery_variant_suggestion_target_length: `length("distillery_variant_suggestion"."target_name") BETWEEN 1 AND ${TASTING_DISTILLERY_LENGTH.max}`,
+			distillery_variant_suggestion_prefix_length: `length("distillery_variant_suggestion"."prefix") BETWEEN 1 AND ${TASTING_BOTTLING_LENGTH.max}`,
+			distillery_variant_suggestion_kind: `"distillery_variant_suggestion"."kind" IN ('spelling', 'brand')`
+		});
+	});
+
+	it('start a suggestion as open and accept a spelling variant without prefix', () => {
+		suggest();
+		suggest({
+			variantKey: 'laphroaig distillery',
+			targetKey: 'laphroaig',
+			targetName: 'Laphroaig',
+			kind: 'spelling',
+			prefix: null
+		});
+		expect(
+			db
+				.select()
+				.from(schema.distilleryVariantSuggestion)
+				.all()
+				.map((s) => s.status)
+		).toEqual(['open', 'open']);
+	});
+
+	it.each([
+		['a brand without prefix', { prefix: null }],
+		['a spelling variant with prefix', { kind: 'spelling' as const }],
+		['an unknown kind', { kind: 'typo' as 'brand' }],
+		['an unknown status', { status: 'accepted' as 'open' }],
+		['the same key on both sides', { targetKey: 'stoisha' }],
+		['a target that is too long', { targetName: 'x'.repeat(TASTING_DISTILLERY_LENGTH.max + 1) }],
+		['a prefix that is too long', { prefix: 'x'.repeat(TASTING_BOTTLING_LENGTH.max + 1) }]
+	])('reject %s', (_, values) => {
+		expect(() => suggest(values)).toThrow(/CHECK constraint failed/);
+	});
+
+	it('keep a pair once', () => {
+		suggest();
+		expect(() => suggest({ status: 'rejected' })).toThrow(/UNIQUE constraint failed/);
+	});
+
+	it('store the costs of a variant search call', () => {
+		db.insert(schema.distilleryVariantCall)
+			.values({
+				createdAt: new Date(),
+				model: 'claude-opus-5-5',
+				inputTokens: 10,
+				outputTokens: 5,
+				cacheCreationInputTokens: 0,
+				cacheReadInputTokens: 0,
+				costMicroUsd: 140
+			})
+			.run();
+		expect(db.select().from(schema.distilleryVariantCall).get()?.costMicroUsd).toBe(140);
 	});
 });

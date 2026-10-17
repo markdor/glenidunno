@@ -102,6 +102,7 @@
 				bottle={view.bottles.find((b) => b.slot === slot) ?? null}
 				result={form?.action === 'save' && form.slot === slot && form !== dismissed ? form : null}
 				onremove={hideSlot}
+				distilleryNames={view.distilleryNames}
 			/>
 		{/each}
 		{#if nextSlot !== undefined}

@@ -2,6 +2,7 @@ export type ConfirmVariant = 'default' | 'danger';
 
 interface ConfirmRequest {
 	message: string;
+	details: string[];
 	confirmLabel: string;
 	cancelLabel: string;
 	variant: ConfirmVariant;
@@ -9,6 +10,8 @@ interface ConfirmRequest {
 }
 
 interface ConfirmOptions {
+	/** Lines listed below the message, e.g. what an action is going to change. */
+	details?: string[];
 	confirmLabel?: string;
 	cancelLabel?: string;
 	variant?: ConfirmVariant;
@@ -23,6 +26,7 @@ function ask(message: string, options: ConfirmOptions = {}): Promise<boolean> {
 	return new Promise((resolve) => {
 		request = {
 			message,
+			details: options.details ?? [],
 			confirmLabel: options.confirmLabel ?? 'Bestätigen',
 			cancelLabel: options.cancelLabel ?? 'Abbrechen',
 			variant: options.variant ?? 'default',

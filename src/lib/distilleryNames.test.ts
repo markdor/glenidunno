@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+	distinctDistilleryNames,
 	groupByName,
 	isPlaceholderDistillery,
 	nameKey,
@@ -31,6 +32,17 @@ describe('groupByName', () => {
 		expect(groupByName(['ardbeg ', 'Lagavulin', 'Ardbeg', 'ARDBEG'])).toEqual([
 			{ name: 'ardbeg', count: 3 },
 			{ name: 'Lagavulin', count: 1 }
+		]);
+	});
+});
+
+describe('distinctDistilleryNames', () => {
+	it('keeps the first spelling per key and drops placeholders and empty names', () => {
+		expect([
+			...distinctDistilleryNames([' Ardbeg', 'Blend', 'ARDBEG', '  ', 'Lagavulin', 'unbekannt'])
+		]).toEqual([
+			['ardbeg', 'Ardbeg'],
+			['lagavulin', 'Lagavulin']
 		]);
 	});
 });

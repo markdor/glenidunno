@@ -17,7 +17,7 @@ import {
 	STARTUP_JOBS_POLL_MS,
 	type StartupJobOverview
 } from '$lib/startupJobs';
-import type { AdminDistillery } from '$lib/tasting';
+import type { AdminDistillery, DistilleryVariantSuggestion } from '$lib/tasting';
 
 beforeEach(() => {
 	for (const t of [...toast.toasts]) toast.dismiss(t.id);
@@ -53,6 +53,8 @@ function makeData(over: Partial<Record<string, unknown>> = {}) {
 		distilleries: [] as AdminDistillery[],
 		researchCostMicroUsd: 0,
 		researchPrompt: { text: 'Regeln', custom: false },
+		variantSuggestions: [] as DistilleryVariantSuggestion[],
+		variantSearchRunning: false,
 		...over
 	};
 }
@@ -410,8 +412,13 @@ describe('Admin page', () => {
 			country: { value: 'Schottland', state: 'found', source: 'https://example.com/ardbeg' },
 			region: { value: 'Islay', state: 'found', source: null },
 			capacity: { value: null, state: 'pending', source: null },
-			costMicroUsd: 250_000
+			costMicroUsd: 250_000,
+			bottles: [{ age: 10, bottling: null, bottler: null }]
 		};
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
 
 		test('shows the section below the startup jobs, with the costs', async () => {
 			render(Page, {
@@ -442,6 +449,67 @@ describe('Admin page', () => {
 			});
 
 			await expect.element(page.getByText('Ungültig')).toBeVisible();
+		});
+
+		test('shows the field errors of a failed rename at its row', async () => {
+			const { rerender } = render(Page, { data: makeData({ distilleries: [ardbeg] }), form: null });
+			await page.getByRole('button', { name: 'Ardbeg bearbeiten' }).first().click();
+			await page.getByLabelText('Alten Namen als Marke in die Abfüllung übernehmen').click();
+
+			await rerender({
+				data: makeData({ distilleries: [ardbeg] }),
+				form: {
+					action: 'renameDistillery',
+					key: 'ardbeg',
+					fieldErrors: { name: 'required', prefix: 'bottlingTooLong' }
+				}
+			});
+
+			await expect.element(page.getByText('Pflichtfeld')).toBeVisible();
+			await expect
+				.element(page.getByText('Mit dem Präfix würde eine Abfüllung länger als 120 Zeichen.'))
+				.toBeVisible();
+		});
+
+		test('shows the open suggestions of the variant search', async () => {
+			render(Page, {
+				data: makeData({
+					distilleries: [ardbeg],
+					variantSuggestions: [
+						{
+							id: 1,
+							variantKey: 'ardbeg',
+							variantName: 'Ardbeg',
+							targetName: 'Ardbeg Distillery',
+							kind: 'spelling',
+							prefix: null,
+							bottles: 1
+						}
+					]
+				}),
+				form: null
+			});
+
+			await expect
+				.element(
+					page.getByRole('list', { name: 'Vorschläge' }).getByText('Ardbeg → Ardbeg Distillery')
+				)
+				.toBeVisible();
+		});
+
+		test('reloads while a variant search runs, and only then', async () => {
+			vi.useFakeTimers();
+			const data = makeData({ distilleries: [ardbeg], variantSearchRunning: true });
+			const view = render(Page, { data, form: null });
+
+			await expect.element(page.getByRole('button', { name: 'Suche läuft …' })).toBeDisabled();
+			await vi.advanceTimersByTimeAsync(STARTUP_JOBS_POLL_MS);
+			expect(invalidate).toHaveBeenCalledWith(STARTUP_JOBS_DEPENDENCY);
+
+			vi.mocked(invalidate).mockClear();
+			await view.rerender({ data: { ...data, variantSearchRunning: false }, form: null });
+			await vi.advanceTimersByTimeAsync(STARTUP_JOBS_POLL_MS * 2);
+			expect(invalidate).not.toHaveBeenCalled();
 		});
 
 		test('shows a too long research prompt at the text field', async () => {
