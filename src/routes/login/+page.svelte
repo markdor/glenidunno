@@ -2,7 +2,7 @@
 	import { untrack } from 'svelte';
 	import { isValidEmail } from '$lib/validation';
 	import { authClient } from '$lib/auth-client';
-	import logo from '$lib/assets/glen-idunno-logo.svg';
+	import logo from '$lib/assets/glen-idunno-logo.webp';
 	import { toast } from '$lib/components/toastStore.svelte';
 
 	let { data } = $props();
@@ -60,7 +60,7 @@
 		<!-- The logo contains the wordmark, so it replaces the text heading; its alt
 		     text keeps the <h1> accessible name "Glen Idunno". -->
 		<h1>
-			<img src={logo} alt="Glen Idunno" width="628" height="546" class="h-auto w-66" />
+			<img src={logo} alt="Glen Idunno" width="792" height="710" class="h-auto w-66" />
 		</h1>
 		<p class="text-sm text-slate-500">Melde dich mit deiner E-Mail-Adresse an.</p>
 	</header>

@@ -19,6 +19,7 @@ import {
 	getPresentationForParticipant,
 	getStartPageSummary,
 	getStatistics,
+	getWorldMap,
 	listPresentationFiles,
 	listSelectableUsers,
 	listTastings,
@@ -1564,6 +1565,137 @@ describe('getStatistics', () => {
 			bottles: 0,
 			countries: 0,
 			withoutCountry: 0
+		});
+	});
+});
+
+describe('getWorldMap', () => {
+	const facts = (nameKey: string, country: string, region: 'Islay' | 'Highlands' | null) =>
+		db
+			.insert(schema.distillery)
+			.values({
+				nameKey,
+				country,
+				countryState: 'admin',
+				region,
+				regionState: region === null ? 'empty' : 'admin',
+				updatedAt: ENTRY
+			})
+			.run();
+
+	it('is null while no tasting is revealed', () => {
+		setupWithBottles();
+		expect(getWorldMap(db, 'u-anna', ENTRY)).toBeNull();
+		expect(getWorldMap(db, 'u-anna', ORDER)).toBeNull();
+	});
+
+	it('counts the revealed bottles by the facts of their distillery, matched by name key', () => {
+		const ctx = setupWithBottles();
+		saveBottle(
+			db,
+			findParticipant(db, ctx.slug, 'u-cem')!,
+			1,
+			bottle({ alias: 'Moor', distillery: 'kavalan ' }),
+			ENTRY
+		);
+		facts('ardbeg', 'Schottland', 'Islay');
+		facts('kavalan', 'Taiwan', null);
+
+		const result = getWorldMap(db, 'u-anna', REVEALED)!;
+		expect(result.countries.map((c) => [c.code, c.bottles.length, c.distilleries])).toEqual([
+			['GB-SCT', 2, 1],
+			['TW', 1, 1]
+		]);
+		expect(result.regions.find((r) => r.region === 'Islay')).toEqual({
+			region: 'Islay',
+			bottles: 2,
+			distilleries: [{ name: 'Ardbeg', bottles: 2 }]
+		});
+		expect(result.withoutCountry).toEqual([]);
+		// The bottles carry exactly the fields of the statistics.
+		expect(Object.keys(result.countries[0].bottles[0]).sort()).toEqual([
+			'abv',
+			'age',
+			'bottler',
+			'bottling',
+			'broughtBy',
+			'distillery',
+			'number',
+			'tastingDate'
+		]);
+	});
+
+	it('never counts bottles of tastings that are not revealed, until the admin reveals them', () => {
+		setupWithBottles('2026-10-21');
+		const later = setupWithBottles();
+		db.update(schema.tastingBottle)
+			.set({ distillery: 'Kavalan' })
+			.where(eq(schema.tastingBottle.participantId, later.anna.id))
+			.run();
+		facts('ardbeg', 'Schottland', 'Islay');
+		facts('kavalan', 'Taiwan', null);
+
+		const before = getWorldMap(db, 'u-anna', PRESSED)!;
+		expect(before.countries.map((c) => [c.code, c.bottles.length])).toEqual([['GB-SCT', 2]]);
+		const serialized = JSON.stringify(before);
+		expect(serialized).not.toContain('Kavalan');
+		expect(serialized).not.toContain('TW');
+		expect(serialized).not.toContain('2026-10-24');
+
+		openOrderEarly(db, later.id, PRESSED);
+		revealEarly(db, later.id, PRESSED);
+		const after = getWorldMap(db, 'u-anna', PRESSED)!;
+		expect(after.countries.map((c) => [c.code, c.bottles.length])).toEqual([
+			['GB-SCT', 3],
+			['TW', 1]
+		]);
+	});
+
+	it('leaves out slug, alias, presentation, Whiskybase link and the facts beyond the code', () => {
+		const ctx = setupWithBottles();
+		addPresentation(ctx.anna.id);
+		db.insert(schema.distillery)
+			.values({
+				nameKey: 'ardbeg',
+				country: 'Schottland',
+				countryState: 'found',
+				countrySource: 'https://example.org/ardbeg',
+				region: 'Islay',
+				regionState: 'found',
+				capacity: 2_400_000,
+				capacityState: 'admin',
+				updatedAt: ENTRY
+			})
+			.run();
+		const serialized = JSON.stringify(getWorldMap(db, 'u-anna', REVEALED));
+		for (const hidden of [
+			ctx.slug,
+			'Nebel',
+			'Torf',
+			'Islay.pptx',
+			'whiskybase',
+			'example.org',
+			'2400000',
+			'found',
+			'Schottland'
+		]) {
+			expect(serialized).not.toContain(hidden);
+		}
+	});
+
+	it('puts distilleries without facts under "Ohne Länderangabe"', () => {
+		setupWithBottles();
+		const result = getWorldMap(db, 'u-anna', REVEALED)!;
+		expect(result.countries).toEqual([]);
+		expect(result.withoutCountry.map((b) => b.broughtBy)).toEqual(['Anna', 'Ben']);
+	});
+
+	it('looks up no facts for a revealed tasting without bottles', () => {
+		setup();
+		expect(getWorldMap(db, 'u-anna', REVEALED)).toMatchObject({
+			countries: [],
+			withoutCountry: [],
+			scotlandWithoutRegion: 0
 		});
 	});
 });
