@@ -54,7 +54,18 @@
 				>
 					<TriangleAlert size={20} strokeWidth={2} />
 				</span>
-				<p class="pt-1 text-sm text-slate-700">{req.message}</p>
+				<div class="min-w-0 space-y-2 pt-1 text-sm text-slate-700">
+					<p>{req.message}</p>
+					{#if req.details.length > 0}
+						<ul
+							class="max-h-48 list-disc space-y-0.5 overflow-y-auto pl-5 break-words text-slate-600"
+						>
+							{#each req.details as line, index (index)}
+								<li>{line}</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
 			</div>
 			<div class="flex flex-wrap gap-2">
 				<button

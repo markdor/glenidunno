@@ -16,6 +16,7 @@ import {
 	DISTILLERY_COUNTRY_LENGTH,
 	DISTILLERY_SOURCE_LENGTH,
 	DISTILLERY_VALUE_STATES,
+	DISTILLERY_VARIANT_KINDS,
 	SCOTLAND,
 	SCOTTISH_REGIONS,
 	TASTING_ABV,
@@ -376,6 +377,58 @@ export const distilleryResearchCall = sqliteTable(
 	(t) => [
 		index('distillery_research_call_name_key').on(t.nameKey),
 		check('distillery_research_call_stage', sql`${t.stage} IN (1, 2)`)
+	]
+);
+
+// One row per API response of the variant search (distilleryVariants.ts): a
+// single call over all names, so neither a name_key nor a stage. Counts in
+// the total costs like the research calls.
+export const distilleryVariantCall = sqliteTable('distillery_variant_call', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+	model: text('model').notNull(),
+	inputTokens: integer('input_tokens').notNull(),
+	outputTokens: integer('output_tokens').notNull(),
+	cacheCreationInputTokens: integer('cache_creation_input_tokens').notNull(),
+	cacheReadInputTokens: integer('cache_read_input_tokens').notNull(),
+	costMicroUsd: integer('cost_micro_usd').notNull()
+});
+
+const VARIANT_SUGGESTION_STATUSES = ['open', 'rejected'] as const;
+
+// Suggestions of the variant search, by nameKey() like the distillery rows
+// (no foreign key). Open until the admin renames the variant (the row goes)
+// or rejects it; a rejected row stays, so the pair isn't suggested again.
+export const distilleryVariantSuggestion = sqliteTable(
+	'distillery_variant_suggestion',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		variantKey: text('variant_key').notNull(),
+		targetKey: text('target_key').notNull(),
+		targetName: text('target_name').notNull(),
+		kind: text('kind', { enum: DISTILLERY_VARIANT_KINDS }).notNull(),
+		// Only for a brand: what goes to the front of the bottling.
+		prefix: text('prefix'),
+		status: text('status', { enum: VARIANT_SUGGESTION_STATUSES }).notNull().default('open'),
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
+	},
+	(t) => [
+		uniqueIndex('distillery_variant_suggestion_pair').on(t.variantKey, t.targetKey),
+		check('distillery_variant_suggestion_keys', sql`${t.variantKey} <> ${t.targetKey}`),
+		check('distillery_variant_suggestion_kind', inList(t.kind, DISTILLERY_VARIANT_KINDS)),
+		check('distillery_variant_suggestion_status', inList(t.status, VARIANT_SUGGESTION_STATUSES)),
+		check(
+			'distillery_variant_suggestion_prefix_kind',
+			sql`(${t.prefix} IS NOT NULL) = (${t.kind} = 'brand')`
+		),
+		check(
+			'distillery_variant_suggestion_target_length',
+			lengthUpTo(t.targetName, TASTING_DISTILLERY_LENGTH.max)
+		),
+		check(
+			'distillery_variant_suggestion_prefix_length',
+			lengthUpTo(t.prefix, TASTING_BOTTLING_LENGTH.max)
+		)
 	]
 );
 

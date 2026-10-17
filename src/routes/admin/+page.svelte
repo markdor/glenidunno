@@ -5,6 +5,7 @@
 	import AdminDistilleryTable from '$lib/components/AdminDistilleryTable.svelte';
 	import { confirmDialog } from '$lib/components/confirmDialogStore.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
+	import { BOTTLING_TOO_LONG } from '$lib/distilleryTable';
 	import {
 		STARTUP_JOBS_DEPENDENCY,
 		STARTUP_JOBS_POLL_MS,
@@ -14,9 +15,11 @@
 
 	let { data, form } = $props();
 
-	// Live while a job runs: reload the list until none does any more.
+	// Live while a job or a variant search runs: reload until none does any more.
 	$effect(() => {
-		if (!data.startupJobs.some((job) => job.status === 'running')) return;
+		const running =
+			data.startupJobs.some((job) => job.status === 'running') || data.variantSearchRunning;
+		if (!running) return;
 		const timer = setInterval(() => void invalidate(STARTUP_JOBS_DEPENDENCY), STARTUP_JOBS_POLL_MS);
 		return () => clearInterval(timer);
 	});
@@ -41,7 +44,8 @@
 		required: 'Pflichtfeld',
 		invalid: 'Ungültig',
 		taken: 'Bereits vergeben',
-		tooLong: 'Zu lang'
+		tooLong: 'Zu lang',
+		bottlingTooLong: BOTTLING_TOO_LONG
 	};
 
 	function fieldError(field: string): string | null {
@@ -359,12 +363,18 @@
 		distilleries={data.distilleries}
 		costMicroUsd={data.researchCostMicroUsd}
 		prompt={data.researchPrompt}
-		editErrors={form?.action === 'updateDistillery' && form.key && form.fieldErrors
+		suggestions={data.variantSuggestions}
+		searchRunning={data.variantSearchRunning}
+		editErrors={(form?.action === 'updateDistillery' || form?.action === 'renameDistillery') &&
+		form.key &&
+		form.fieldErrors
 			? {
 					key: form.key,
 					country: fieldError('country'),
 					region: fieldError('region'),
-					capacity: fieldError('capacity')
+					capacity: fieldError('capacity'),
+					name: fieldError('name'),
+					prefix: fieldError('prefix')
 				}
 			: null}
 		promptError={form?.action === 'saveResearchPrompt' ? fieldError('prompt') : null}

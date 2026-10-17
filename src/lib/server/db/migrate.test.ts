@@ -443,3 +443,32 @@ describe('migrations 0009–0010: archived bottles', () => {
 		expect(rows('SELECT id FROM tasting_bottle')).toEqual([]);
 	});
 });
+
+describe('migration 0013: distillery variants', () => {
+	it('only adds tables: distilleries and research costs stay as they were', () => {
+		const sqlite = new Database(':memory:');
+		runMigrations(sqlite, realMigrationsUpTo('0012_distillery_research'));
+		sqlite
+			.prepare(
+				`INSERT INTO distillery (name_key, country, country_state, updated_at)
+				 VALUES ('stoisha', 'Schottland', 'admin', 100)`
+			)
+			.run();
+		sqlite
+			.prepare(
+				`INSERT INTO distillery_research_call (created_at, name_key, stage, model, input_tokens,
+				   output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+				   web_search_requests, web_fetch_requests, cost_micro_usd)
+				 VALUES (100, 'stoisha', 1, 'claude-opus-5-5', 10, 5, 0, 0, 1, 0, 10140)`
+			)
+			.run();
+		const all = (table: string) => sqlite.prepare(`SELECT * FROM ${table}`).all();
+		const before = [all('distillery'), all('distillery_research_call')];
+
+		runMigrations(sqlite, './drizzle');
+
+		expect([all('distillery'), all('distillery_research_call')]).toEqual(before);
+		expect(all('distillery_variant_call')).toEqual([]);
+		expect(all('distillery_variant_suggestion')).toEqual([]);
+	});
+});

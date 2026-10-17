@@ -7,6 +7,7 @@ import {
 	ABV_KINK_FRACTION,
 	ABV_LOW_DIVISOR,
 	AGE_HISTOGRAM,
+	applyBrandPrefix,
 	formatBottleName,
 	formatCapacity,
 	formatCount,
@@ -122,6 +123,30 @@ describe('formatBottleName', () => {
 				bottler: 'Signatory'
 			})
 		).toBe('Caol Ila 12 Jahre Sherry Cask (Signatory)');
+	});
+});
+
+describe('applyBrandPrefix', () => {
+	it('puts the brand in front of the bottling', () => {
+		expect(applyBrandPrefix('12 Jahre', 'Stoisha')).toBe('Stoisha 12 Jahre');
+		expect(
+			formatBottleName({
+				distillery: 'Bunnahabhain',
+				age: 12,
+				bottling: applyBrandPrefix(null, 'Stoisha'),
+				bottler: null
+			})
+		).toBe('Bunnahabhain 12 Jahre Stoisha');
+	});
+
+	it('makes the brand the bottling when there is none', () => {
+		expect(applyBrandPrefix(null, 'Stoisha')).toBe('Stoisha');
+		expect(applyBrandPrefix('  ', 'Stoisha')).toBe('Stoisha');
+	});
+
+	it('leaves a bottling alone that already starts with the brand, ignoring case', () => {
+		expect(applyBrandPrefix('stoisha Batch 2', 'Stoisha')).toBe('stoisha Batch 2');
+		expect(applyBrandPrefix('ÖKO Edition', 'öko')).toBe('ÖKO Edition');
 	});
 });
 

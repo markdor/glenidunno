@@ -38,12 +38,26 @@ vi.mock('$lib/server/startupJobList', () => ({
 	]
 }));
 
+// The research's lock and the variant search: real modules, steerable from the tests.
+const research = vi.hoisted(() => ({ running: false }));
+vi.mock('$lib/server/distilleryResearchJob', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/distilleryResearchJob')>()),
+	isDistilleryResearchRunning: () => research.running
+}));
+const variantSearch = vi.hoisted(() => ({ search: vi.fn(), running: false }));
+vi.mock('$lib/server/distilleryVariantSearch', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/distilleryVariantSearch')>()),
+	searchDistilleryVariants: variantSearch.search,
+	isVariantSearchRunning: () => variantSearch.running
+}));
+
 import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import {
 	appSetting,
 	distillery,
 	distilleryResearchCall,
+	distilleryVariantSuggestion,
 	session,
 	tasting,
 	tastingBottle,
@@ -120,7 +134,11 @@ beforeEach(() => {
 	db.delete(user).run();
 	db.delete(distillery).run();
 	db.delete(distilleryResearchCall).run();
+	db.delete(distilleryVariantSuggestion).run();
 	db.delete(appSetting).run();
+	research.running = false;
+	variantSearch.running = false;
+	variantSearch.search.mockReset();
 	// The current admin always exists (bootstrap guarantees this in prod).
 	insertUser({ id: ADMIN.id, email: 'admin@glenidunno.de', username: 'admin', isAdmin: true });
 });
@@ -600,10 +618,35 @@ function researchCall(nameKey: string, costMicroUsd: number) {
 }
 
 type DistilleryData = {
-	distilleries: Array<{ key: string; name: string; costMicroUsd: number }>;
+	distilleries: Array<{ key: string; name: string; costMicroUsd: number; bottles: unknown[] }>;
 	researchCostMicroUsd: number;
 	researchPrompt: { text: string; custom: boolean };
+	variantSuggestions: Array<{ id: number; variantName: string; targetName: string }>;
+	variantSearchRunning: boolean;
 };
+
+function suggestion(variantKey: string, targetName: string, status: 'open' | 'rejected' = 'open') {
+	return db
+		.insert(distilleryVariantSuggestion)
+		.values({
+			variantKey,
+			targetKey: targetName.toLowerCase(),
+			targetName,
+			kind: 'spelling',
+			status,
+			createdAt: new Date()
+		})
+		.returning({ id: distilleryVariantSuggestion.id })
+		.get().id;
+}
+
+function distilleryOf(bottleId: string) {
+	return db
+		.select({ distillery: tastingBottle.distillery, bottling: tastingBottle.bottling })
+		.from(tastingBottle)
+		.where(eq(tastingBottle.id, bottleId))
+		.get();
+}
 
 describe('admin distilleries', () => {
 	beforeEach(() => {
@@ -747,19 +790,226 @@ describe('admin distilleries', () => {
 		});
 	});
 
-	it.each(['updateDistillery', 'saveResearchPrompt', 'resetResearchPrompt'])(
-		'redirects a non-admin away from %s',
-		async (action) => {
-			await expect(
-				actions[action](
-					makeEvent(
-						{ key: 'ardbeg', country: 'Japan', prompt: 'Eigene Regeln' },
-						{ id: 'u', isAdmin: false }
-					)
+	it.each([
+		'updateDistillery',
+		'renameDistillery',
+		'suggestVariants',
+		'rejectVariant',
+		'saveResearchPrompt',
+		'resetResearchPrompt'
+	])('redirects a non-admin away from %s', async (action) => {
+		const id = suggestion('ardbeg', 'Ardbeg Distillery');
+		await expect(
+			actions[action](
+				makeEvent(
+					{
+						key: 'ardbeg',
+						name: 'Laphroaig',
+						country: 'Japan',
+						prompt: 'Eigene Regeln',
+						id: String(id)
+					},
+					{ id: 'u', isAdmin: false }
 				)
-			).rejects.toMatchObject(NOT_FOUND_REDIRECT);
-			expect(db.select().from(distillery).all()).toEqual([]);
-			expect(db.select().from(appSetting).all()).toEqual([]);
+			)
+		).rejects.toMatchObject(NOT_FOUND_REDIRECT);
+		expect(db.select().from(distillery).all()).toEqual([]);
+		expect(db.select().from(appSetting).all()).toEqual([]);
+		expect(distilleryOf('past-0')?.distillery).toBe('Ardbeg');
+		expect(db.select().from(distilleryVariantSuggestion).get()?.status).toBe('open');
+		expect(variantSearch.search).not.toHaveBeenCalled();
+	});
+});
+
+describe('admin distillery rename and variants', () => {
+	const unchanged = { country: '', region: '', capacity: '' };
+
+	beforeEach(() => {
+		tastingWith('past', '2020-01-01', ['Stoisha', 'Bunnahabhain', 'stoisha']);
+		tastingWith('future', '2999-01-01', ['Stoisha']);
+	});
+
+	it('loads the bottles for the preview, the open suggestions and whether a search runs', () => {
+		suggestion('stoisha', 'Bunnahabhain');
+		suggestion('bunnahabhain', 'Stoisha', 'rejected');
+		suggestion('geheimbrennerei', 'Ardbeg');
+		variantSearch.running = true;
+
+		const data = load(loadEvent(ADMIN)) as unknown as DistilleryData;
+
+		expect(data.distilleries.map((d) => [d.name, d.bottles.length])).toEqual([
+			['Stoisha', 2],
+			['Bunnahabhain', 1]
+		]);
+		expect(data.variantSuggestions).toMatchObject([
+			{ variantName: 'Stoisha', targetName: 'Bunnahabhain', bottles: 2 }
+		]);
+		expect(data.variantSearchRunning).toBe(true);
+	});
+
+	it('merges with the brand in front of the bottling', async () => {
+		const result = await actions.renameDistillery(
+			makeEvent({
+				key: 'stoisha',
+				name: ' Bunnahabhain ',
+				withPrefix: 'on',
+				prefix: ' Stoisha ',
+				...unchanged
+			})
+		);
+
+		expect(result).toEqual({ action: 'renameDistillery', renamed: 'merged', bottles: 2 });
+		expect(distilleryOf('past-0')).toEqual({ distillery: 'Bunnahabhain', bottling: 'Stoisha' });
+		expect(distilleryOf('past-2')).toEqual({ distillery: 'Bunnahabhain', bottling: 'Stoisha' });
+		// Blind: the unrevealed tasting keeps its bottle as it is.
+		expect(distilleryOf('future-0')).toEqual({ distillery: 'Stoisha', bottling: null });
+	});
+
+	it('takes the values of the same form and ignores a prefix without its checkbox', async () => {
+		const result = await actions.renameDistillery(
+			makeEvent({
+				key: 'stoisha',
+				name: 'Stoisha Distillery',
+				prefix: 'Stoisha',
+				country: 'Schottland',
+				region: 'Islay',
+				capacity: ''
+			})
+		);
+
+		expect(result).toEqual({ action: 'renameDistillery', renamed: 'renamed', bottles: 2 });
+		expect(distilleryOf('past-0')).toEqual({
+			distillery: 'Stoisha Distillery',
+			bottling: null
+		});
+		expect(db.select().from(distillery).get()).toMatchObject({
+			nameKey: 'stoisha distillery',
+			country: 'Schottland',
+			region: 'Islay'
+		});
+	});
+
+	it.each([
+		[{ name: '  ' }, { name: 'required' }],
+		[{ name: 'x'.repeat(61) }, { name: 'tooLong' }],
+		[{ name: 'Bunnahabhain', withPrefix: 'on', prefix: ' ' }, { prefix: 'required' }],
+		[
+			{ name: 'Bunnahabhain', withPrefix: 'on', prefix: 'x'.repeat(121) },
+			{ prefix: 'bottlingTooLong' }
+		],
+		[{ name: 'Bunnahabhain', country: 'Irland', region: 'Islay' }, { region: 'invalid' }]
+	])('rejects %o with field errors', async (fields, fieldErrors) => {
+		const result = await actions.renameDistillery(
+			makeEvent({ key: 'stoisha', ...unchanged, ...fields })
+		);
+
+		expect(result).toMatchObject({
+			status: 400,
+			data: { action: 'renameDistillery', key: 'stoisha', fieldErrors }
+		});
+		expect(distilleryOf('past-0')?.distillery).toBe('Stoisha');
+	});
+
+	it('answers 404 for a distillery that is not in the table', async () => {
+		tastingWith('later', '2999-02-01', ['Geheimbrennerei']);
+		for (const key of ['geheimbrennerei', 'nowhere']) {
+			const result = await actions.renameDistillery(
+				makeEvent({ key, name: 'Ardbeg', ...unchanged })
+			);
+			expect(result).toMatchObject({
+				status: 404,
+				data: { action: 'renameDistillery', userMessage: expect.any(String) }
+			});
 		}
-	);
+		expect(distilleryOf('later-0')?.distillery).toBe('Geheimbrennerei');
+	});
+
+	it('refuses a rename while the research runs', async () => {
+		research.running = true;
+		const result = await actions.renameDistillery(
+			makeEvent({ key: 'stoisha', name: 'Bunnahabhain', ...unchanged })
+		);
+
+		expect(result).toMatchObject({
+			status: 409,
+			data: { action: 'renameDistillery', userMessage: expect.stringContaining('Recherche') }
+		});
+		expect(distilleryOf('past-0')?.distillery).toBe('Stoisha');
+	});
+
+	it('answers 500 with a generic text when the rename fails', async () => {
+		const spy = vi.spyOn(db, 'transaction').mockImplementationOnce(() => {
+			throw new Error('disk full');
+		});
+		const result = await actions.renameDistillery(
+			makeEvent({ key: 'stoisha', name: 'Bunnahabhain', ...unchanged })
+		);
+		spy.mockRestore();
+
+		expect(result).toMatchObject({
+			status: 500,
+			data: { action: 'renameDistillery', userMessage: expect.any(String) }
+		});
+		expect(JSON.stringify(result)).not.toContain('disk full');
+	});
+
+	it.each([
+		[
+			{ status: 'searched', added: 3 },
+			{ action: 'suggestVariants', added: 3 }
+		],
+		[{ status: 'running' }, { status: 409 }],
+		[
+			{ status: 'no-key' },
+			{ status: 503, data: { userMessage: 'ANTHROPIC_API_KEY ist nicht gesetzt.' } }
+		],
+		[{ status: 'failed' }, { status: 502 }]
+	])('answers the variant search %o', async (outcome, expected) => {
+		variantSearch.search.mockResolvedValueOnce(outcome);
+
+		expect(await actions.suggestVariants(makeEvent({}))).toMatchObject(expected);
+		expect(variantSearch.search).toHaveBeenCalledWith(db);
+	});
+
+	it('answers 500 when the variant search throws', async () => {
+		variantSearch.search.mockRejectedValueOnce(new Error('db down'));
+
+		const result = await actions.suggestVariants(makeEvent({}));
+
+		expect(result).toMatchObject({
+			status: 500,
+			data: { action: 'suggestVariants', userMessage: expect.any(String) }
+		});
+		expect(JSON.stringify(result)).not.toContain('db down');
+	});
+
+	it('rejects an open suggestion once', async () => {
+		const id = suggestion('stoisha', 'Bunnahabhain');
+
+		expect(await actions.rejectVariant(makeEvent({ id: String(id) }))).toEqual({
+			action: 'rejectVariant',
+			rejected: true
+		});
+		for (const value of [String(id), 'abc', '']) {
+			expect(await actions.rejectVariant(makeEvent({ id: value }))).toMatchObject({
+				status: 404,
+				data: { action: 'rejectVariant', userMessage: expect.any(String) }
+			});
+		}
+		expect(db.select().from(distilleryVariantSuggestion).get()?.status).toBe('rejected');
+	});
+
+	it('answers 500 when rejecting fails', async () => {
+		const id = suggestion('stoisha', 'Bunnahabhain');
+		const spy = vi.spyOn(db, 'update').mockImplementationOnce(() => {
+			throw new Error('disk full');
+		});
+		const result = await actions.rejectVariant(makeEvent({ id: String(id) }));
+		spy.mockRestore();
+
+		expect(result).toMatchObject({
+			status: 500,
+			data: { action: 'rejectVariant', userMessage: expect.any(String) }
+		});
+	});
 });

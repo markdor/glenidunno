@@ -101,6 +101,42 @@ describe('TastingBottleForm', () => {
 			.toBeVisible();
 	});
 
+	test('explains the distillery field: the distillery only, a brand into the bottling', async () => {
+		render(TastingBottleForm, { slot: 1, bottle: null });
+
+		await expect
+			.element(page.getByLabelText('Distillery *'))
+			.toHaveAccessibleDescription(
+				'Nur die Destillerie, eine Marke gehört an den Anfang der Abfüllung. Beispiel „Bruichladdich Port Charlotte Islay Barley 10y“: Destillerie „Bruichladdich“, Abfüllung „Port Charlotte Islay Barley“, Alter 10.'
+			);
+	});
+
+	test('offers matching distilleries from three characters on, any name stays possible', async () => {
+		render(TastingBottleForm, {
+			slot: 2,
+			bottle: null,
+			distilleryNames: ['Ardbeg', 'Ardmore', 'Bruichladdich', 'Glenardie']
+		});
+		const field = page.getByLabelText('Distillery *');
+		await expect.element(field).toHaveAttribute('list', 'b2-distillery-options');
+		const options = () =>
+			[...document.querySelectorAll('#b2-distillery-options option')].map(
+				(o) => (o as HTMLOptionElement).value
+			);
+
+		expect(options()).toEqual([]);
+		await field.fill('ar');
+		expect(options()).toEqual([]);
+		// Ignoring case, only from the start of the name.
+		await field.fill('ARD');
+		await expect.poll(options).toEqual(['Ardbeg', 'Ardmore']);
+		await field.fill('ardb');
+		await expect.poll(options).toEqual(['Ardbeg']);
+		await field.fill('Stoisha');
+		await expect.poll(options).toEqual([]);
+		await expect.element(field).toHaveValue('Stoisha');
+	});
+
 	test('shows the current slider value', async () => {
 		render(TastingBottleForm, { slot: 1, bottle: saved });
 		const slider = page.getByRole('slider', { name: 'Kaliber *' });

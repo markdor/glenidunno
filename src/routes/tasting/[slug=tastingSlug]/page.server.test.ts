@@ -189,6 +189,29 @@ describe('participant page load', () => {
 		expect(serialized).not.toContain('Glenkinchie');
 	});
 
+	it('offers only distilleries of revealed tastings as input help, and only during entry', async () => {
+		const tastingOf = (date: string) =>
+			createTasting(db, { name: date, tastingDate: date, participantUserIds: [ANNA, BEN] });
+		// Revealed early by the admin, the other one not even with its order open.
+		const past = tastingOf('2026-10-21');
+		await save(BEN, { ...validBottle, alias: 'Alt', distillery: 'Lagavulin' }, past.slug);
+		openOrderEarly(db, past.id);
+		revealEarly(db, past.id);
+		const later = tastingOf('2026-10-23');
+		await save(BEN, { ...validBottle, alias: 'Neu', distillery: 'Geheimbrennerei' }, later.slug);
+		await save(ANNA, validBottle);
+		await save(BEN, { ...validBottle, alias: 'Blume', distillery: 'Glenkinchie' });
+
+		const result = loadFor(ANNA);
+		expect(result.view).toMatchObject({ phase: 'entry', distilleryNames: ['Lagavulin'] });
+		const serialized = JSON.stringify(result);
+		expect(serialized).not.toContain('Geheimbrennerei');
+		expect(serialized).not.toContain('Glenkinchie');
+
+		vi.setSystemTime(ORDER);
+		expect(JSON.stringify(loadFor(ANNA))).not.toContain('Lagavulin');
+	});
+
 	it('shows only the numbered aliases with their total score from 18:00', async () => {
 		await save(ANNA, validBottle);
 		await save(BEN, { ...validBottle, alias: 'Blume', distillery: 'Glenkinchie', smoke: '0' });

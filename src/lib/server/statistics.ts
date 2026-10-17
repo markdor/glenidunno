@@ -26,7 +26,7 @@ import {
 	isPlaceholderDistillery,
 	nameKey,
 	PLACEHOLDER_DISTILLERIES
-} from './distilleryNames';
+} from '$lib/distilleryNames';
 
 /** A revealed tasting, in date order. */
 export type StatisticsTastingInput = { id: string; tastingDate: string };

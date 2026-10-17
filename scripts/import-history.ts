@@ -42,7 +42,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { parseArgs } from 'node:util';
 import Database from 'better-sqlite3';
 import { resolveDevEnv } from './devEnv.ts';
-import { isPlaceholderDistillery, nameKey } from '../src/lib/server/distilleryNames.ts';
+import { isPlaceholderDistillery, nameKey } from '../src/lib/distilleryNames.ts';
 import {
 	fileNameKey,
 	presentationBaseName,

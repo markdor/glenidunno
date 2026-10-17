@@ -19,6 +19,7 @@ import {
 	type TastingPhase
 } from '$lib/tasting';
 import { isValidTastingDate, TASTING_BOTTLE_SLOTS, TASTING_MOTTO_LENGTH } from '$lib/validation';
+import { distinctDistilleryNames, nameKey } from '$lib/distilleryNames';
 import type * as Schema from './db/schema';
 import {
 	distillery,
@@ -29,7 +30,6 @@ import {
 	tastingSlugAnimal,
 	user
 } from './db/schema';
-import { nameKey } from './distilleryNames';
 import {
 	fileNameKey,
 	presentationBaseName,
@@ -601,17 +601,21 @@ function tastingsInOrder(db: Db) {
 		.all();
 }
 
-// The distillery names of these tastings' bottles in standard order
-// (numberBottles), so the first spelling of a name is the one the statistics
-// show. Nothing else of the bottles leaves the query.
-function distilleryNames(db: Db, tastings: Array<{ id: string }>): string[] {
+// The bottles of these tastings in standard order (numberBottles), so the
+// first spelling of a distillery is the one the statistics show. Only the
+// fields of the bottle's name leave the query, besides the ID.
+function distilleryBottles(db: Db, tastings: Array<{ id: string }>): DistilleryBottle[] {
 	if (tastings.length === 0) return [];
 	const rows = db
 		.select({
 			tastingId: tastingParticipant.tastingId,
 			username: user.username,
 			slot: tastingBottle.slot,
-			distillery: tastingBottle.distillery
+			id: tastingBottle.id,
+			distillery: tastingBottle.distillery,
+			bottler: tastingBottle.bottler,
+			bottling: tastingBottle.bottling,
+			age: tastingBottle.age
 		})
 		.from(tastingBottle)
 		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
@@ -623,29 +627,47 @@ function distilleryNames(db: Db, tastings: Array<{ id: string }>): string[] {
 			)
 		)
 		.all();
-	return numberBottles(tastings, rows).map((bottle) => bottle.distillery);
+	return numberBottles(tastings, rows).map((bottle) => ({
+		id: bottle.id,
+		distillery: bottle.distillery,
+		bottler: bottle.bottler,
+		bottling: bottle.bottling,
+		age: bottle.age
+	}));
 }
+
+/** A bottle with the fields of its name – what renaming a distillery rewrites. */
+export type DistilleryBottle = Pick<
+	TastingBottle,
+	'distillery' | 'bottler' | 'bottling' | 'age'
+> & { id: string };
 
 /**
  * Distillery names of the released tastings (isTastingReleased: from 21:00 on
  * the tasting day or revealed) – what the distillery research may look up.
  */
 export function listReleasedDistilleryNames(db: Db, now: Date = new Date()): string[] {
-	return distilleryNames(
+	return distilleryBottles(
 		db,
 		tastingsInOrder(db).filter((t) => isTastingReleased(t.tastingDate, now, t))
-	);
+	).map((bottle) => bottle.distillery);
 }
 
 /**
- * Distillery names of the revealed tastings only – what the admin's distillery
- * table may show, like the statistics and the history.
+ * The bottles of the revealed tastings only, archived ones included – what the
+ * admin's distillery table may show and rename, like the statistics and the
+ * history show them.
  */
-export function listRevealedDistilleryNames(db: Db, now: Date = new Date()): string[] {
-	return distilleryNames(
+export function listRevealedDistilleryBottles(db: Db, now: Date = new Date()): DistilleryBottle[] {
+	return distilleryBottles(
 		db,
 		tastingsInOrder(db).filter((t) => getTastingPhase(t.tastingDate, now, t) === 'revealed')
 	);
+}
+
+/** Distillery names of the revealed tastings only (see listRevealedDistilleryBottles). */
+export function listRevealedDistilleryNames(db: Db, now: Date = new Date()): string[] {
+	return listRevealedDistilleryBottles(db, now).map((bottle) => bottle.distillery);
 }
 
 /**
@@ -1004,6 +1026,12 @@ export type ParticipantView =
 			tasting: { name: string; tastingDate: string };
 			participant: { username: string };
 			bottles: OwnBottle[];
+			/**
+			 * Input help of the distillery field: one spelling per distillery of the
+			 * revealed tastings, no placeholders, sorted. Never a name of a tasting
+			 * not revealed yet, this one included.
+			 */
+			distilleryNames: string[];
 	  }
 	| {
 			phase: 'order';
@@ -1064,7 +1092,10 @@ export function getParticipantView(
 				phase,
 				tasting: tastingInfo,
 				participant: { username: holder.username },
-				bottles
+				bottles,
+				distilleryNames: [
+					...distinctDistilleryNames(listRevealedDistilleryNames(db, now)).values()
+				].sort((a, b) => a.localeCompare(b, 'de-DE'))
 			};
 		}
 		case 'order': {

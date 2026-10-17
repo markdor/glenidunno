@@ -5,6 +5,7 @@ import {
 	checkDistilleryFacts,
 	DISTILLERY_PROMPT_LENGTH,
 	isValidEmail,
+	TASTING_DISTILLERY_LENGTH,
 	USERNAME_RE,
 	type DistilleryFacts
 } from '$lib/validation';
@@ -15,10 +16,20 @@ import {
 	getAdminDistilleries,
 	getResearchRules,
 	getTotalResearchCost,
+	renameDistillery,
 	resetResearchRules,
 	saveResearchRules,
-	updateDistilleryFacts
+	updateDistilleryFacts,
+	type RenameResult
 } from '$lib/server/distilleries';
+import { isDistilleryResearchRunning } from '$lib/server/distilleryResearchJob';
+import {
+	getVariantSuggestions,
+	isVariantSearchRunning,
+	rejectVariantSuggestion,
+	searchDistilleryVariants,
+	type VariantSearchResult
+} from '$lib/server/distilleryVariantSearch';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
 import { logger } from '$lib/server/logger';
 import { STARTUP_JOBS } from '$lib/server/startupJobList';
@@ -60,7 +71,10 @@ export const load: ServerLoad = ({ locals, depends }) => {
 		// Only distilleries of revealed tastings; the total includes all calls.
 		distilleries: getAdminDistilleries(db),
 		researchCostMicroUsd: getTotalResearchCost(db),
-		researchPrompt: getResearchRules(db)
+		researchPrompt: getResearchRules(db),
+		variantSuggestions: getVariantSuggestions(db),
+		// Polled like a running job: a search started before a reload keeps the button off.
+		variantSearchRunning: isVariantSearchRunning()
 	};
 };
 
@@ -104,6 +118,22 @@ function parseDistilleryFacts(form: FormData): {
 
 const DISTILLERY_NOT_FOUND =
 	'Diese Destillerie wurde nicht gefunden – sie kommt in keinem aufgelösten Tasting mehr vor.';
+
+// Name and brand of a rename; the brand only with its checkbox. Empty means
+// missing, the length is the bottle's (TASTING_DISTILLERY_LENGTH).
+function parseRename(form: FormData): {
+	name: string;
+	prefix: string | null;
+	fieldErrors: Partial<Record<'name' | 'prefix', string>>;
+} {
+	const name = String(form.get('name') ?? '').trim();
+	const prefix = form.get('withPrefix') === 'on' ? String(form.get('prefix') ?? '').trim() : null;
+	const fieldErrors: Partial<Record<'name' | 'prefix', string>> = {};
+	if (!name) fieldErrors.name = 'required';
+	else if (name.length > TASTING_DISTILLERY_LENGTH.max) fieldErrors.name = 'tooLong';
+	if (prefix === '') fieldErrors.prefix = 'required';
+	return { name, prefix, fieldErrors };
+}
 
 type DeleteOutcome = 'deleted' | 'deactivated' | 'not-found';
 
@@ -338,6 +368,97 @@ export const actions: Actions = {
 			return fail(500, { action: 'updateDistillery', userMessage: UNEXPECTED_ERROR_MESSAGE });
 		}
 		return { action: 'updateDistillery', updated: true };
+	},
+
+	// Renames a distillery of the revealed tastings or merges it into another
+	// one, with the values of the same form (see renameDistillery). Not during
+	// a research run: its targets would point to a name that's gone.
+	renameDistillery: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const form = await request.formData();
+		const key = String(form.get('key') ?? '');
+		const { facts, fieldErrors: factErrors } = parseDistilleryFacts(form);
+		const { name, prefix, fieldErrors: nameErrors } = parseRename(form);
+		const fieldErrors = { ...factErrors, ...nameErrors };
+		if (Object.keys(fieldErrors).length > 0) {
+			return fail(400, { action: 'renameDistillery', key, fieldErrors });
+		}
+		if (isDistilleryResearchRunning()) {
+			return fail(409, {
+				action: 'renameDistillery',
+				userMessage:
+					'Gerade läuft die Destillerie-Recherche. Speichere bitte erneut, sobald sie fertig ist.'
+			});
+		}
+		let result: RenameResult;
+		try {
+			result = renameDistillery(db, key, { name, prefix, facts });
+		} catch (err) {
+			logger.error({ err }, 'admin rename distillery failed');
+			return fail(500, { action: 'renameDistillery', userMessage: UNEXPECTED_ERROR_MESSAGE });
+		}
+		if (result.status === 'not-found') {
+			return fail(404, { action: 'renameDistillery', userMessage: DISTILLERY_NOT_FOUND });
+		}
+		if (result.status === 'bottling-too-long') {
+			return fail(400, {
+				action: 'renameDistillery',
+				key,
+				fieldErrors: { prefix: 'bottlingTooLong' }
+			});
+		}
+		return { action: 'renameDistillery', renamed: result.status, bottles: result.bottles };
+	},
+
+	// One call to Claude over all distilleries of the revealed tastings. Waits
+	// for it; the page keeps the button off meanwhile.
+	suggestVariants: async ({ locals }) => {
+		requireAdmin(locals);
+		let result: VariantSearchResult;
+		try {
+			result = await searchDistilleryVariants(db);
+		} catch (err) {
+			logger.error({ err }, 'admin variant search failed');
+			return fail(500, { action: 'suggestVariants', userMessage: UNEXPECTED_ERROR_MESSAGE });
+		}
+		switch (result.status) {
+			case 'searched':
+				return { action: 'suggestVariants', added: result.added };
+			case 'running':
+				return fail(409, {
+					action: 'suggestVariants',
+					userMessage: 'Die Suche nach Varianten läuft bereits.'
+				});
+			case 'no-key':
+				return fail(503, {
+					action: 'suggestVariants',
+					userMessage: 'ANTHROPIC_API_KEY ist nicht gesetzt.'
+				});
+			case 'failed':
+				return fail(502, {
+					action: 'suggestVariants',
+					userMessage: 'Die Suche nach Varianten ist fehlgeschlagen, Details im Server-Log.'
+				});
+		}
+	},
+
+	// A rejected pair is never suggested again.
+	rejectVariant: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		try {
+			if (!Number.isSafeInteger(id) || !rejectVariantSuggestion(db, id)) {
+				return fail(404, {
+					action: 'rejectVariant',
+					userMessage: 'Diesen Vorschlag gibt es nicht mehr.'
+				});
+			}
+		} catch (err) {
+			logger.error({ err }, 'admin reject variant failed');
+			return fail(500, { action: 'rejectVariant', userMessage: UNEXPECTED_ERROR_MESSAGE });
+		}
+		return { action: 'rejectVariant', rejected: true };
 	},
 
 	// Only the rules of the research prompt; the default text removes the deviation.

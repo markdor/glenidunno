@@ -2,6 +2,7 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
+	import { nameKey } from '$lib/distilleryNames';
 	import {
 		formatSmokeGroupRange,
 		smokeGroup,
@@ -34,14 +35,28 @@
 		slot,
 		bottle,
 		result = null,
-		onremove
+		onremove,
+		distilleryNames = []
 	}: {
 		slot: number;
 		bottle: (TastingBottle & { presentationName?: string | null }) | null;
 		result?: SaveResult;
 		/** Hides the card: right away if never saved, once the server removed it otherwise. */
 		onremove?: (slot: number) => void;
+		/** Input help: the distilleries of the revealed tastings, one spelling each. */
+		distilleryNames?: string[];
 	} = $props();
+
+	// The input help offers the distilleries starting with what's typed, from
+	// three characters on. The component sets the options, the browser shows
+	// them; any other name stays possible.
+	const SUGGEST_FROM_CHARS = 3;
+	let typedDistillery = $state('');
+	const distilleryOptions = $derived.by(() => {
+		const typed = nameKey(typedDistillery);
+		if (typed.length < SUGGEST_FROM_CHARS) return [];
+		return distilleryNames.filter((name) => nameKey(name).startsWith(typed));
+	});
 
 	// Only the further bottles can be removed, the base slots always stay.
 	const removable = $derived(slot > TASTING_BOTTLE_SLOTS.base);
@@ -230,8 +245,22 @@
 				required
 				maxlength={TASTING_DISTILLERY_LENGTH.max}
 				value={initial('distillery')}
+				oninput={(event) => (typedDistillery = event.currentTarget.value)}
+				list={id('distillery-options')}
+				autocomplete="off"
+				aria-describedby={id('distillery-hint')}
 				class={inputClass}
 			/>
+			<datalist id={id('distillery-options')}>
+				{#each distilleryOptions as name (name)}
+					<option value={name}></option>
+				{/each}
+			</datalist>
+			<p id={id('distillery-hint')} class="text-xs text-slate-500">
+				Nur die Destillerie, eine Marke gehört an den Anfang der Abfüllung. Beispiel „Bruichladdich
+				Port Charlotte Islay Barley 10y“: Destillerie „Bruichladdich“, Abfüllung „Port Charlotte
+				Islay Barley“, Alter 10.
+			</p>
 			{#if fieldError('distillery')}
 				<p class="text-xs text-red-600">{fieldError('distillery')}</p>
 			{/if}

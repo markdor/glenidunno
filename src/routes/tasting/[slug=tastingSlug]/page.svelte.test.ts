@@ -63,6 +63,30 @@ describe('Tasting participant page', () => {
 		await expect.element(second.getByLabelText('Synonym *')).toHaveValue('Nebel');
 	});
 
+	test('gives every card the distilleries of the revealed tastings as input help', async () => {
+		renderView({
+			phase: 'entry',
+			tasting,
+			participant: { username: 'Anna' },
+			bottles: [],
+			distilleryNames: ['Lagavulin', 'Laphroaig']
+		});
+
+		for (const slot of [1, 2]) {
+			await page
+				.getByRole('form', { name: `Flasche ${slot}` })
+				.getByLabelText('Distillery *')
+				.fill('lag');
+			await expect
+				.poll(() =>
+					[...document.querySelectorAll(`#b${slot}-distillery-options option`)].map(
+						(o) => (o as HTMLOptionElement).value
+					)
+				)
+				.toEqual(['Lagavulin']);
+		}
+	});
+
 	test('shows slots 1 and 2 plus every slot with a saved bottle, in order', async () => {
 		renderView({
 			phase: 'entry',

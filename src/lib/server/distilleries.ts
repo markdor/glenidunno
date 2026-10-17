@@ -1,20 +1,29 @@
 // Database side of the distillery facts: what the research looks for and what
-// it may write, the costs of its calls, the editable research rules and the
-// admin's table and edit. The research itself is distilleryResearch.ts, the
-// runs and their triggers distilleryResearchJob.ts.
+// it may write, the costs of its calls (also those of the variant search), the
+// editable research rules and the admin's table, edit and rename. The research
+// itself is distilleryResearch.ts, the runs and their triggers
+// distilleryResearchJob.ts, the variant search distilleryVariantSearch.ts.
 
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import type { AdminDistillery, DistilleryFact } from '$lib/tasting';
+import { distinctDistilleryNames, isPlaceholderDistillery, nameKey } from '$lib/distilleryNames';
+import { applyBrandPrefix, type AdminDistillery, type DistilleryFact } from '$lib/tasting';
 import {
 	SCOTLAND,
+	TASTING_BOTTLING_LENGTH,
 	type DistilleryFacts,
 	type DistilleryValueState,
 	type ScottishRegion
 } from '$lib/validation';
 import type * as Schema from './db/schema';
-import { appSetting, distillery, distilleryResearchCall } from './db/schema';
-import { isPlaceholderDistillery, nameKey } from './distilleryNames';
+import {
+	appSetting,
+	distillery,
+	distilleryResearchCall,
+	distilleryVariantCall,
+	distilleryVariantSuggestion,
+	tastingBottle
+} from './db/schema';
 import {
 	DEFAULT_RESEARCH_RULES,
 	rulesHash,
@@ -23,7 +32,12 @@ import {
 	type ResearchFacts,
 	type ResearchField
 } from './distilleryResearch';
-import { listReleasedDistilleryNames, listRevealedDistilleryNames } from './tastings';
+import type { VariantCall } from './distilleryVariants';
+import {
+	listReleasedDistilleryNames,
+	listRevealedDistilleryBottles,
+	type DistilleryBottle
+} from './tastings';
 
 type Db = BetterSQLite3Database<typeof Schema>;
 type DistilleryRow = typeof distillery.$inferSelect;
@@ -80,6 +94,12 @@ function researchable(state: DistilleryValueState, mode: ResearchMode): boolean 
 	return state === 'pending' || (mode === 'manual' && state === 'empty');
 }
 
+// Found or set by the admin: a value that stays for good.
+function known(row: DistilleryRow | undefined, field: ResearchField): boolean {
+	const state = stateOf(row, field);
+	return state === 'found' || state === 'admin';
+}
+
 /**
  * The values of one distillery to look for. A found or admin-set value never
  * is; the region only with a known Scotland or a country looked for alongside.
@@ -95,16 +115,6 @@ function fieldsToResearch(
 		return field !== 'region' || country || knownCountry === SCOTLAND;
 	});
 	return { fields, knownCountry: country ? null : knownCountry };
-}
-
-// Distinct name keys in the given order, without placeholders: key → first spelling.
-function namesByKey(names: string[]): Map<string, string> {
-	const byKey = new Map<string, string>();
-	for (const name of names) {
-		const key = nameKey(name);
-		if (key && !isPlaceholderDistillery(name) && !byKey.has(key)) byKey.set(key, name.trim());
-	}
-	return byKey;
 }
 
 function rowsByKey(db: Db, keys: string[]): Map<string, DistilleryRow> {
@@ -141,7 +151,7 @@ export function researchTargets(
 	mode: ResearchMode,
 	now: Date = new Date()
 ): ResearchTarget[] {
-	const names = namesByKey(listReleasedDistilleryNames(db, now));
+	const names = distinctDistilleryNames(listReleasedDistilleryNames(db, now));
 	const keys = [...names.keys()];
 	const rows = rowsByKey(db, keys);
 	const researchedAt = lastResearched(db, keys);
@@ -240,13 +250,27 @@ export function recordResearchCall(
 		.run();
 }
 
-/** Estimated costs of all research calls so far, also discarded ones and hidden distilleries. */
+/** Stores one API response of the variant search with its costs, also one without a result. */
+export function recordVariantCall(db: Db, call: VariantCall, now: Date = new Date()): void {
+	db.insert(distilleryVariantCall)
+		.values({ ...call, createdAt: now })
+		.run();
+}
+
+/**
+ * Estimated costs of all calls so far: the research (also discarded ones and
+ * hidden distilleries) and the variant search.
+ */
 export function getTotalResearchCost(db: Db): number {
-	const row = db
+	const research = db
 		.select({ total: sql<number>`coalesce(sum(${distilleryResearchCall.costMicroUsd}), 0)` })
 		.from(distilleryResearchCall)
 		.get();
-	return row?.total ?? 0;
+	const variants = db
+		.select({ total: sql<number>`coalesce(sum(${distilleryVariantCall.costMicroUsd}), 0)` })
+		.from(distilleryVariantCall)
+		.get();
+	return (research?.total ?? 0) + (variants?.total ?? 0);
 }
 
 // ── Research rules ────────────────────────────────────────────────────────
@@ -290,18 +314,29 @@ function fact<T>(row: DistilleryRow | undefined, field: ResearchField): Distille
 	};
 }
 
-// Only distilleries of revealed tastings: name keys and display names of
-// unrevealed bottles must not reach the admin page (blind for everyone).
-function revealedNames(db: Db, now: Date): Map<string, string> {
-	return namesByKey(listRevealedDistilleryNames(db, now));
+/**
+ * The distilleries of the revealed tastings: name key → first spelling, and
+ * their bottles. Only these: name keys, display names and bottles of
+ * unrevealed tastings must not reach the admin page (blind for everyone).
+ */
+export function revealedDistilleries(db: Db, now: Date = new Date()) {
+	const bottles = listRevealedDistilleryBottles(db, now);
+	const names = distinctDistilleryNames(bottles.map((bottle) => bottle.distillery));
+	const bottlesByKey = new Map<string, DistilleryBottle[]>();
+	for (const bottle of bottles) {
+		const key = nameKey(bottle.distillery);
+		bottlesByKey.set(key, [...(bottlesByKey.get(key) ?? []), bottle]);
+	}
+	return { names, bottlesByKey };
 }
 
 /**
  * The admin's distillery table: every distillery of a revealed tasting with
- * its values and costs. Fields picked explicitly; the region only for Scotland.
+ * its values, costs and the name fields of its bottles. Fields picked
+ * explicitly; the region only for Scotland.
  */
 export function getAdminDistilleries(db: Db, now: Date = new Date()): AdminDistillery[] {
-	const names = revealedNames(db, now);
+	const { names, bottlesByKey } = revealedDistilleries(db, now);
 	const keys = [...names.keys()];
 	const rows = rowsByKey(db, keys);
 	const costs = new Map(
@@ -326,17 +361,44 @@ export function getAdminDistilleries(db: Db, now: Date = new Date()): AdminDisti
 			country: fact<string>(row, 'country'),
 			region: valueOf(row, 'country') === SCOTLAND ? fact<ScottishRegion>(row, 'region') : null,
 			capacity: fact<number>(row, 'capacity'),
-			costMicroUsd: costs.get(key) ?? 0
+			costMicroUsd: costs.get(key) ?? 0,
+			bottles: (bottlesByKey.get(key) ?? []).map((bottle) => ({
+				age: bottle.age,
+				bottling: bottle.bottling,
+				bottler: bottle.bottler
+			}))
 		};
 	});
 }
 
 /**
- * The admin's edit of one row (already validated). Only a changed value
- * changes its state: set → `admin` (without source), cleared → `empty`
+ * The admin's edit of one row's values (already validated). Only a changed
+ * value changes its state: set → `admin` (without source), cleared → `empty`
  * (looked for again by the job's button, after the values never researched).
- * Moving the country away
- * from Scotland makes the region "never researched" again. `false` for a
+ * Moving the country away from Scotland makes the region "never researched"
+ * again.
+ */
+function applyFactsEdit(tx: Executor, key: string, input: DistilleryFacts, now: Date): void {
+	const row = tx.select().from(distillery).where(eq(distillery.nameKey, key)).get();
+	let update: Partial<NewDistillery> = {};
+	const change = (field: ResearchField, value: string | number | null) => {
+		if (value === valueOf(row, field)) return;
+		update = {
+			...update,
+			...columnsFor(field, value, value === null ? 'empty' : 'admin', null, null)
+		};
+	};
+	change('country', input.country);
+	if (input.country === SCOTLAND) change('region', input.region);
+	else if (valueOf(row, 'country') !== input.country) {
+		update = { ...update, ...columnsFor('region', null, 'pending', null, null) };
+	}
+	change('capacity', input.capacity);
+	if (Object.keys(update).length > 0) upsert(tx, key, update, now);
+}
+
+/**
+ * The admin's edit of one row's values (see applyFactsEdit). `false` for a
  * distillery that isn't in the admin's table.
  */
 export function updateDistilleryFacts(
@@ -345,24 +407,127 @@ export function updateDistilleryFacts(
 	input: DistilleryFacts,
 	now: Date = new Date()
 ): boolean {
-	if (!revealedNames(db, now).has(key)) return false;
-	db.transaction((tx) => {
-		const row = tx.select().from(distillery).where(eq(distillery.nameKey, key)).get();
-		let update: Partial<NewDistillery> = {};
-		const change = (field: ResearchField, value: string | number | null) => {
-			if (value === valueOf(row, field)) return;
-			update = {
-				...update,
-				...columnsFor(field, value, value === null ? 'empty' : 'admin', null, null)
-			};
-		};
-		change('country', input.country);
-		if (input.country === SCOTLAND) change('region', input.region);
-		else if (valueOf(row, 'country') !== input.country) {
-			update = { ...update, ...columnsFor('region', null, 'pending', null, null) };
-		}
-		change('capacity', input.capacity);
-		if (Object.keys(update).length > 0) upsert(tx, key, update, now);
-	});
+	if (!revealedDistilleries(db, now).names.has(key)) return false;
+	db.transaction((tx) => applyFactsEdit(tx, key, input, now));
 	return true;
+}
+
+// ── Rename and merge ──────────────────────────────────────────────────────
+
+export type RenameInput = {
+	/** The new distillery name, trimmed and validated. */
+	name: string;
+	/** A brand for the front of the bottlings (trimmed), `null` without. */
+	prefix: string | null;
+	/** The values of the edit form, applied to the old name first. */
+	facts: DistilleryFacts;
+};
+
+/**
+ * - `renamed`: the row moved to the new key
+ * - `merged`: into a distillery that already exists (in the table or as a row)
+ * - `placeholder`: into "Blend" or "Unbekannt", the values are gone
+ * - `respelled`: same name key, only the bottles changed
+ */
+export type RenameStatus = 'renamed' | 'merged' | 'placeholder' | 'respelled';
+
+export type RenameResult =
+	| { status: RenameStatus; bottles: number }
+	| { status: 'not-found' }
+	| { status: 'bottling-too-long' };
+
+// The variant's values the target takes over: every found or admin-set one
+// for which the target has none. A region only if the target's country is
+// Scotland afterwards (CHECK distillery_region_country).
+function mergeInto(tx: Executor, key: string, source: DistilleryRow, now: Date): void {
+	const row = tx.select().from(distillery).where(eq(distillery.nameKey, key)).get();
+	let update: Partial<NewDistillery> = {};
+	let country = valueOf(row, 'country');
+	for (const field of FIELDS) {
+		if (known(row, field) || !known(source, field)) continue;
+		if (field === 'region' && country !== SCOTLAND) continue;
+		const c = COLUMNS[field];
+		update = {
+			...update,
+			...columnsFor(field, source[c.value], source[c.state], source[c.source], source[c.rules])
+		};
+		if (field === 'country') country = source.country;
+	}
+	if (Object.keys(update).length > 0) upsert(tx, key, update, now);
+}
+
+/**
+ * The admin renames a distillery of the revealed tastings (input validated):
+ * every bottle of a revealed tasting with this name key gets the new name,
+ * archived ones included; bottles of tastings not revealed yet stay as they
+ * are. Optionally a brand goes to the front of their bottlings – nothing is
+ * written if one would get too long. The values of the edit form apply to the
+ * old name first; then its row moves to the new key or is merged into the
+ * existing one, and its research calls follow. Not reversible: a later rename
+ * doesn't split merged bottles again.
+ */
+export function renameDistillery(
+	db: Db,
+	key: string,
+	input: RenameInput,
+	now: Date = new Date()
+): RenameResult {
+	const { names, bottlesByKey } = revealedDistilleries(db, now);
+	if (!names.has(key)) return { status: 'not-found' };
+	const bottles = (bottlesByKey.get(key) ?? []).map((bottle) => ({
+		id: bottle.id,
+		bottling:
+			input.prefix === null ? bottle.bottling : applyBrandPrefix(bottle.bottling, input.prefix)
+	}));
+	if (bottles.some((b) => (b.bottling?.length ?? 0) > TASTING_BOTTLING_LENGTH.max)) {
+		return { status: 'bottling-too-long' };
+	}
+
+	const target = nameKey(input.name);
+	const status: RenameStatus =
+		target === key
+			? 'respelled'
+			: isPlaceholderDistillery(input.name)
+				? 'placeholder'
+				: // A row without a revealed bottle (released or orphaned) can't take the key either.
+					names.has(target) || rowsByKey(db, [target]).has(target)
+					? 'merged'
+					: 'renamed';
+
+	db.transaction((tx) => {
+		applyFactsEdit(tx, key, input.facts, now);
+		for (const bottle of bottles) {
+			tx.update(tastingBottle)
+				.set({ distillery: input.name, bottling: bottle.bottling, updatedAt: now })
+				.where(eq(tastingBottle.id, bottle.id))
+				.run();
+		}
+		if (status === 'respelled') return;
+
+		if (status === 'renamed') {
+			tx.update(distillery)
+				.set({ nameKey: target, updatedAt: now })
+				.where(eq(distillery.nameKey, key))
+				.run();
+		} else {
+			const source = tx.select().from(distillery).where(eq(distillery.nameKey, key)).get();
+			if (status === 'merged' && source) mergeInto(tx, target, source, now);
+			tx.delete(distillery).where(eq(distillery.nameKey, key)).run();
+		}
+		// The costs go along: the total stays the same, the target's sum is complete.
+		tx.update(distilleryResearchCall)
+			.set({ nameKey: target })
+			.where(eq(distilleryResearchCall.nameKey, key))
+			.run();
+		// Done with, the variant is gone; rejected pairs stay.
+		tx.delete(distilleryVariantSuggestion)
+			.where(
+				and(
+					eq(distilleryVariantSuggestion.variantKey, key),
+					eq(distilleryVariantSuggestion.status, 'open')
+				)
+			)
+			.run();
+	});
+	return { status, bottles: bottles.length };
 }

@@ -1,45 +1,70 @@
 <script lang="ts">
 	import { ArrowDown, ArrowUp, ArrowUpDown } from '@lucide/svelte';
+	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import ResearchPromptEditor from '$lib/components/ResearchPromptEditor.svelte';
+	import { confirmDialog } from '$lib/components/confirmDialogStore.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import {
+		BOTTLING_TOO_LONG,
 		DISTILLERY_COLUMN_LABELS,
 		DISTILLERY_SORT_KEYS,
 		formatUsd,
+		previewRename,
+		renameMessage,
 		sortDistilleries,
-		type DistillerySortKey
+		VARIANT_KIND_LABELS,
+		type DistillerySortKey,
+		type RenameKind,
+		type RenamePreview
 	} from '$lib/distilleryTable';
 	import type { SortDirection } from '$lib/historyTable';
 	import {
 		formatCapacity,
+		formatCount,
 		formatInteger,
 		type AdminDistillery,
-		type DistilleryFact
+		type DistilleryFact,
+		type DistilleryVariantSuggestion
 	} from '$lib/tasting';
 	import {
 		DISTILLERY_CAPACITY,
 		DISTILLERY_COUNTRY_LENGTH,
 		isHttpUrl,
 		SCOTLAND,
-		SCOTTISH_REGIONS
+		SCOTTISH_REGIONS,
+		TASTING_BOTTLING_LENGTH,
+		TASTING_DISTILLERY_LENGTH
 	} from '$lib/validation';
 
-	type FieldErrors = { country: string | null; region: string | null; capacity: string | null };
+	type FieldErrors = {
+		country: string | null;
+		region: string | null;
+		capacity: string | null;
+		name: string | null;
+		prefix: string | null;
+	};
 
 	let {
 		distilleries,
 		costMicroUsd,
 		prompt,
+		suggestions = [],
+		searchRunning = false,
 		editErrors = null,
 		promptError = null
 	}: {
 		/** Only distilleries of revealed tastings (see getAdminDistilleries). */
 		distilleries: AdminDistillery[];
-		/** All research calls so far, the hidden distilleries included. */
+		/** All calls so far – research and variant search –, the hidden distilleries included. */
 		costMicroUsd: number;
 		prompt: { text: string; custom: boolean };
+		/** Open suggestions of the variant search. */
+		suggestions?: DistilleryVariantSuggestion[];
+		/** A variant search is going on (maybe from before a reload). */
+		searchRunning?: boolean;
 		/** Field errors of the last failed edit and the row it belongs to. */
 		editErrors?: ({ key: string } & FieldErrors) | null;
 		promptError?: string | null;
@@ -65,16 +90,96 @@
 
 	// Inline editing of one row, like the user list (editingId).
 	let editingKey = $state<string | null>(null);
+	let editName = $state('');
+	let withPrefix = $state(false);
+	let editPrefix = $state('');
 	let editCountry = $state('');
 	let editRegion = $state('');
 	let editCapacity = $state('');
+	let nameInput = $state<HTMLInputElement>();
 
-	function edit(distillery: AdminDistillery) {
+	/** Opens the edit of a row, from a suggestion with its target and brand prefix. */
+	function edit(
+		distillery: AdminDistillery,
+		preset: { name: string; prefix: string | null } | null = null
+	) {
 		editingKey = distillery.key;
+		editName = preset?.name ?? distillery.name;
+		withPrefix = (preset?.prefix ?? null) !== null;
+		// The old name, changeable: "Bunnahabhain Stoisha" becomes "Stoisha".
+		editPrefix = preset?.prefix ?? distillery.name;
 		editCountry = distillery.country.value ?? '';
 		editRegion = distillery.region?.value ?? '';
 		editCapacity = distillery.capacity.value === null ? '' : String(distillery.capacity.value);
 	}
+
+	// "Übernehmen": the row may be anywhere in the table – focusing scrolls to it.
+	async function take(suggestion: DistilleryVariantSuggestion) {
+		const distillery = distilleries.find((d) => d.key === suggestion.variantKey);
+		if (!distillery) return;
+		edit(distillery, { name: suggestion.targetName, prefix: suggestion.prefix });
+		await tick();
+		nameInput?.focus();
+	}
+
+	const RENAMED: Record<Exclude<RenameKind, 'unchanged'>, string> = {
+		renamed: 'Destillerie umbenannt',
+		merged: 'Destillerien zusammengeführt',
+		placeholder: 'Als Platzhalter eingetragen',
+		respelled: 'Flaschen geändert'
+	};
+
+	// The same form saves the values (updateDistillery) or, with another name or
+	// a brand prefix, renames (renameDistillery) – see previewRename.
+	const submitEdit: SubmitFunction = () => {
+		return async ({ update, result }) => {
+			await update({ reset: false });
+			if (result.type !== 'success') return;
+			editingKey = null;
+			const renamed = result.data?.renamed as Exclude<RenameKind, 'unchanged'> | undefined;
+			toast.show(
+				'success',
+				renamed
+					? `${RENAMED[renamed]} (${formatCount(Number(result.data?.bottles), 'Flasche', 'Flaschen')}).`
+					: 'Werte gespeichert.'
+			);
+		};
+	};
+
+	// Never without the admin's confirmation, and not with a bottling too long
+	// (the error shows at the prefix field) or a field the browser rejects.
+	function confirmRename(event: MouseEvent, distillery: AdminDistillery, preview: RenamePreview) {
+		const form = (event.currentTarget as HTMLElement).closest('form');
+		if (preview.tooLong || !form?.reportValidity()) return;
+		confirmDialog.submit(event, renameMessage(distillery, preview), {
+			details: preview.bottleNames,
+			variant: 'danger',
+			confirmLabel: preview.kind === 'merged' ? 'Zusammenführen' : 'Umbenennen'
+		});
+	}
+
+	let searching = $state(false);
+
+	// Waits for Claude; failures come as a toast from the page (form.userMessage).
+	const submitSearch: SubmitFunction = () => {
+		searching = true;
+		return async ({ update, result }) => {
+			await update({ reset: false });
+			searching = false;
+			if (result.type !== 'success') return;
+			const added = Number(result.data?.added);
+			if (added > 0) {
+				toast.show('success', `${formatCount(added, 'neuer Vorschlag', 'neue Vorschläge')}.`);
+			} else toast.show('info', 'Keine neuen Vorschläge.');
+		};
+	};
+
+	const submitReject: SubmitFunction = () => {
+		return async ({ update, result }) => {
+			await update({ reset: false });
+			if (result.type === 'success') toast.show('success', 'Vorschlag verworfen.');
+		};
+	};
 
 	function errorsFor(key: string): FieldErrors | null {
 		return editErrors?.key === key ? editErrors : null;
@@ -94,6 +199,8 @@
 		'mt-1 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base focus:border-brand focus:ring-1 focus:ring-brand focus:outline-none disabled:bg-slate-100 disabled:text-slate-400';
 	const buttonClass =
 		'min-h-11 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50';
+	const saveClass =
+		'min-h-11 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover';
 </script>
 
 {#snippet sortIcon(key: DistillerySortKey)}
@@ -171,21 +278,60 @@
 
 {#snippet editForm(d: AdminDistillery)}
 	{@const errors = errorsFor(d.key)}
+	{@const preview = previewRename(distilleries, d, editName, withPrefix ? editPrefix : null)}
+	{@const prefixError = errors?.prefix ?? (preview.tooLong ? BOTTLING_TOO_LONG : null)}
 	<form
 		method="POST"
-		action="?/updateDistillery"
-		use:enhance={() => {
-			return async ({ update, result }) => {
-				await update({ reset: false });
-				if (result.type === 'success') {
-					editingKey = null;
-					toast.show('success', 'Werte gespeichert.');
-				}
-			};
-		}}
+		action={preview.kind === 'unchanged' ? '?/updateDistillery' : '?/renameDistillery'}
+		use:enhance={submitEdit}
 		class="space-y-3"
 	>
 		<input type="hidden" name="key" value={d.key} />
+		<div class="space-y-2">
+			<label class="block text-sm font-medium text-slate-700">
+				Name
+				<input
+					bind:this={nameInput}
+					name="name"
+					bind:value={editName}
+					required
+					maxlength={TASTING_DISTILLERY_LENGTH.max}
+					list="distillery-name-options"
+					class={controlClass}
+				/>
+				{#if errors?.name}
+					<span class="text-xs text-red-600">{errors.name}</span>
+				{/if}
+			</label>
+			<label class="flex min-h-11 items-center gap-2 text-sm text-slate-700">
+				<input
+					type="checkbox"
+					name="withPrefix"
+					bind:checked={withPrefix}
+					class="h-4 w-4 rounded border-slate-300"
+				/>
+				Alten Namen als Marke in die Abfüllung übernehmen
+			</label>
+			{#if withPrefix}
+				<label class="block text-sm font-medium text-slate-700">
+					Präfix der Abfüllung
+					<input
+						name="prefix"
+						bind:value={editPrefix}
+						required
+						maxlength={TASTING_BOTTLING_LENGTH.max}
+						class={controlClass}
+					/>
+					{#if prefixError}
+						<span class="text-xs text-red-600">{prefixError}</span>
+					{/if}
+				</label>
+			{/if}
+			<p class="text-xs text-slate-500">
+				Ein anderer Name gilt für alle Flaschen aufgelöster Tastings. Gibt es ihn schon, werden
+				beide Destillerien zusammengeführt.
+			</p>
+		</div>
 		<div class="grid gap-3 sm:grid-cols-3">
 			<label class="block text-sm font-medium text-slate-700">
 				Land
@@ -236,17 +382,82 @@
 			„Destillerie-Daten“ sucht ihn erneut, aber erst nach den noch nie recherchierten Werten.
 		</p>
 		<div class="flex gap-2">
-			<button
-				type="submit"
-				class="min-h-11 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
-			>
-				Speichern
-			</button>
+			{#if preview.kind === 'unchanged'}
+				<button type="submit" class={saveClass}>Speichern</button>
+			{:else}
+				<button
+					type="button"
+					onclick={(event) => confirmRename(event, d, preview)}
+					class={saveClass}
+				>
+					Speichern
+				</button>
+			{/if}
 			<button type="button" onclick={() => (editingKey = null)} class={buttonClass}>
 				Abbrechen
 			</button>
 		</div>
 	</form>
+{/snippet}
+
+{#snippet variants()}
+	<div class="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+		<div class="flex flex-wrap items-start justify-between gap-3">
+			<div class="min-w-0 flex-1 space-y-1">
+				<h3 class="font-medium">Schreibvarianten</h3>
+				<p class="text-xs text-slate-500">
+					Claude sucht unter den Namen nach Schreibvarianten und Marken. Zusammengeführt wird nur,
+					was du bestätigst.
+				</p>
+			</div>
+			<form method="POST" action="?/suggestVariants" use:enhance={submitSearch}>
+				<button
+					type="submit"
+					disabled={searching || searchRunning}
+					class="{buttonClass} disabled:cursor-not-allowed disabled:opacity-40"
+				>
+					{searching || searchRunning ? 'Suche läuft …' : 'Varianten suchen'}
+				</button>
+			</form>
+		</div>
+		{#if suggestions.length > 0}
+			<ul class="divide-y divide-slate-200 border-t border-slate-200" aria-label="Vorschläge">
+				{#each suggestions as suggestion (suggestion.id)}
+					{@const pair = `${suggestion.variantName} → ${suggestion.targetName}`}
+					<li class="flex flex-wrap items-center justify-between gap-2 py-3 last:pb-0">
+						<div class="min-w-0 flex-1 text-sm">
+							<p class="font-medium break-words">{pair}</p>
+							<p class="text-xs text-slate-500">
+								{[
+									VARIANT_KIND_LABELS[suggestion.kind],
+									suggestion.prefix && `Präfix „${suggestion.prefix}“`,
+									formatCount(suggestion.bottles, 'Flasche', 'Flaschen')
+								]
+									.filter(Boolean)
+									.join(' · ')}
+							</p>
+						</div>
+						<div class="flex gap-2">
+							<button
+								type="button"
+								onclick={() => take(suggestion)}
+								aria-label="{pair} übernehmen"
+								class={buttonClass}
+							>
+								Übernehmen
+							</button>
+							<form method="POST" action="?/rejectVariant" use:enhance={submitReject}>
+								<input type="hidden" name="id" value={suggestion.id} />
+								<button type="submit" aria-label="{pair} verwerfen" class={buttonClass}>
+									Verwerfen
+								</button>
+							</form>
+						</div>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</div>
 {/snippet}
 
 <section class="space-y-4" aria-labelledby="distilleries">
@@ -270,6 +481,15 @@
 	{#if distilleries.length === 0}
 		<p class="text-sm text-slate-500">Noch keine Destillerie aus einem aufgelösten Tasting.</p>
 	{:else}
+		{@render variants()}
+
+		<!-- The names of the table for the name field of the edit: merging without typos. -->
+		<datalist id="distillery-name-options">
+			{#each distilleries as d (d.key)}
+				<option value={d.name}></option>
+			{/each}
+		</datalist>
+
 		<!-- The values in the tiles have no column heading to tap. -->
 		<div class="grid grid-cols-2 gap-3 lg:hidden">
 			<label class="block text-sm font-medium text-slate-700">
