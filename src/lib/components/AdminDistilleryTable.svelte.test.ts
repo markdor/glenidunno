@@ -125,6 +125,33 @@ describe('AdminDistilleryTable', () => {
 		await expect.element(rowOf('Ardbeg').getByText('1.400.000 l A/Jahr').first()).toBeVisible();
 	});
 
+	test('marks a known country the world map has no code for', async () => {
+		const unknown = (key: string, value: string, state: 'found' | 'admin'): AdminDistillery => ({
+			...bushmills,
+			key,
+			name: key,
+			country: { value, state, source: null }
+		});
+		render(
+			AdminDistilleryTable,
+			props({
+				distilleries: [
+					unknown('atlantis', 'Atlantis', 'admin'),
+					unknown('schotland', 'Schotland', 'found'),
+					// Case and synonyms are known.
+					unknown('lowercase', 'schottland', 'admin'),
+					unknown('synonym', 'USA', 'admin'),
+					ardbeg,
+					zuidam
+				]
+			})
+		);
+		const hint = 'Land unbekannt – auf der Karte nicht sichtbar';
+		await expect.element(rowOf('atlantis').getByText(hint)).toBeVisible();
+		await expect.element(rowOf('schotland').getByText(hint)).toBeVisible();
+		expect(page.getByText(hint).elements()).toHaveLength(2);
+	});
+
 	test('tells the state of every value', async () => {
 		render(AdminDistilleryTable, props());
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import type { ResolvedPathname } from '$app/types';
 	import {
 		formatBottleName,
@@ -35,6 +36,8 @@
 		{
 			label: 'Länder',
 			value: formatInteger(overview.countries),
+			// The whole tile leads to the world map, which shows them.
+			map: true,
 			// The countries come from the distillery research, which may still be missing some.
 			hint:
 				overview.withoutCountry > 0
@@ -76,9 +79,27 @@
 		class="grid grid-cols-2 gap-3 sm:grid-cols-3 max-sm:[&>:last-child:nth-child(odd)]:col-span-2"
 	>
 		{#each tiles as tile (tile.label)}
-			<div class="flex flex-col rounded-xl border border-slate-200 bg-white p-4">
+			<div
+				class={[
+					'relative flex flex-col rounded-xl border border-slate-200 bg-white p-4',
+					tile.map && 'hover:bg-slate-100'
+				]}
+			>
 				<dt class="text-sm text-slate-500">{tile.label}</dt>
-				<dd class="text-2xl font-semibold tracking-tight">{tile.value}</dd>
+				<dd class="text-2xl font-semibold tracking-tight">
+					{#if tile.map}
+						<!-- A link can't wrap dt and dd: it stretches over the tile instead. -->
+						<a
+							href={resolve('/map')}
+							aria-label="{tile.value} {tile.label} auf der Weltkarte"
+							class="after:absolute after:inset-0 after:rounded-xl"
+						>
+							{tile.value}
+						</a>
+					{:else}
+						{tile.value}
+					{/if}
+				</dd>
 				{#if tile.hint}
 					<dd class="text-xs text-slate-500">{tile.hint}</dd>
 				{/if}

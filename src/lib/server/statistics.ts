@@ -21,6 +21,7 @@ import {
 	type StatisticsBottle
 } from '$lib/tasting';
 import { whiskybaseId } from '$lib/validation';
+import { countryCode } from '$lib/countries';
 import {
 	groupByName,
 	isPlaceholderDistillery,
@@ -127,13 +128,13 @@ function record(entries: Entry[], value: (entry: Entry) => number): BottleRecord
 }
 
 /**
- * The country of the bottle's distillery, grouped like the names (ignoring
- * case). `null` while unknown and for the placeholders, which are no
- * distillery.
+ * The country code of the bottle's distillery (countryCode(): the same mapping
+ * as the world map, so both count the same countries). `null` while unknown,
+ * for a name without a code and for the placeholders, which are no distillery.
  */
 function countryKey(entry: Entry): string | null {
 	const { distillery, country } = entry.input;
-	return country === null || isPlaceholderDistillery(distillery) ? null : nameKey(country);
+	return country === null || isPlaceholderDistillery(distillery) ? null : countryCode(country);
 }
 
 function countries(entries: Entry[]): number {

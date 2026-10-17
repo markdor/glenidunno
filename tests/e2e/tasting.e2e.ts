@@ -188,6 +188,19 @@ test.describe('Tasting – Ablauf', () => {
 			await expectNoLinkOnAdminPage();
 		});
 
+		await test.step('Destillerien: Land und Region der Flasche für die Weltkarte setzen', async () => {
+			// Without an API key nothing is researched here: the admin sets the facts.
+			await page.goto('/admin');
+			await page.getByRole('button', { name: 'Bruichladdich bearbeiten' }).click();
+			const form = page.locator('form:has(input[name="country"])');
+			await form.getByLabel('Land', { exact: true }).fill('Schottland');
+			// By name: the label's text includes the options of the select inside it.
+			await form.locator('select[name="region"]').selectOption('Islay');
+			await form.getByRole('button', { name: 'Speichern', exact: true }).click();
+			await expect(page.getByText('Werte gespeichert.')).toBeVisible();
+			await expect(page.getByText('Land unbekannt – auf der Karte nicht sichtbar')).toHaveCount(0);
+		});
+
 		const pageScrollsSideways = () =>
 			page.evaluate(
 				() => document.documentElement.scrollWidth > document.documentElement.clientWidth
@@ -277,6 +290,23 @@ test.describe('Tasting – Ablauf', () => {
 			await expect(row).toBeInViewport();
 			await expect(row).toHaveClass(/bg-slate-100/);
 		});
+
+		await test.step('Weltkarte: Schottland zeigt den Whisky, Islay die Brennerei, bei 360 px kein horizontales Scrollen', async () => {
+			// Reached via the dashboard tile; the geometry is a static asset of the
+			// built app, loaded after mounting – the badges come with it.
+			await page.goto('/');
+			await page.getByRole('link', { name: 'Weltkarte' }).click();
+			await expect(page).toHaveURL(/\/map$/);
+			await expect(page.getByRole('button', { name: 'Schottland: 1 Whisky' })).toBeVisible();
+			await page.getByRole('button', { name: 'Regionen zeigen' }).click();
+			await expect(page.getByRole('button', { name: 'Islay: 1 Brennerei' })).toBeVisible();
+
+			const viewport = page.viewportSize();
+			await page.setViewportSize({ width: 360, height: 800 });
+			await expect(page.getByRole('button', { name: 'Islay: 1 Brennerei' })).toBeVisible();
+			expect(await pageScrollsSideways()).toBe(false);
+			if (viewport) await page.setViewportSize(viewport);
+		});
 	});
 });
 
@@ -292,6 +322,7 @@ test.describe('Tasting – Zugriff ohne Login', () => {
 		'/tasting',
 		'/statistics',
 		'/history',
+		'/map',
 		UNKNOWN_SLUG_LINK,
 		`${UNKNOWN_SLUG_LINK}/presentation/some-id`,
 		`${UNKNOWN_SLUG_LINK}/presentation/some-id/pdf`,

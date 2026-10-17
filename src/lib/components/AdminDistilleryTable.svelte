@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { ArrowDown, ArrowUp, ArrowUpDown } from '@lucide/svelte';
+	import { ArrowDown, ArrowUp, ArrowUpDown, CircleAlert } from '@lucide/svelte';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import ResearchPromptEditor from '$lib/components/ResearchPromptEditor.svelte';
+	import { countryCode } from '$lib/countries';
 	import { confirmDialog } from '$lib/components/confirmDialogStore.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import {
@@ -250,8 +251,17 @@
 	{/if}
 {/snippet}
 
+<!-- A known country the world map has no code for counts for no country
+     there nor in the statistics: corrected with the edit, or a synonym in
+     src/lib/countries.ts. -->
 {#snippet country(d: AdminDistillery)}
 	{@render fact(d.country, d.country.value ?? '')}
+	{#if d.country.value !== null && countryCode(d.country.value) === null}
+		<span class="mt-1 flex items-start gap-1 text-xs font-medium text-red-700">
+			<CircleAlert size={14} strokeWidth={2} class="mt-px shrink-0" aria-hidden="true" />
+			Land unbekannt – auf der Karte nicht sichtbar
+		</span>
+	{/if}
 {/snippet}
 
 <!-- Empty for any other country: there is no region, not even a state. -->

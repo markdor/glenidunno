@@ -80,10 +80,10 @@ describe('Start page', () => {
 		await expect.element(page.getByText('Kein Tasting geplant.')).toBeVisible();
 		await expect.element(page.getByText('Noch kein Tasting aufgelöst.')).toBeVisible();
 		// Only the tiles.
-		expect(hrefs()).toEqual(['/history', '/statistics']);
+		expect(hrefs()).toEqual(['/history', '/statistics', '/map']);
 	});
 
-	test('links everybody to the history and the statistics, no section is still to come', async () => {
+	test('links everybody to the history, the statistics and the world map, no section is still to come', async () => {
 		render(Page, { data: { user, ...bothTastings, tastingSummary: null } });
 		for (const title of COMING_SOON) {
 			await expect.element(page.getByText(title, { exact: true })).toBeVisible();
@@ -95,12 +95,16 @@ describe('Start page', () => {
 		await expect
 			.element(page.getByRole('link', { name: 'Statistiken' }))
 			.toHaveAttribute('href', '/statistics');
+		await expect
+			.element(page.getByRole('link', { name: 'Weltkarte' }))
+			.toHaveAttribute('href', '/map');
 		// Besides the two cards only the tiles link for non-admins: no admin card.
 		expect(hrefs()).toEqual([
 			'/tasting/fluffy-otter',
 			'/tasting/sleepy-panda',
 			'/history',
-			'/statistics'
+			'/statistics',
+			'/map'
 		]);
 		expect(page.getByText('Tasting-Verwaltung').elements()).toHaveLength(0);
 		for (const removed of ['Neues Tasting', 'Abgeschlossene Tastings']) {
@@ -125,7 +129,8 @@ describe('Start page', () => {
 			'/tasting/sleepy-panda',
 			'/admin/tastings',
 			'/history',
-			'/statistics'
+			'/statistics',
+			'/map'
 		]);
 		expect(page.getByText('Demnächst').elements()).toHaveLength(COMING_SOON.length);
 	});
@@ -135,7 +140,7 @@ describe('Start page', () => {
 		await expect.element(page.getByRole('link', { name: /Tasting-Verwaltung/ })).toBeVisible();
 		await expect.element(page.getByRole('heading', { name: 'Nächstes Tasting' })).toBeVisible();
 		await expect.element(page.getByText('Noch kein Tasting aufgelöst.')).toBeVisible();
-		expect(hrefs()).toEqual(['/admin/tastings', '/history', '/statistics']);
+		expect(hrefs()).toEqual(['/admin/tastings', '/history', '/statistics', '/map']);
 	});
 
 	test('shows the not-found notice as an info toast and drops it from the URL', async () => {

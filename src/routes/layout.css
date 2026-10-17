@@ -41,4 +41,20 @@
 	   reaches 6.8:1, on the hover shade 9.1:1. */
 	--color-brand: #7d5212;
 	--color-brand-hover: #65410f;
+
+	/* World map (/map): a muted cool sea, so land and sea tell apart, and land
+	   without whisky in a light cream. The four levels are one sequential ramp
+	   (OKLCH hue 74° → 52°, light → dark, the darkest near the brand amber),
+	   checked with the dataviz skill's validator against the land: monotone,
+	   steps >= 0.06 apart in lightness, the lightest at 2.03:1 – a country with
+	   one whisky stands out from one without. Against the sea the light end
+	   stays below 2:1 by necessity (a sea that light would merge with the land);
+	   hue and the coastline keep them apart there. The ramp of the issue's
+	   mockup (light end #f1d59c) failed with 1.26:1 against the land. */
+	--color-map-sea: #d6e1e0;
+	--color-map-land: #f5f0e7;
+	--color-map-1: #dd9f42;
+	--color-map-2: #c37b26;
+	--color-map-3: #a25c1b;
+	--color-map-4: #7b4016;
 }
