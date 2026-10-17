@@ -232,8 +232,8 @@
 			</label>
 		</div>
 		<p class="text-xs text-slate-500">
-			Ein gesetzter Wert bleibt, ein geleerter gilt als „nicht gefunden“ und wird beim nächsten „Neu
-			starten“ wieder gesucht.
+			Ein gesetzter Wert bleibt. Ein geleerter gilt als „nicht gefunden“: Der Job
+			„Destillerie-Daten“ sucht ihn erneut, aber erst nach den noch nie recherchierten Werten.
 		</p>
 		<div class="flex gap-2">
 			<button

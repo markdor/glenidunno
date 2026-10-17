@@ -332,7 +332,7 @@
 								value={job.batchSizes[0]}
 								disabled={job.status === 'running'}
 								aria-label="Umfang: {job.title}"
-								class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+								class="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-base text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
 							>
 								{#each job.batchSizes as size (size)}
 									<option value={size}>Nächste {size}</option>
@@ -344,7 +344,7 @@
 							type="submit"
 							disabled={job.status === 'running'}
 							aria-label="{restartLabel}: {job.title}"
-							class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+							class="min-h-11 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							{restartLabel}
 						</button>

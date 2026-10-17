@@ -113,10 +113,28 @@ function rowsByKey(db: Db, keys: string[]): Map<string, DistilleryRow> {
 	return new Map(rows.map((row) => [row.nameKey, row]));
 }
 
+// When each distillery was last sent to the API (its latest research call),
+// in seconds; missing if never.
+function lastResearched(db: Db, keys: string[]): Map<string, number> {
+	if (keys.length === 0) return new Map();
+	const rows = db
+		.select({
+			key: distilleryResearchCall.nameKey,
+			at: sql<number>`max(${distilleryResearchCall.createdAt})`
+		})
+		.from(distilleryResearchCall)
+		.where(inArray(distilleryResearchCall.nameKey, keys))
+		.groupBy(distilleryResearchCall.nameKey)
+		.all();
+	return new Map(rows.map((row) => [row.key, row.at]));
+}
+
 /**
  * The distilleries of released tastings that still have a value to look for:
- * those with a value never researched first, then the ones touched longest
- * ago – a limited run doesn't take the same values not found every time.
+ * those with a value never researched first, then the rest; within both the
+ * ones researched longest ago first. The time of the last research, not of the
+ * last change: an admin's edit doesn't push a value back, and a limited run
+ * takes neither the same values not found nor the same failing ones every time.
  */
 export function researchTargets(
 	db: Db,
@@ -124,18 +142,19 @@ export function researchTargets(
 	now: Date = new Date()
 ): ResearchTarget[] {
 	const names = namesByKey(listReleasedDistilleryNames(db, now));
-	const rows = rowsByKey(db, [...names.keys()]);
+	const keys = [...names.keys()];
+	const rows = rowsByKey(db, keys);
+	const researchedAt = lastResearched(db, keys);
 	return [...names]
 		.flatMap(([key, name]) => {
 			const row = rows.get(key);
 			const target = fieldsToResearch(row, mode);
 			if (target.fields.length === 0) return [];
 			// Never researched: what the timer would look for, too.
-			const neverResearched = !row || fieldsToResearch(row, 'pending').fields.length > 0;
-			const rank = neverResearched ? 0 : row.updatedAt.getTime();
-			return [{ target: { key, name, ...target }, rank }];
+			const group = !row || fieldsToResearch(row, 'pending').fields.length > 0 ? 0 : 1;
+			return [{ target: { key, name, ...target }, group, at: researchedAt.get(key) ?? 0 }];
 		})
-		.sort((a, b) => a.rank - b.rank)
+		.sort((a, b) => a.group - b.group || a.at - b.at)
 		.map(({ target }) => target);
 }
 
@@ -315,7 +334,8 @@ export function getAdminDistilleries(db: Db, now: Date = new Date()): AdminDisti
 /**
  * The admin's edit of one row (already validated). Only a changed value
  * changes its state: set → `admin` (without source), cleared → `empty`
- * (looked for again with the next "Neu starten"). Moving the country away
+ * (looked for again by the job's button, after the values never researched).
+ * Moving the country away
  * from Scotland makes the region "never researched" again. `false` for a
  * distillery that isn't in the admin's table.
  */

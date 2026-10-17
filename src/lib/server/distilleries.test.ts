@@ -224,29 +224,32 @@ describe('researchTargets', () => {
 		]);
 	});
 
-	it('puts the values never researched first, then the ones touched longest ago', () => {
+	it('puts the values never researched first, then the rest, each by the last research', () => {
 		tasting('more', '2026-10-02', [
 			['u-anna', 1, 'Lagavulin'],
 			['u-anna', 2, 'Glenfarclas']
 		]);
 		// Nothing found: the region of an unknown country was never looked for either.
 		const notFound = { countryState: 'empty', capacityState: 'empty' } as const;
-		seedRow('ardbeg', { ...notFound, updatedAt: new Date('2026-10-10T10:00:00Z') });
-		seedRow('bushmills', { ...notFound, updatedAt: new Date('2026-10-05T10:00:00Z') });
-		// The region is still never researched, despite the recent row.
+		// Cleared by the admin just now, but researched longest ago: the edit doesn't count.
+		seedRow('ardbeg', { ...notFound, updatedAt: new Date('2026-10-15T10:00:00Z') });
+		recordResearchCall(db, 'ardbeg', call(1), new Date('2026-10-05T10:00:00Z'));
+		seedRow('bushmills', notFound);
+		recordResearchCall(db, 'bushmills', call(1), new Date('2026-10-10T10:00:00Z'));
+		// The region is still never researched, after an earlier research.
 		seedRow('lagavulin', {
 			country: 'Schottland',
 			countryState: 'found',
 			capacity: 1_000,
-			capacityState: 'admin',
-			updatedAt: new Date('2026-10-12T10:00:00Z')
+			capacityState: 'admin'
 		});
+		recordResearchCall(db, 'lagavulin', call(1), new Date('2026-10-12T10:00:00Z'));
 
 		expect(researchTargets(db, 'manual', NOW).map((t) => t.key)).toEqual([
-			'lagavulin',
 			'glenfarclas',
-			'bushmills',
-			'ardbeg'
+			'lagavulin',
+			'ardbeg',
+			'bushmills'
 		]);
 	});
 
