@@ -5,12 +5,19 @@ import {
 	integer,
 	real,
 	check,
+	index,
 	uniqueIndex,
 	type SQLiteColumn
 } from 'drizzle-orm/sqlite-core';
 // Relative import on purpose: drizzle-kit loads this file outside of Vite and
 // doesn't know the $lib alias.
 import {
+	DISTILLERY_CAPACITY,
+	DISTILLERY_COUNTRY_LENGTH,
+	DISTILLERY_SOURCE_LENGTH,
+	DISTILLERY_VALUE_STATES,
+	SCOTLAND,
+	SCOTTISH_REGIONS,
 	TASTING_ABV,
 	TASTING_AGE,
 	TASTING_ALIAS_LENGTH,
@@ -266,6 +273,118 @@ export const startupJob = sqliteTable(
 	},
 	(t) => [check('startup_job_status', sql`${t.status} IN ('running', 'succeeded', 'failed')`)]
 );
+
+// ── Distilleries ────────────────────────────────────────────────────────────
+// Facts per distillery, researched by the Claude API (distilleryResearch.ts),
+// imported with the history or set by the admin. Linked to the bottles only by
+// nameKey(tasting_bottle.distillery) = name_key, computed in JS – no foreign
+// key, the bottle keeps its free text (see CLAUDE.md, Destillerie-Recherche).
+
+// String constants only (states, regions): quoted for an inline IN list.
+function inList(column: SQLiteColumn, values: readonly string[]): SQL {
+	return sql`${column} IN (${sql.raw(values.map((value) => `'${value}'`).join(', '))})`;
+}
+
+// Per value: the state from the list, a value exactly for `found`/`admin`,
+// source and rules hash only for `found` (the admin's value has none).
+function factChecks(
+	name: string,
+	value: SQLiteColumn,
+	state: SQLiteColumn,
+	source: SQLiteColumn,
+	rules: SQLiteColumn
+) {
+	return [
+		check(`distillery_${name}_state`, inList(state, DISTILLERY_VALUE_STATES)),
+		check(
+			`distillery_${name}_value_state`,
+			sql`(${value} IS NOT NULL) = (${state} IN ('found', 'admin'))`
+		),
+		check(
+			`distillery_${name}_source_state`,
+			sql`(${source} IS NULL AND ${rules} IS NULL) OR ${state} = 'found'`
+		),
+		check(`distillery_${name}_source_length`, lengthUpTo(source, DISTILLERY_SOURCE_LENGTH.max))
+	];
+}
+
+// No row means "never researched" for all values. A row appears with the
+// first successful research or the history import.
+export const distillery = sqliteTable(
+	'distillery',
+	{
+		nameKey: text('name_key').primaryKey(),
+		country: text('country'),
+		countryState: text('country_state', { enum: DISTILLERY_VALUE_STATES })
+			.notNull()
+			.default('pending'),
+		countrySource: text('country_source'),
+		// Short hash of the research rules that found the value, null when imported.
+		countryRules: text('country_rules'),
+		region: text('region', { enum: SCOTTISH_REGIONS }),
+		regionState: text('region_state', { enum: DISTILLERY_VALUE_STATES })
+			.notNull()
+			.default('pending'),
+		regionSource: text('region_source'),
+		regionRules: text('region_rules'),
+		capacity: integer('capacity'),
+		capacityState: text('capacity_state', { enum: DISTILLERY_VALUE_STATES })
+			.notNull()
+			.default('pending'),
+		capacitySource: text('capacity_source'),
+		capacityRules: text('capacity_rules'),
+		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
+	},
+	(t) => [
+		...factChecks('country', t.country, t.countryState, t.countrySource, t.countryRules),
+		...factChecks('region', t.region, t.regionState, t.regionSource, t.regionRules),
+		...factChecks('capacity', t.capacity, t.capacityState, t.capacitySource, t.capacityRules),
+		check('distillery_country_length', lengthUpTo(t.country, DISTILLERY_COUNTRY_LENGTH.max)),
+		check('distillery_region_list', inList(t.region, SCOTTISH_REGIONS)),
+		check(
+			'distillery_region_country',
+			sql`${t.region} IS NULL OR ${t.country} = '${sql.raw(SCOTLAND)}'`
+		),
+		check(
+			'distillery_capacity_range',
+			inRange(t.capacity, DISTILLERY_CAPACITY.min, DISTILLERY_CAPACITY.max)
+		)
+	]
+);
+
+// One row per API response of the research, also per continuation after
+// pause_turn and also without a result: the costs count in any case. Linked
+// by name_key instead of a foreign key, as a call may have no distillery row.
+export const distilleryResearchCall = sqliteTable(
+	'distillery_research_call',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+		nameKey: text('name_key').notNull(),
+		stage: integer('stage').notNull(),
+		model: text('model').notNull(),
+		inputTokens: integer('input_tokens').notNull(),
+		outputTokens: integer('output_tokens').notNull(),
+		cacheCreationInputTokens: integer('cache_creation_input_tokens').notNull(),
+		cacheReadInputTokens: integer('cache_read_input_tokens').notNull(),
+		webSearchRequests: integer('web_search_requests').notNull(),
+		webFetchRequests: integer('web_fetch_requests').notNull(),
+		// Whole micro-dollars at the prices of the call: sums without float noise,
+		// a later price change leaves old amounts alone.
+		costMicroUsd: integer('cost_micro_usd').notNull()
+	},
+	(t) => [
+		index('distillery_research_call_name_key').on(t.nameKey),
+		check('distillery_research_call_stage', sql`${t.stage} IN (1, 2)`)
+	]
+);
+
+// Key-value settings of the app. No row means the default.
+export const appSetting = sqliteTable('app_setting', {
+	key: text('key').primaryKey(),
+	value: text('value').notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
+});
 
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;

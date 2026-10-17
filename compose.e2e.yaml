@@ -11,6 +11,8 @@ services:
       - AUTH_SECRET=e2e-test-secret-please-do-not-deploy-anywhere
       - BASE_URL=http://127.0.0.1:3000
       - MAGIC_LINK_DEBUG_PATH=/e2e-docker/magic-link.log
+      # Never a paid distillery research from "Jetzt auflösen" in e2e runs.
+      - ANTHROPIC_API_KEY=
     volumes:
       - glenidunno-data-e2e:/data
       - glenidunno-media-e2e:/media

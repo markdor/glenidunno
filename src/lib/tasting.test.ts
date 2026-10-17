@@ -8,6 +8,7 @@ import {
 	ABV_LOW_DIVISOR,
 	AGE_HISTOGRAM,
 	formatBottleName,
+	formatCapacity,
 	formatCount,
 	formatDate,
 	formatInteger,
@@ -182,6 +183,13 @@ describe('formatCount', () => {
 		expect(formatCount(1, 'Flasche', 'Flaschen')).toBe('1 Flasche');
 		expect(formatCount(0, 'Flasche', 'Flaschen')).toBe('0 Flaschen');
 		expect(formatCount(1234, 'Flasche', 'Flaschen')).toBe('1.234 Flaschen');
+	});
+});
+
+describe('formatCapacity', () => {
+	it('shows litres of pure alcohol with thousands separators', () => {
+		expect(formatCapacity(2_400_000)).toBe('2.400.000 l A/Jahr');
+		expect(formatCapacity(1)).toBe('1 l A/Jahr');
 	});
 });
 

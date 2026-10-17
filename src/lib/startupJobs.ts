@@ -14,6 +14,10 @@ export type StartupJobOverview = {
 	/** The job's summary or a text safe to show, never an internal error. */
 	message: string | null;
 	progress: { done: number; total: number } | null;
+	/** Never runs after a deployment, only from the button. */
+	manualOnly: boolean;
+	/** The choices next to the button besides "all"; empty: no choice. */
+	batchSizes: readonly number[];
 };
 
 /** `depends()` key of the admin page's job list: polled while a job runs. */

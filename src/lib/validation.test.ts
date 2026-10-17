@@ -1,7 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
+	checkDistilleryFacts,
+	DISTILLERY_CAPACITY,
+	DISTILLERY_COUNTRY_LENGTH,
+	DISTILLERY_SOURCE_LENGTH,
+	isHttpUrl,
+	isScottishRegion,
+	isValidDistillerySource,
 	isValidTastingDate,
 	normalizeWhiskybaseUrl,
+	SCOTLAND,
 	TASTING_WHISKYBASE_URL_LENGTH,
 	whiskybaseId
 } from './validation';
@@ -73,5 +81,86 @@ describe('whiskybaseId', () => {
 		['no URL at all', 'whiskybase.com/whiskies/whisky/12345']
 	])('ignores %s', (_label, value) => {
 		expect(whiskybaseId(value)).toBeNull();
+	});
+});
+
+describe('isHttpUrl', () => {
+	it.each(['https://scotchwhisky.com/whiskypedia/1/ardbeg/', 'http://example.com'])(
+		'accepts %s',
+		(value) => {
+			expect(isHttpUrl(value)).toBe(true);
+		}
+	);
+
+	it.each(['javascript:alert(1)', 'ftp://example.com/x', 'data:text/html,x', 'not a url', ''])(
+		'rejects %s',
+		(value) => {
+			expect(isHttpUrl(value)).toBe(false);
+		}
+	);
+});
+
+describe('isValidDistillerySource', () => {
+	it('limits the length of a source link', () => {
+		const base = 'https://example.com/';
+		const longest = base + 'a'.repeat(DISTILLERY_SOURCE_LENGTH.max - base.length);
+		expect(isValidDistillerySource(longest)).toBe(true);
+		expect(isValidDistillerySource(`${longest}a`)).toBe(false);
+		expect(isValidDistillerySource('javascript:alert(1)')).toBe(false);
+	});
+});
+
+describe('isScottishRegion', () => {
+	it('knows the six regions in German spelling', () => {
+		expect(isScottishRegion('Islay')).toBe(true);
+		expect(isScottishRegion('Inseln')).toBe(true);
+		expect(isScottishRegion('Islands')).toBe(false);
+		expect(isScottishRegion('islay')).toBe(false);
+	});
+});
+
+describe('checkDistilleryFacts', () => {
+	const none = { country: null, region: null, capacity: null };
+
+	it('accepts no values at all', () => {
+		expect(checkDistilleryFacts(none)).toEqual({});
+	});
+
+	it('accepts a Scottish distillery with region and capacity', () => {
+		expect(
+			checkDistilleryFacts({ country: SCOTLAND, region: 'Islay', capacity: 2_400_000 })
+		).toEqual({});
+	});
+
+	it('takes the country as free text within its length', () => {
+		expect(checkDistilleryFacts({ ...none, country: 'Japan' })).toEqual({});
+		const longest = 'x'.repeat(DISTILLERY_COUNTRY_LENGTH.max);
+		expect(checkDistilleryFacts({ ...none, country: longest })).toEqual({});
+		expect(checkDistilleryFacts({ ...none, country: `${longest}x` })).toEqual({
+			country: 'invalid'
+		});
+		expect(checkDistilleryFacts({ ...none, country: '' })).toEqual({ country: 'invalid' });
+		expect(checkDistilleryFacts({ ...none, country: ' Japan' })).toEqual({ country: 'invalid' });
+	});
+
+	it('allows a region only for exactly Schottland', () => {
+		expect(checkDistilleryFacts({ ...none, country: 'Irland', region: 'Islay' })).toEqual({
+			region: 'invalid'
+		});
+		expect(checkDistilleryFacts({ ...none, region: 'Islay' })).toEqual({ region: 'invalid' });
+		expect(checkDistilleryFacts({ ...none, country: 'schottland', region: 'Islay' })).toEqual({
+			region: 'invalid'
+		});
+		expect(checkDistilleryFacts({ ...none, country: SCOTLAND, region: 'Skye' })).toEqual({
+			region: 'invalid'
+		});
+	});
+
+	it('takes the capacity as a whole number in range', () => {
+		expect(checkDistilleryFacts({ ...none, capacity: DISTILLERY_CAPACITY.min })).toEqual({});
+		expect(checkDistilleryFacts({ ...none, capacity: DISTILLERY_CAPACITY.max })).toEqual({});
+		for (const capacity of [0, -5, DISTILLERY_CAPACITY.max + 1, 1.5, Number.NaN]) {
+			expect(checkDistilleryFacts({ ...none, capacity })).toEqual({ capacity: 'invalid' });
+		}
 	});
 });

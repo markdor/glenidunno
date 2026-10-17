@@ -2,7 +2,8 @@
 // checks a history.json (format: see the issue) and, only with --apply, writes
 // its tastings as archived tastings (tasting_bottle.archived = 1, no smoke,
 // cask and value) in a single transaction, each bottle with its own copy of
-// its presentation in MEDIA_PATH.
+// its presentation in MEDIA_PATH. Version 2 adds the facts per distillery
+// (#39), written as researched values in the same transaction.
 //
 //   npm run db:import-history -- <path/history.json>           # dry run
 //   npm run db:import-history -- <path/history.json> --apply   # import
@@ -21,9 +22,9 @@
 // against the schema of this checkout, so it refuses a database whose
 // __drizzle_migrations doesn't match drizzle/meta/_journal.json – after the
 // next migration it aborts until it's adapted. Also unlike seed-test-tasting.ts
-// it imports from src/: validation.ts and presentationFiles.ts have no imports
-// and no TS syntax Node's type stripping can't erase, so they load with their
-// .ts extension. What it needs from modules that don't (tastings.ts,
+// it imports from src/: validation.ts, presentationFiles.ts and
+// distilleryNames.ts have no imports and no TS syntax Node's type stripping
+// can't erase, so they load with their .ts extension. What it needs from modules that don't (tastings.ts,
 // tastingPhase.ts, tastingMedia.ts, db/schema.ts) is rebuilt here.
 
 import { randomUUID } from 'node:crypto';
@@ -41,6 +42,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { parseArgs } from 'node:util';
 import Database from 'better-sqlite3';
 import { resolveDevEnv } from './devEnv.ts';
+import { isPlaceholderDistillery, nameKey } from '../src/lib/server/distilleryNames.ts';
 import {
 	fileNameKey,
 	presentationBaseName,
@@ -50,6 +52,11 @@ import {
 	UPLOAD_TEMP_FILE_RE
 } from '../src/lib/server/presentationFiles.ts';
 import {
+	checkDistilleryFacts,
+	DISTILLERY_CAPACITY,
+	DISTILLERY_COUNTRY_LENGTH,
+	DISTILLERY_SOURCE_LENGTH,
+	isValidDistillerySource,
 	isValidTastingDate,
 	normalizeWhiskybaseUrl,
 	TASTING_ABV,
@@ -64,7 +71,9 @@ import {
 	TASTING_PARTICIPANTS,
 	TASTING_PRESENTATION_MAX_BYTES,
 	TASTING_PRESENTATION_NAME_LENGTH,
-	TASTING_WHISKYBASE_URL_LENGTH
+	TASTING_WHISKYBASE_URL_LENGTH,
+	SCOTLAND,
+	SCOTTISH_REGIONS
 } from '../src/lib/validation.ts';
 
 const USAGE = 'Usage: npm run db:import-history -- <path/history.json> [--apply]';
@@ -112,6 +121,31 @@ type ImportTasting = {
 };
 
 type UserRow = { id: string; username: string; deactivated_at: number | null };
+
+type DistilleryField = 'country' | 'region' | 'capacity';
+const DISTILLERY_FACTS: readonly DistilleryField[] = ['country', 'region', 'capacity'];
+
+/** An imported value with its optional source; missing or null stays "never researched". */
+type ImportFact = { value: string | number; source: string | null };
+
+type ImportDistillery = {
+	where: string;
+	/** nameKey() of the name, the distillery's key in the database. */
+	key: string;
+	name: string;
+	facts: Partial<Record<DistilleryField, ImportFact>>;
+	/** Values the database keeps (found or set by the admin), see planDistilleries. */
+	kept: DistilleryField[];
+};
+
+type DistilleryRow = {
+	country: string | null;
+	country_state: string;
+	region_state: string;
+	capacity_state: string;
+};
+
+type ImportHistory = { tastings: ImportTasting[]; distilleries: ImportDistillery[] };
 
 /** A staged copy of a presentation and the name it gets after the commit. */
 type FileMove = { temp: string; file: string };
@@ -188,7 +222,16 @@ function readHistory(path: string): unknown {
 
 type Fields = Record<string, unknown>;
 
-const HISTORY_FIELDS = ['version', 'tastings'];
+const HISTORY_FIELDS = ['version', 'tastings', 'distilleries'];
+const DISTILLERY_FIELDS = [
+	'name',
+	'country',
+	'region',
+	'capacity',
+	'countrySource',
+	'regionSource',
+	'capacitySource'
+];
 const TASTING_FIELDS = ['date', 'name', 'motto', 'bottles'];
 const BOTTLE_FIELDS = [
 	'broughtBy',
@@ -440,24 +483,113 @@ function checkTasting(
 	return { where, date, name, motto, participants: [...participants.values()], bottles };
 }
 
-function checkHistory(history: unknown, file: string, latestDate: string): ImportTasting[] {
+/**
+ * The facts of one distillery (version 2). The values follow the rules of the
+ * admin's edit (checkDistilleryFacts): the region only with the country
+ * Schottland in the same entry. A source only with its value, http(s) only.
+ */
+function checkDistillery(
+	raw: unknown,
+	where: string,
+	bottleKeys: Set<string>,
+	keys: Map<string, number>,
+	index: number
+): ImportDistillery | null {
+	if (!isFields(raw)) {
+		error(where, 'must be an object');
+		return null;
+	}
+	checkFieldNames(where, raw, DISTILLERY_FIELDS);
+
+	const name = text(where, raw, 'name', true, TASTING_DISTILLERY_LENGTH.max) ?? '';
+	const key = nameKey(name);
+	if (name) {
+		const first = keys.get(key);
+		if (first !== undefined) {
+			error(where, `name "${name}" is also used by distilleries[${first}] (any case)`);
+		} else keys.set(key, index);
+		if (isPlaceholderDistillery(name)) error(where, `"${name}" is a placeholder, not a distillery`);
+		else if (!bottleKeys.has(key)) {
+			error(where, `"${name}" is the distillery of no bottle in this file (any case)`);
+		}
+	}
+
+	const country = text(where, raw, 'country', false, DISTILLERY_COUNTRY_LENGTH.max);
+	const region = text(where, raw, 'region', false);
+	const capacity = raw.capacity ?? null;
+	const invalid = checkDistilleryFacts({
+		country,
+		region,
+		capacity: typeof capacity === 'number' ? capacity : null
+	});
+	if (invalid.region) {
+		error(
+			where,
+			`region must be one of ${SCOTTISH_REGIONS.join(', ')}, only with country "${SCOTLAND}"`
+		);
+	}
+	const validCapacity = capacity === null || (typeof capacity === 'number' && !invalid.capacity);
+	if (!validCapacity) {
+		error(
+			where,
+			`capacity must be null or a whole number from ${DISTILLERY_CAPACITY.min} to ${DISTILLERY_CAPACITY.max}`
+		);
+	}
+
+	const values: Record<DistilleryField, string | number | null> = {
+		country,
+		region: invalid.region ? null : region,
+		capacity: validCapacity ? (capacity as number | null) : null
+	};
+	const facts: ImportDistillery['facts'] = {};
+	for (const field of DISTILLERY_FACTS) {
+		const source = text(where, raw, `${field}Source`, false, DISTILLERY_SOURCE_LENGTH.max);
+		if (source !== null && !isValidDistillerySource(source)) {
+			error(where, `${field}Source must be an http(s) link`);
+		}
+		if (source !== null && (raw[field] === undefined || raw[field] === null)) {
+			error(where, `${field}Source without ${field}`);
+		}
+		const value = values[field];
+		if (value !== null) facts[field] = { value, source };
+	}
+	return { where, key, name, facts, kept: [] };
+}
+
+function checkHistory(history: unknown, file: string, latestDate: string): ImportHistory {
 	const where = basename(file);
 	if (!isFields(history)) {
 		error(where, 'must be an object with version and tastings');
-		return [];
+		return { tastings: [], distilleries: [] };
 	}
 	checkFieldNames(where, history, HISTORY_FIELDS);
-	if (history.version !== 1) error(where, 'version must be 1');
+	if (history.version !== 1 && history.version !== 2) error(where, 'version must be 1 or 2');
 	if (!Array.isArray(history.tastings) || history.tastings.length === 0) {
 		error(where, 'tastings must be a non-empty array');
-		return [];
+		return { tastings: [], distilleries: [] };
 	}
 
 	const baseDir = dirname(file);
 	const dates = new Map<string, number>();
-	return history.tastings.flatMap(
+	const tastings = history.tastings.flatMap(
 		(raw: unknown, index: number) => checkTasting(raw, index, baseDir, latestDate, dates) ?? []
 	);
+
+	if (history.distilleries === undefined) return { tastings, distilleries: [] };
+	if (history.version !== 2) error(where, 'distilleries need version 2');
+	if (!Array.isArray(history.distilleries)) {
+		error(where, 'distilleries must be an array');
+		return { tastings, distilleries: [] };
+	}
+	const bottleKeys = new Set(
+		tastings.flatMap((tasting) => tasting.bottles.map((bottle) => nameKey(bottle.distillery)))
+	);
+	const keys = new Map<string, number>();
+	const distilleries = history.distilleries.flatMap(
+		(raw: unknown, index: number) =>
+			checkDistillery(raw, `distilleries[${index}]`, bottleKeys, keys, index) ?? []
+	);
+	return { tastings, distilleries };
 }
 
 // ── Checks against the database ─────────────────────────────────────────────
@@ -561,6 +693,49 @@ function checkExistingTastings(sqlite: Database.Database, tastings: ImportTastin
 	}
 }
 
+// Found or set by the admin: such a value is never overwritten.
+function isDecided(state: string): boolean {
+	return state === 'found' || state === 'admin';
+}
+
+/**
+ * The values the database keeps: a found or admin-set value is never
+ * overwritten, and a region needs Schottland as the country after the import.
+ * With `report` (the checks before writing) each one becomes a warning.
+ */
+function planDistilleries(
+	sqlite: Database.Database,
+	distilleries: ImportDistillery[],
+	report: boolean
+): void {
+	const select = sqlite.prepare(
+		'SELECT country, country_state, region_state, capacity_state FROM distillery WHERE name_key = ?'
+	);
+	for (const distillery of distilleries) {
+		const row = select.get(distillery.key) as DistilleryRow | undefined;
+		const decided = (field: DistilleryField) =>
+			row !== undefined && isDecided(row[`${field}_state`]);
+		distillery.kept = DISTILLERY_FACTS.filter((field) => distillery.facts[field] && decided(field));
+		const country = decided('country')
+			? row!.country
+			: ((distillery.facts.country?.value as string | undefined) ?? null);
+		const regionSkipped =
+			distillery.facts.region !== undefined &&
+			!distillery.kept.includes('region') &&
+			country !== SCOTLAND;
+		if (regionSkipped) distillery.kept.push('region');
+		if (!report) continue;
+		for (const field of distillery.kept) {
+			warn(
+				distillery.where,
+				field === 'region' && regionSkipped
+					? `region skipped, the country in the database is "${country}"`
+					: `${field} is already ${row![`${field}_state`]} in the database and stays`
+			);
+		}
+	}
+}
+
 /** Keys (fileNameKey) of all presentation file names the database uses. */
 function takenFileKeys(sqlite: Database.Database): Set<string> {
 	const files = sqlite
@@ -649,7 +824,7 @@ function removeTempFiles(moves: FileMove[], mediaDir: string): void {
  */
 function writeTastings(
 	sqlite: Database.Database,
-	tastings: ImportTasting[],
+	{ tastings, distilleries }: ImportHistory,
 	users: Map<string, UserRow>
 ): string[] {
 	const now = Math.floor(Date.now() / 1000); // Unix seconds, like every timestamp column
@@ -682,9 +857,26 @@ function writeTastings(
 		    @whiskybaseUrl, NULL, NULL, @abv, NULL, 1, @now, @file, @name)`
 	);
 
+	const insertDistillery = sqlite.prepare(
+		`INSERT INTO distillery (name_key, updated_at) VALUES (?, ?) ON CONFLICT (name_key) DO NOTHING`
+	);
+	// Imported values count as researched ("found", without a rules hash). The
+	// state guard keeps found and admin-set values, the region needs the country.
+	const updateFact = Object.fromEntries(
+		DISTILLERY_FACTS.map((field) => [
+			field,
+			sqlite.prepare(
+				`UPDATE distillery SET ${field} = @value, ${field}_state = 'found',
+				   ${field}_source = @source, ${field}_rules = NULL, updated_at = @now
+				 WHERE name_key = @key AND ${field}_state NOT IN ('found', 'admin')
+				 ${field === 'region' ? `AND country = '${SCOTLAND}'` : ''}`
+			)
+		])
+	) as Record<DistilleryField, Database.Statement>;
+
 	const write = sqlite.transaction((): string[] => {
 		const taken = takenFileKeys(sqlite);
-		return tastings.map((tasting) => {
+		const slugs = tastings.map((tasting) => {
 			const existing = existingSlug.get(tasting.date) as string | undefined;
 			if (existing !== undefined) {
 				throw new Error(`a tasting on ${tasting.date} exists by now (/tasting/${existing})`);
@@ -733,6 +925,18 @@ function writeTastings(
 			}
 			return slug;
 		});
+
+		// Planned again under the write lock, like the tastings are checked again.
+		planDistilleries(sqlite, distilleries, false);
+		for (const distillery of distilleries) {
+			insertDistillery.run(distillery.key, now);
+			for (const field of DISTILLERY_FACTS) {
+				const fact = distillery.facts[field];
+				if (!fact || distillery.kept.includes(field)) continue;
+				updateFact[field].run({ key: distillery.key, value: fact.value, source: fact.source, now });
+			}
+		}
+		return slugs;
 	});
 	return write.immediate();
 }
@@ -762,7 +966,7 @@ function renameTempFiles(moves: FileMove[], mediaDir: string): (FileMove & { rea
 
 /** Per tasting date, participants, bottles and presentations, then the totals. */
 function printSummary(
-	tastings: ImportTasting[],
+	{ tastings, distilleries }: ImportHistory,
 	users: Map<string, UserRow>,
 	slugs?: string[]
 ): void {
@@ -803,9 +1007,21 @@ function printSummary(
 		}
 	});
 
+	if (distilleries.length > 0) console.log('\ndistillery facts (kept: stays as in the database):');
+	const nameWidth = Math.max(0, ...distilleries.map((distillery) => distillery.name.length));
+	for (const distillery of distilleries) {
+		const facts = DISTILLERY_FACTS.flatMap((field) => {
+			const fact = distillery.facts[field];
+			if (!fact) return [];
+			const kept = distillery.kept.includes(field) ? ' (kept)' : '';
+			return [`${field} ${fact.value}${fact.source ? ` <${fact.source}>` : ''}${kept}`];
+		});
+		console.log(`  ${distillery.name.padEnd(nameWidth)}  ${facts.join(', ') || 'no values'}`);
+	}
+
 	console.log(
 		`\n${tastings.length} tastings, ${bottles} bottles, ${copies} presentation copies ` +
-			`of ${sources.size} files (${megabytes(bytes)})`
+			`of ${sources.size} files (${megabytes(bytes)}), ${distilleries.length} distilleries with facts`
 	);
 }
 
@@ -832,11 +1048,13 @@ function run(
 
 	const latestDate = addDays(berlinToday(new Date()), -2);
 	const schemaMatches = checkMigrations(sqlite);
-	const tastings = checkHistory(history, historyPath, latestDate);
+	const checked = checkHistory(history, historyPath, latestDate);
+	const { tastings } = checked;
 	let users = new Map<string, UserRow>();
 	if (schemaMatches) {
 		users = resolveUsers(sqlite, tastings);
 		checkExistingTastings(sqlite, tastings);
+		planDistilleries(sqlite, checked.distilleries, true);
 		if (errors.length === 0) assignFileNames(sqlite, tastings, mediaDir);
 	}
 
@@ -847,7 +1065,7 @@ function run(
 	}
 
 	if (!apply) {
-		printSummary(tastings, users);
+		printSummary(checked, users);
 		console.log('\nDry run, nothing was written. Run again with --apply to import.');
 		return 0;
 	}
@@ -858,7 +1076,7 @@ function run(
 
 	let slugs: string[];
 	try {
-		slugs = writeTastings(sqlite, tastings, users);
+		slugs = writeTastings(sqlite, checked, users);
 	} catch (err) {
 		console.error('\nThe import failed, nothing was written:', err);
 		removeTempFiles(moves, mediaDir);
@@ -866,7 +1084,7 @@ function run(
 	}
 
 	const failed = renameTempFiles(moves, mediaDir);
-	printSummary(tastings, users, slugs);
+	printSummary(checked, users, slugs);
 	if (failed.length > 0) {
 		printList(
 			`The tastings are committed, but ${failed.length} presentation(s) couldn't be renamed in ` +

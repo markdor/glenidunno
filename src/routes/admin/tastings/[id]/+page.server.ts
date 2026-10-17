@@ -1,8 +1,9 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { fail, isActionFailure, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { redirectNotFound, requireAdmin } from '$lib/server/authGuards';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
+import { researchDistilleriesInBackground } from '$lib/server/distilleryResearchJob';
 import { logger } from '$lib/server/logger';
 import type { FileChange } from '$lib/server/presentationFiles';
 import { applyFileChanges } from '$lib/server/tastingMedia';
@@ -111,7 +112,11 @@ export const actions: Actions = {
 
 	reveal: async ({ locals, params }) => {
 		requireAdmin(locals);
-		return changePhase('reveal', () => revealEarly(db, params.id));
+		const result = changePhase('reveal', () => revealEarly(db, params.id));
+		// Revealed before 21:00: its distilleries are released now, not only
+		// with the evening's timer. Not awaited, the admin doesn't wait for it.
+		if (!isActionFailure(result)) researchDistilleriesInBackground(db);
+		return result;
 	},
 
 	delete: async ({ locals, params }) => {

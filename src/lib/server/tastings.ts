@@ -21,6 +21,7 @@ import {
 import { isValidTastingDate, TASTING_BOTTLE_SLOTS, TASTING_MOTTO_LENGTH } from '$lib/validation';
 import type * as Schema from './db/schema';
 import {
+	distillery,
 	tasting,
 	tastingBottle,
 	tastingParticipant,
@@ -28,6 +29,7 @@ import {
 	tastingSlugAnimal,
 	user
 } from './db/schema';
+import { nameKey } from './distilleryNames';
 import {
 	fileNameKey,
 	presentationBaseName,
@@ -35,7 +37,7 @@ import {
 	uniquePresentationFileName,
 	type FileChange
 } from './presentationFiles';
-import { getBerlinToday, getTastingPhase } from './tastingPhase';
+import { getBerlinToday, getTastingPhase, isTastingReleased } from './tastingPhase';
 import { buildStatistics, numberBottles } from './statistics';
 import type { PendingUpload, StoredPresentation } from './tastingMedia';
 import { sortForPouring, type BottleScore } from './tastingScore';
@@ -589,15 +591,89 @@ function revealedBottles(db: Db, userId: string, now: Date) {
 	return { tastings, own, bottles: numberBottles(tastings, rows) };
 }
 
+// All tastings in date order (same-day ones in creation order, see
+// revealedBottles) with what their phase depends on.
+function tastingsInOrder(db: Db) {
+	return db
+		.select({ id: tasting.id, ...phaseColumns })
+		.from(tasting)
+		.orderBy(asc(tasting.tastingDate), asc(tasting.createdAt), sql`${tasting}.rowid`)
+		.all();
+}
+
+// The distillery names of these tastings' bottles in standard order
+// (numberBottles), so the first spelling of a name is the one the statistics
+// show. Nothing else of the bottles leaves the query.
+function distilleryNames(db: Db, tastings: Array<{ id: string }>): string[] {
+	if (tastings.length === 0) return [];
+	const rows = db
+		.select({
+			tastingId: tastingParticipant.tastingId,
+			username: user.username,
+			slot: tastingBottle.slot,
+			distillery: tastingBottle.distillery
+		})
+		.from(tastingBottle)
+		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+		.innerJoin(user, eq(user.id, tastingParticipant.userId))
+		.where(
+			inArray(
+				tastingParticipant.tastingId,
+				tastings.map((t) => t.id)
+			)
+		)
+		.all();
+	return numberBottles(tastings, rows).map((bottle) => bottle.distillery);
+}
+
+/**
+ * Distillery names of the released tastings (isTastingReleased: from 21:00 on
+ * the tasting day or revealed) – what the distillery research may look up.
+ */
+export function listReleasedDistilleryNames(db: Db, now: Date = new Date()): string[] {
+	return distilleryNames(
+		db,
+		tastingsInOrder(db).filter((t) => isTastingReleased(t.tastingDate, now, t))
+	);
+}
+
+/**
+ * Distillery names of the revealed tastings only – what the admin's distillery
+ * table may show, like the statistics and the history.
+ */
+export function listRevealedDistilleryNames(db: Db, now: Date = new Date()): string[] {
+	return distilleryNames(
+		db,
+		tastingsInOrder(db).filter((t) => getTastingPhase(t.tastingDate, now, t) === 'revealed')
+	);
+}
+
 /**
  * The statistics page over all revealed tastings (see revealedBottles):
  * neither slug nor presentation, Whiskybase link or alias – none of the
- * statistics shows them, the history's table does. `null` while nothing is
- * revealed.
+ * statistics shows them, the history's table does. Country and capacity of
+ * the distilleries only of these bottles, like the admin's distillery table.
+ * `null` while nothing is revealed.
  */
 export function getStatistics(db: Db, userId: string, now: Date = new Date()): Statistics | null {
 	const revealed = revealedBottles(db, userId, now);
 	if (!revealed) return null;
+	// The values are null unless found or set by the admin (CHECK in the schema).
+	const keys = [...new Set(revealed.bottles.map((b) => nameKey(b.distillery)))];
+	const facts = new Map(
+		keys.length === 0
+			? []
+			: db
+					.select({
+						key: distillery.nameKey,
+						country: distillery.country,
+						capacity: distillery.capacity
+					})
+					.from(distillery)
+					.where(inArray(distillery.nameKey, keys))
+					.all()
+					.map((row) => [row.key, row])
+	);
 	return buildStatistics(
 		revealed.tastings.map((t) => ({ id: t.id, tastingDate: t.tastingDate })),
 		revealed.bottles.map((b) => ({
@@ -611,6 +687,8 @@ export function getStatistics(db: Db, userId: string, now: Date = new Date()): S
 			age: b.age,
 			abv: b.abv,
 			whiskybaseUrl: b.whiskybaseUrl,
+			country: facts.get(nameKey(b.distillery))?.country ?? null,
+			capacity: facts.get(nameKey(b.distillery))?.capacity ?? null,
 			username: b.username,
 			deactivatedAt: b.deactivatedAt
 		}))

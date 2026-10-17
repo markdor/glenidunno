@@ -27,11 +27,20 @@
 		return value === null ? '–' : `${formatOneDecimal(value)} %`;
 	}
 
+	// Pairs on a phone (the last tile takes the whole row), rows of three above.
 	const tiles = $derived([
 		{ label: 'Tastings', value: formatInteger(overview.tastings) },
 		{ label: 'Flaschen', value: formatInteger(overview.bottles) },
 		{ label: 'Destillerien', value: formatInteger(overview.distilleries) },
-		{ label: 'Zusammen im Fass', value: formatCount(overview.totalAge, 'Jahr', 'Jahre') },
+		{
+			label: 'Länder',
+			value: formatInteger(overview.countries),
+			// The countries come from the distillery research, which may still be missing some.
+			hint:
+				overview.withoutCountry > 0
+					? `${formatCount(overview.withoutCountry, 'Destillerie', 'Destillerien')} ohne Angabe`
+					: undefined
+		},
 		{ label: 'Ø Alkohol', value: percent(overview.meanAbv) },
 		{ label: 'Median Alkohol', value: percent(overview.medianAbv) },
 		{
@@ -42,7 +51,8 @@
 			label: 'NAS-Anteil',
 			value: `${overview.nas.percent} %`,
 			hint: formatCount(overview.nas.count, 'Flasche', 'Flaschen')
-		}
+		},
+		{ label: 'Zusammen im Fass', value: formatCount(overview.totalAge, 'Jahr', 'Jahre') }
 	]);
 
 	const records = $derived([
@@ -62,7 +72,9 @@
 <section class="space-y-3" aria-labelledby="statistics-overview">
 	<h2 id="statistics-overview" class="text-lg font-semibold">Kennzahlen und Rekorde</h2>
 
-	<dl class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+	<dl
+		class="grid grid-cols-2 gap-3 sm:grid-cols-3 max-sm:[&>:last-child:nth-child(odd)]:col-span-2"
+	>
 		{#each tiles as tile (tile.label)}
 			<div class="flex flex-col rounded-xl border border-slate-200 bg-white p-4">
 				<dt class="text-sm text-slate-500">{tile.label}</dt>

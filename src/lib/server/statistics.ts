@@ -13,6 +13,7 @@ import {
 	SAMPLE_SIZE_ML,
 	WHISKY_BOTTLE_ML,
 	type BottleRecord,
+	type CapacityRecord,
 	type PersonMetric,
 	type PersonStatistics,
 	type Share,
@@ -20,13 +21,21 @@ import {
 	type StatisticsBottle
 } from '$lib/tasting';
 import { whiskybaseId } from '$lib/validation';
+import {
+	groupByName,
+	isPlaceholderDistillery,
+	nameKey,
+	PLACEHOLDER_DISTILLERIES
+} from './distilleryNames';
 
 /** A revealed tasting, in date order. */
 export type StatisticsTastingInput = { id: string; tastingDate: string };
 
 /**
  * A bottle of a revealed tasting with the fields the statistics may use. The
- * Whiskybase link only finds the déjà-vus, it doesn't leave the server.
+ * Whiskybase link only finds the déjà-vus, it doesn't leave the server; nor
+ * do country and capacity, the known facts of the bottle's distillery (`null`
+ * while not known), which only leave it aggregated.
  */
 export type StatisticsBottleInput = {
 	tastingId: string;
@@ -37,6 +46,8 @@ export type StatisticsBottleInput = {
 	age: number | null;
 	abv: number;
 	whiskybaseUrl: string | null;
+	country: string | null;
+	capacity: number | null;
 	username: string;
 	deactivatedAt: Date | null;
 };
@@ -68,22 +79,7 @@ export function numberBottles<T extends { tastingId: string; username: string; s
 		.map(({ bottle, tastingIndex }, i) => ({ ...bottle, number: i + 1, tastingIndex }));
 }
 
-/**
- * Placeholders of the tasting history: they stand in the table, but count as
- * a distillery neither in the number of distilleries nor on the podium.
- */
-const PLACEHOLDER_DISTILLERIES = new Set(['blend', 'unbekannt']);
-
 const collator = new Intl.Collator('de');
-
-/** Distilleries and bottlers are grouped by name, ignoring case. */
-function nameKey(name: string): string {
-	return name.trim().toLocaleLowerCase('de-DE');
-}
-
-function isPlaceholder(distillery: string): boolean {
-	return PLACEHOLDER_DISTILLERIES.has(nameKey(distillery));
-}
 
 function sum(values: number[]): number {
 	return values.reduce((total, value) => total + value, 0);
@@ -109,17 +105,6 @@ function share(count: number, total: number): Share {
 	return { count, percent: total > 0 ? Math.round((count / total) * 100) : 0 };
 }
 
-/** Counts per name key; the name shown is the first spelling in standard order. */
-function groupByName(names: string[]): Array<{ name: string; count: number }> {
-	const groups = new Map<string, { name: string; count: number }>();
-	for (const name of names) {
-		const group = groups.get(nameKey(name));
-		if (group) group.count++;
-		else groups.set(nameKey(name), { name: name.trim(), count: 1 });
-	}
-	return [...groups.values()];
-}
-
 /** The names with the highest count, alphabetically. */
 function namesWithCount(groups: Array<{ name: string; count: number }>, count: number): string[] {
 	return groups
@@ -139,6 +124,44 @@ function record(entries: Entry[], value: (entry: Entry) => number): BottleRecord
 	const max = Math.max(...entries.map(value));
 	const holders = entries.filter((entry) => value(entry) === max);
 	return { value: max, number: holders[0].bottle.number, more: holders.length - 1 };
+}
+
+/**
+ * The country of the bottle's distillery, grouped like the names (ignoring
+ * case). `null` while unknown and for the placeholders, which are no
+ * distillery.
+ */
+function countryKey(entry: Entry): string | null {
+	const { distillery, country } = entry.input;
+	return country === null || isPlaceholderDistillery(distillery) ? null : nameKey(country);
+}
+
+function countries(entries: Entry[]): number {
+	return new Set(entries.flatMap((entry) => countryKey(entry) ?? [])).size;
+}
+
+/**
+ * Largest and smallest distillery by known capacity. Only with at least two
+ * different capacities – with a single one, the same distillery would be both.
+ */
+function capacity(entries: Entry[]): Statistics['people']['capacity'] {
+	const sized = entries.filter(
+		(entry) => entry.input.capacity !== null && !isPlaceholderDistillery(entry.input.distillery)
+	);
+	const capacities = sized.map((entry) => entry.input.capacity!);
+	if (new Set(capacities).size < 2) return null;
+
+	const holders = (value: number): CapacityRecord => {
+		const same = sized.filter((entry) => entry.input.capacity === value);
+		return {
+			capacity: value,
+			distilleries: groupByName(same.map((entry) => entry.input.distillery))
+				.map((group) => group.name)
+				.sort(collator.compare),
+			persons: [...new Set(same.map((entry) => entry.bottle.broughtBy))].sort(collator.compare)
+		};
+	};
+	return { largest: holders(Math.max(...capacities)), smallest: holders(Math.min(...capacities)) };
 }
 
 function daysBetween(from: string, to: string): number {
@@ -164,9 +187,10 @@ function people(entries: Entry[], distilleryCounts: Map<string, number>): Statis
 				nas: share(own.length - ages.length, own.length),
 				uniqueDistilleries: own.filter(
 					(entry) =>
-						!isPlaceholder(entry.input.distillery) &&
+						!isPlaceholderDistillery(entry.input.distillery) &&
 						distilleryCounts.get(nameKey(entry.input.distillery)) === 1
 				).length,
+				countries: countries(own),
 				strongest: own.find((entry) => entry.input.abv === strongestAbv)!.bottle.number
 			};
 		});
@@ -176,7 +200,8 @@ function people(entries: Entry[], distilleryCounts: Map<string, number>): Statis
 		caskStrength: (person) => person.caskStrength.percent,
 		independent: (person) => person.independent.percent,
 		meanAge: (person) => person.meanAge,
-		uniqueDistilleries: (person) => person.uniqueDistilleries
+		uniqueDistilleries: (person) => person.uniqueDistilleries,
+		countries: (person) => person.countries
 	};
 	// Ties name everybody; 0 or no value at all is nobody's best (otherwise
 	// everyone without an independent bottler would be the "Indie-Scout").
@@ -188,12 +213,12 @@ function people(entries: Entry[], distilleryCounts: Map<string, number>): Statis
 		})
 	) as Record<PersonMetric, string[]>;
 
-	return { persons, best };
+	return { persons, best, capacity: capacity(entries) };
 }
 
 function distilleries(entries: Entry[], tastings: StatisticsTastingInput[]) {
 	const groups = groupByName(
-		entries.map((entry) => entry.input.distillery).filter((name) => !isPlaceholder(name))
+		entries.map((entry) => entry.input.distillery).filter((name) => !isPlaceholderDistillery(name))
 	);
 	// Dense ranking: several distilleries on one place don't push the next
 	// count off the podium.
@@ -305,6 +330,14 @@ export function buildStatistics(
 		const key = nameKey(entry.input.distillery);
 		distilleryCounts.set(key, (distilleryCounts.get(key) ?? 0) + 1);
 	}
+	// The facts belong to the distillery: all its bottles share them.
+	const withoutCountry = new Set(
+		entries
+			.filter(
+				(entry) => !isPlaceholderDistillery(entry.input.distillery) && countryKey(entry) === null
+			)
+			.map((entry) => nameKey(entry.input.distillery))
+	).size;
 
 	// Pure alcohol per person: per tasting, the whole round drinks one sample
 	// of every bottle per participant, divided by the number of participants
@@ -328,6 +361,8 @@ export function buildStatistics(
 			bottles: entries.length,
 			distilleries: [...distilleryCounts.keys()].filter((key) => !PLACEHOLDER_DISTILLERIES.has(key))
 				.length,
+			countries: countries(entries),
+			withoutCountry,
 			meanAbv: mean(abvs),
 			medianAbv: median(abvs),
 			meanAge: mean(ages),

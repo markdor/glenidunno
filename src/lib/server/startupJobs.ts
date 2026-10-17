@@ -8,8 +8,9 @@ import { logger } from './logger';
 // One-off background jobs after a deployment – work a Drizzle migration can't
 // do: long-running, with files or other services (e.g. the PDFs of all stored
 // presentations). Every job not succeeded yet runs after the start (init hook
-// in hooks.server.ts), one after the other, while the app already serves; the
-// admin page shows them and restarts any of them. A quick change of data only
+// in hooks.server.ts), one after the other, while the app already serves –
+// except the manual ones (e.g. the paid distillery research); the admin page
+// shows them all and (re)starts any of them. A quick change of data only
 // stays a Drizzle custom migration.
 
 type Db = BetterSQLite3Database<typeof Schema>;
@@ -28,6 +29,8 @@ export class StartupJobError extends Error {
 export type StartupJobContext = {
 	/** `startup`: the run after a deployment, `manual`: the admin's button. */
 	trigger: 'startup' | 'manual';
+	/** The admin's choice of `batchSizes`: at most this many items, all without. */
+	limit?: number;
 	/** How far the job is, shown live on the admin page. */
 	progress(done: number, total: number): void;
 };
@@ -37,6 +40,10 @@ export type StartupJob = {
 	id: string;
 	title: string;
 	description: string;
+	/** Never runs after a deployment, only from the admin page's button. */
+	manualOnly?: boolean;
+	/** Offered next to the button besides "all", the choice arrives as `limit`. */
+	batchSizes?: readonly number[];
 	/** Has to be safe to run again. Resolves to a summary for the admin page. */
 	run(context: StartupJobContext): Promise<string>;
 };
@@ -60,7 +67,8 @@ export function isStartupJobRunning(id: string): boolean {
 export async function runStartupJob(
 	db: Db,
 	job: StartupJob,
-	trigger: StartupJobContext['trigger']
+	trigger: StartupJobContext['trigger'],
+	limit?: number
 ): Promise<boolean> {
 	if (active.has(job.id)) return false;
 	active.add(job.id);
@@ -76,11 +84,12 @@ export async function runStartupJob(
 		.values({ id: job.id, ...started })
 		.onConflictDoUpdate({ target: startupJob.id, set: started })
 		.run();
-	logger.info({ job: job.id, trigger }, 'startup job started');
+	logger.info({ job: job.id, trigger, limit }, 'startup job started');
 
 	try {
 		const summary = await job.run({
 			trigger,
+			limit,
 			progress: (done, total) => {
 				db.update(startupJob)
 					.set({ progressDone: done, progressTotal: total })
@@ -114,6 +123,7 @@ function finish(db: Db, id: string, status: 'succeeded' | 'failed', message: str
 /**
  * After the start: every job that hasn't succeeded yet, one after the other
  * – new ones, failed ones (e.g. a service wasn't up yet) and interrupted ones.
+ * Manual jobs wait for the admin's button, also after an interruption.
  */
 export async function runPendingStartupJobs(db: Db, jobs: readonly StartupJob[]): Promise<void> {
 	const rows = db.select({ id: startupJob.id, status: startupJob.status }).from(startupJob).all();
@@ -125,7 +135,7 @@ export async function runPendingStartupJobs(db: Db, jobs: readonly StartupJob[])
 	}
 	const succeeded = new Set(rows.filter((r) => r.status === 'succeeded').map((r) => r.id));
 	for (const job of jobs) {
-		if (!succeeded.has(job.id)) await runStartupJob(db, job, 'startup');
+		if (!succeeded.has(job.id) && !job.manualOnly) await runStartupJob(db, job, 'startup');
 	}
 }
 
@@ -151,7 +161,9 @@ export function getStartupJobOverview(db: Db, jobs: readonly StartupJob[]): Star
 			progress:
 				row && row.progressDone !== null && row.progressTotal !== null
 					? { done: row.progressDone, total: row.progressTotal }
-					: null
+					: null,
+			manualOnly: job.manualOnly ?? false,
+			batchSizes: job.batchSizes ?? []
 		};
 	});
 }

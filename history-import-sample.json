@@ -1,0 +1,86 @@
+{
+	"version": 2,
+	"tastings": [
+		{
+			"date": "2020-11-06",
+			"name": "Tasting November 2020",
+			"motto": null,
+			"bottles": [
+				{
+					"broughtBy": "Anna",
+					"alias": "Nebelhorn",
+					"distillery": "Ardbeg",
+					"bottler": null,
+					"bottling": "Uigeadail",
+					"age": null,
+					"abv": 54.2,
+					"whiskybaseUrl": "https://www.whiskybase.com/whiskies/whisky/12345",
+					"presentation": "Tasting 2020-11-06/Anna.pptx"
+				},
+				{
+					"broughtBy": "Ben",
+					"alias": "Kaminfeuer",
+					"distillery": "Glengoyne",
+					"bottler": "Signatory Vintage",
+					"bottling": "Un-Chillfiltered Collection",
+					"age": 12,
+					"abv": 46,
+					"whiskybaseUrl": null,
+					"presentation": null
+				},
+				{
+					"broughtBy": "Anna",
+					"alias": "Plattenspieler",
+					"distillery": "Blend",
+					"bottler": null,
+					"bottling": "Turntable",
+					"age": null,
+					"abv": 40,
+					"whiskybaseUrl": null,
+					"presentation": null
+				}
+			]
+		},
+		{
+			"date": "2021-03-12",
+			"name": "Tasting März 2021",
+			"motto": "Inselhüpfen",
+			"bottles": [
+				{
+					"broughtBy": "Ben",
+					"alias": "Leuchtturm",
+					"distillery": "Bushmills",
+					"abv": 40
+				},
+				{
+					"broughtBy": "Anna",
+					"alias": "Morgentau",
+					"distillery": "ardbeg",
+					"age": 10,
+					"abv": 46
+				}
+			]
+		}
+	],
+	"distilleries": [
+		{
+			"name": "Ardbeg",
+			"country": "Schottland",
+			"region": "Islay",
+			"capacity": 2400000,
+			"countrySource": "https://en.wikipedia.org/wiki/Ardbeg_distillery",
+			"regionSource": "https://en.wikipedia.org/wiki/Ardbeg_distillery",
+			"capacitySource": "https://en.wikipedia.org/wiki/Ardbeg_distillery"
+		},
+		{
+			"name": "Glengoyne",
+			"country": "Schottland",
+			"region": "Highlands"
+		},
+		{
+			"name": "Bushmills",
+			"country": "Nordirland",
+			"countrySource": "https://en.wikipedia.org/wiki/Old_Bushmills_Distillery"
+		}
+	]
+}

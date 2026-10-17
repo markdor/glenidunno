@@ -19,7 +19,10 @@ export default defineConfig({
 			// Admin gets bootstrapped into the user table on boot -> whitelisted,
 			// so this address may request a magic link.
 			ADMIN_EMAIL: 'admin@e2e.test',
-			ADMIN_USERNAME: 'admin'
+			ADMIN_USERNAME: 'admin',
+			// Never a paid distillery research from "Jetzt auflösen", even with a
+			// key in .env: the environment wins over the file.
+			ANTHROPIC_API_KEY: ''
 		}
 	},
 	projects: [

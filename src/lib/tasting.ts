@@ -3,7 +3,7 @@
 // participant page and the admin pages render dates and bottle names in the
 // browser as well.
 
-import { TASTING_SCALE } from '$lib/validation';
+import { TASTING_SCALE, type DistilleryValueState, type ScottishRegion } from '$lib/validation';
 
 /**
  * Time zone all tasting phases are computed in. The container runs in UTC
@@ -17,6 +17,13 @@ export const TASTING_ORDER_HOUR = 18;
 
 /** Local hour on the day after the tasting from which everything is revealed. */
 export const TASTING_REVEAL_HOUR = 9;
+
+/**
+ * Local hour on the tasting day from which a tasting counts as released: its
+ * distilleries may be researched (src/lib/server/distilleryResearchJob.ts).
+ * By then the entry is long closed and the bottles are on the table.
+ */
+export const TASTING_RELEASE_HOUR = 21;
 
 /**
  * - `entry`: participants enter their bottles, nobody sees anyone else's
@@ -358,6 +365,11 @@ export function formatCount(count: number, one: string, other: string): string {
 	return `${formatInteger(count)} ${count === 1 ? one : other}`;
 }
 
+/** Production capacity of a distillery, e.g. 1234567 → "1.234.567 l A/Jahr" (litres of pure alcohol). */
+export function formatCapacity(litres: number): string {
+	return `${formatInteger(litres)} l A/Jahr`;
+}
+
 const nameList = new Intl.ListFormat('de', { type: 'conjunction' });
 
 /** Names as German prose, e.g. "Anna, Ben und Cem". */
@@ -575,13 +587,21 @@ export type PersonStatistics = {
 	nas: Share;
 	/** Own bottles from distilleries that occur exactly once in the statistics. */
 	uniqueDistilleries: number;
+	/** Different countries of the own bottles' distilleries, as far as known. */
+	countries: number;
 	/** Number of the strongest own bottle. */
 	strongest: number;
 };
 
 /** Comparison rows whose highest value is highlighted (and partly earns a title). */
 export type PersonMetric =
-	'meanAbv' | 'caskStrength' | 'independent' | 'meanAge' | 'uniqueDistilleries';
+	'meanAbv' | 'caskStrength' | 'independent' | 'meanAge' | 'uniqueDistilleries' | 'countries';
+
+/**
+ * The distilleries with the highest resp. lowest known capacity (several only
+ * on a tie) and everybody who brought a bottle of them, alphabetically.
+ */
+export type CapacityRecord = { capacity: number; distilleries: string[]; persons: string[] };
 
 /** ABV from which a bottle counts as "Fassstärken-Niveau". */
 export const CASK_STRENGTH_ABV = 50;
@@ -594,6 +614,10 @@ export type Statistics = {
 		bottles: number;
 		/** Without the placeholders "Blend" and "Unbekannt". */
 		distilleries: number;
+		/** Different countries of these distilleries, as far as known. */
+		countries: number;
+		/** Distilleries whose country isn't known (yet). */
+		withoutCountry: number;
 		meanAbv: number | null;
 		medianAbv: number | null;
 		/** Without NAS. */
@@ -619,6 +643,8 @@ export type Statistics = {
 		persons: PersonStatistics[];
 		/** Per row the names with the highest value – none for 0 or no value. */
 		best: Record<PersonMetric, string[]>;
+		/** Largest and smallest distillery: only with at least two different known capacities. */
+		capacity: { largest: CapacityRecord; smallest: CapacityRecord } | null;
 	};
 	distilleries: {
 		/** Places 1–3: the three highest counts, each with all its distilleries. */
@@ -644,3 +670,29 @@ export type Statistics = {
 
 /** Every this many bottles there is a milestone (besides the first bottle). */
 export const MILESTONE_STEP = 50;
+
+// ── Distilleries ─────────────────────────────────────────────────────────
+// Facts per distillery, researched once by the Claude API and corrected by the
+// admin (section "Destillerien" on /admin). Constants and states live in
+// $lib/validation, the projection in $lib/server/distilleries.ts.
+
+/** One value of a distillery: `source` only for a researched or imported value. */
+export type DistilleryFact<T> = {
+	value: T | null;
+	state: DistilleryValueState;
+	source: string | null;
+};
+
+/** A row of the admin's distillery table: only distilleries of revealed tastings. */
+export type AdminDistillery = {
+	/** nameKey() of the name, identifies the row in the admin's edit. */
+	key: string;
+	/** First spelling among the bottles of revealed tastings, in standard order. */
+	name: string;
+	country: DistilleryFact<string>;
+	/** Only if the country is Scotland – otherwise there is no region, not even a state. */
+	region: DistilleryFact<ScottishRegion> | null;
+	capacity: DistilleryFact<number>;
+	/** Estimated API costs of all research calls for this distillery. */
+	costMicroUsd: number;
+};

@@ -17,6 +17,7 @@ import {
 	STARTUP_JOBS_POLL_MS,
 	type StartupJobOverview
 } from '$lib/startupJobs';
+import type { AdminDistillery } from '$lib/tasting';
 
 beforeEach(() => {
 	for (const t of [...toast.toasts]) toast.dismiss(t.id);
@@ -49,6 +50,9 @@ function makeData(over: Partial<Record<string, unknown>> = {}) {
 		user: currentUser,
 		users: [adminUser, kidUser],
 		startupJobs: [] as StartupJobOverview[],
+		distilleries: [] as AdminDistillery[],
+		researchCostMicroUsd: 0,
+		researchPrompt: { text: 'Regeln', custom: false },
 		...over
 	};
 }
@@ -242,6 +246,8 @@ describe('Admin page', () => {
 			finishedAt: null,
 			message: null,
 			progress: null,
+			manualOnly: false,
+			batchSizes: [],
 			...over
 		});
 		const running = job({
@@ -337,6 +343,50 @@ describe('Admin page', () => {
 			await page.getByRole('button', { name: 'Neu starten: Testjob' }).click();
 
 			await expect.poll(() => restarts).toEqual(['failed']);
+			expect(page.getByRole('combobox').elements()).toHaveLength(0);
+		});
+
+		test('offers the batch sizes of a manual job, the smallest first, and sends the choice', async () => {
+			const limits: string[] = [];
+			const passThrough = window.fetch.bind(window);
+			vi.spyOn(window, 'fetch').mockImplementation(async (input, init) => {
+				const url = input instanceof Request ? input.url : String(input);
+				if (!url.includes('?/restartJob')) return passThrough(input, init);
+				limits.push(String((init?.body as FormData).get('limit')));
+				return new Promise<Response>(() => {});
+			});
+			render(Page, {
+				data: makeData({
+					startupJobs: [job({ title: 'Destillerien', manualOnly: true, batchSizes: [5, 10] })]
+				}),
+				form: null
+			});
+
+			await expect
+				.element(page.getByText('Startet nur per Button, nie nach einem Deployment.'))
+				.toBeVisible();
+			const size = page.getByRole('combobox', { name: 'Umfang: Destillerien' });
+			await expect.element(size).toHaveValue('5');
+			expect(
+				size
+					.getByRole('option')
+					.elements()
+					.map((o) => o.textContent)
+			).toEqual(['Nächste 5', 'Nächste 10', 'Alle']);
+
+			await size.selectOptions('Alle');
+			await page.getByRole('button', { name: 'Starten: Destillerien' }).click();
+
+			await expect.poll(() => limits).toEqual(['']);
+		});
+
+		test('locks the batch size while the job runs', async () => {
+			render(Page, {
+				data: makeData({ startupJobs: [{ ...running, manualOnly: true, batchSizes: [5, 10] }] }),
+				form: null
+			});
+
+			await expect.element(page.getByRole('combobox', { name: 'Umfang: PDFs' })).toBeDisabled();
 		});
 	});
 
@@ -351,5 +401,63 @@ describe('Admin page', () => {
 		await expect.element(page.getByText('(inaktiv)')).toBeVisible();
 		expect(page.getByRole('button', { name: 'Löschen' }).elements()).toHaveLength(0);
 		await expect.element(page.getByRole('button', { name: 'Bearbeiten' }).nth(1)).toBeVisible();
+	});
+
+	describe('distilleries', () => {
+		const ardbeg: AdminDistillery = {
+			key: 'ardbeg',
+			name: 'Ardbeg',
+			country: { value: 'Schottland', state: 'found', source: 'https://example.com/ardbeg' },
+			region: { value: 'Islay', state: 'found', source: null },
+			capacity: { value: null, state: 'pending', source: null },
+			costMicroUsd: 250_000
+		};
+
+		test('shows the section below the startup jobs, with the costs', async () => {
+			render(Page, {
+				data: makeData({ distilleries: [ardbeg], researchCostMicroUsd: 2_500_000 }),
+				form: null
+			});
+
+			const section = page.getByRole('region', { name: 'Destillerien' });
+			await expect.element(section.getByText('2,50 $')).toBeVisible();
+			await expect
+				.element(section.getByRole('cell', { name: 'Ardbeg', exact: true }))
+				.toBeVisible();
+			const headings = [...document.querySelectorAll('h2')].map((h) => h.textContent?.trim());
+			expect(headings.slice(-2)).toEqual(['Hintergrund-Jobs', 'Destillerien']);
+		});
+
+		test('shows the field errors of a failed edit at its row', async () => {
+			const { rerender } = render(Page, { data: makeData({ distilleries: [ardbeg] }), form: null });
+			await page.getByRole('button', { name: 'Ardbeg bearbeiten' }).first().click();
+
+			await rerender({
+				data: makeData({ distilleries: [ardbeg] }),
+				form: {
+					action: 'updateDistillery',
+					key: 'ardbeg',
+					fieldErrors: { capacity: 'invalid' }
+				}
+			});
+
+			await expect.element(page.getByText('Ungültig')).toBeVisible();
+		});
+
+		test('shows a too long research prompt at the text field', async () => {
+			const { rerender } = render(Page, { data: makeData(), form: null });
+			await page.getByText('Recherche-Prompt').click();
+			await page
+				.getByRole('region', { name: 'Destillerien' })
+				.getByRole('button', { name: 'Bearbeiten' })
+				.click();
+
+			await rerender({
+				data: makeData(),
+				form: { action: 'saveResearchPrompt', fieldErrors: { prompt: 'tooLong' } }
+			});
+
+			await expect.element(page.getByText('Zu lang')).toBeVisible();
+		});
 	});
 });

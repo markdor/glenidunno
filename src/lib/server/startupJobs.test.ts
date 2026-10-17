@@ -54,11 +54,11 @@ describe('runStartupJob', () => {
 	it('records a run as running at once, with its progress, then as succeeded', async () => {
 		const { job: paused, finish, context } = pausedJob('2026-01-a');
 
-		const done = runStartupJob(db, paused, 'manual');
+		const done = runStartupJob(db, paused, 'manual', 5);
 
 		expect(row('2026-01-a')).toMatchObject({ status: 'running', finishedAt: null });
 		expect(isStartupJobRunning('2026-01-a')).toBe(true);
-		expect(context().trigger).toBe('manual');
+		expect(context()).toMatchObject({ trigger: 'manual', limit: 5 });
 		context().progress(3, 7);
 		expect(getStartupJobOverview(db, [paused])[0]).toMatchObject({
 			status: 'running',
@@ -167,6 +167,25 @@ describe('runPendingStartupJobs', () => {
 		expect(row('2026-01-gone')).toMatchObject({ status: 'succeeded', message: 'ok' });
 	});
 
+	it('leaves manual jobs to the button, also after an interruption', async () => {
+		db.insert(schema.startupJob)
+			.values({ id: '2026-01-paid', status: 'running', startedAt: new Date() })
+			.run();
+		const run = vi.fn(async () => 'ok');
+
+		await runPendingStartupJobs(db, [
+			{ ...job('2026-01-paid', run), manualOnly: true },
+			{ ...job('2026-02-paid', run), manualOnly: true }
+		]);
+
+		expect(run).not.toHaveBeenCalled();
+		expect(row('2026-01-paid')).toMatchObject({
+			status: 'failed',
+			message: 'Durch einen Neustart der App unterbrochen.'
+		});
+		expect(row('2026-02-paid')).toBeUndefined();
+	});
+
 	it('records the interruption when the job is no longer known', async () => {
 		db.insert(schema.startupJob)
 			.values({ id: '2025-12-removed', status: 'running', startedAt: new Date() })
@@ -195,9 +214,19 @@ describe('getStartupJobOverview', () => {
 				startedAt: null,
 				finishedAt: null,
 				message: null,
-				progress: null
+				progress: null,
+				manualOnly: false,
+				batchSizes: []
 			},
 			expect.objectContaining({ id: '2026-01-old', status: 'succeeded', message: 'erledigt' })
+		]);
+	});
+
+	it('tells the page which jobs are manual and which batch sizes they offer', () => {
+		const paid = { ...job('2026-01-paid'), manualOnly: true, batchSizes: [5, 10] };
+
+		expect(getStartupJobOverview(db, [paid])).toEqual([
+			expect.objectContaining({ manualOnly: true, batchSizes: [5, 10] })
 		]);
 	});
 });
