@@ -188,6 +188,13 @@ describe('Statistics page', () => {
 		expect(tile('Länder')).toEqual(['Länder', '2', '1 Destillerie ohne Angabe']);
 	});
 
+	test('links the countries tile to the world map', async () => {
+		show();
+		await expect
+			.element(page.getByRole('link', { name: '2 Länder auf der Weltkarte' }))
+			.toHaveAttribute('href', '/map');
+	});
+
 	test('drops the hint once every distillery has its country', () => {
 		show({ ...STATISTICS, overview: { ...STATISTICS.overview, withoutCountry: 0 } });
 		expect(tile('Länder')).toEqual(['Länder', '2']);

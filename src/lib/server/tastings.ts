@@ -19,6 +19,7 @@ import {
 	type TastingPhase
 } from '$lib/tasting';
 import { isValidTastingDate, TASTING_BOTTLE_SLOTS, TASTING_MOTTO_LENGTH } from '$lib/validation';
+import type { WorldMapData } from '$lib/worldMap';
 import { distinctDistilleryNames, nameKey } from '$lib/distilleryNames';
 import type * as Schema from './db/schema';
 import {
@@ -39,6 +40,7 @@ import {
 } from './presentationFiles';
 import { getBerlinToday, getTastingPhase, isTastingReleased } from './tastingPhase';
 import { buildStatistics, numberBottles } from './statistics';
+import { buildWorldMap } from './worldMap';
 import type { PendingUpload, StoredPresentation } from './tastingMedia';
 import { sortForPouring, type BottleScore } from './tastingScore';
 
@@ -671,24 +673,21 @@ export function listRevealedDistilleryNames(db: Db, now: Date = new Date()): str
 }
 
 /**
- * The statistics page over all revealed tastings (see revealedBottles):
- * neither slug nor presentation, Whiskybase link or alias – none of the
- * statistics shows them, the history's table does. Country and capacity of
- * the distilleries only of these bottles, like the admin's distillery table.
- * `null` while nothing is revealed.
+ * The known facts of the distilleries of these bottles only (the revealed
+ * ones), like the admin's distillery table – read here rather than through
+ * distilleries.ts, which imports this module. By name key; the values are null
+ * unless found or set by the admin (CHECK in the schema).
  */
-export function getStatistics(db: Db, userId: string, now: Date = new Date()): Statistics | null {
-	const revealed = revealedBottles(db, userId, now);
-	if (!revealed) return null;
-	// The values are null unless found or set by the admin (CHECK in the schema).
-	const keys = [...new Set(revealed.bottles.map((b) => nameKey(b.distillery)))];
-	const facts = new Map(
+function distilleryFacts(db: Db, bottles: Array<{ distillery: string }>) {
+	const keys = [...new Set(bottles.map((b) => nameKey(b.distillery)))];
+	return new Map(
 		keys.length === 0
 			? []
 			: db
 					.select({
 						key: distillery.nameKey,
 						country: distillery.country,
+						region: distillery.region,
 						capacity: distillery.capacity
 					})
 					.from(distillery)
@@ -696,6 +695,19 @@ export function getStatistics(db: Db, userId: string, now: Date = new Date()): S
 					.all()
 					.map((row) => [row.key, row])
 	);
+}
+
+/**
+ * The statistics page over all revealed tastings (see revealedBottles):
+ * neither slug nor presentation, Whiskybase link or alias – none of the
+ * statistics shows them, the history's table does. Country and capacity of
+ * the distilleries only of these bottles (distilleryFacts). `null` while
+ * nothing is revealed.
+ */
+export function getStatistics(db: Db, userId: string, now: Date = new Date()): Statistics | null {
+	const revealed = revealedBottles(db, userId, now);
+	if (!revealed) return null;
+	const facts = distilleryFacts(db, revealed.bottles);
 	return buildStatistics(
 		revealed.tastings.map((t) => ({ id: t.id, tastingDate: t.tastingDate })),
 		revealed.bottles.map((b) => ({
@@ -714,6 +726,38 @@ export function getStatistics(db: Db, userId: string, now: Date = new Date()): S
 			username: b.username,
 			deactivatedAt: b.deactivatedAt
 		}))
+	);
+}
+
+/**
+ * The world map over all revealed tastings (see revealedBottles): countries
+ * and regions of the distilleries only of these bottles (distilleryFacts),
+ * the bottles with the fields of the statistics – neither slug nor
+ * presentation, alias or Whiskybase link, nor capacities, sources or states
+ * of the facts. `null` while nothing is revealed.
+ */
+export function getWorldMap(db: Db, userId: string, now: Date = new Date()): WorldMapData | null {
+	const revealed = revealedBottles(db, userId, now);
+	if (!revealed) return null;
+	const facts = distilleryFacts(db, revealed.bottles);
+	return buildWorldMap(
+		revealed.bottles.map((b) => {
+			const fact = facts.get(nameKey(b.distillery));
+			return {
+				number: b.number,
+				tastingIndex: b.tastingIndex,
+				tastingDate: revealed.tastings[b.tastingIndex].tastingDate,
+				distillery: b.distillery,
+				bottler: b.bottler,
+				bottling: b.bottling,
+				age: b.age,
+				abv: b.abv,
+				username: b.username,
+				deactivatedAt: b.deactivatedAt,
+				country: fact?.country ?? null,
+				region: fact?.region ?? null
+			};
+		})
 	);
 }
 

@@ -155,6 +155,20 @@ describe('buildStatistics – overview', () => {
 		expect(overview).toMatchObject({ distilleries: 5, countries: 3, withoutCountry: 1 });
 	});
 
+	it('counts the countries by code like the world map: synonyms as one, unknown names as without', () => {
+		const { overview } = build(
+			[T1],
+			[
+				bottle({ slot: 1, distillery: 'Buffalo Trace', country: 'USA' }),
+				bottle({ slot: 2, distillery: 'Balcones', country: 'Vereinigte Staaten' }),
+				// No code: counts like a distillery without a country.
+				bottle({ slot: 3, distillery: 'Ardbeg', country: 'Schotland' }),
+				bottle({ slot: 4, distillery: 'Bushmills', country: 'Vereinigtes Königreich' })
+			]
+		);
+		expect(overview).toMatchObject({ distilleries: 4, countries: 1, withoutCountry: 2 });
+	});
+
 	it('leaves NAS out of the age figures but counts it', () => {
 		const { overview } = build(
 			[T1],
@@ -342,6 +356,21 @@ describe('buildStatistics – countries and capacities', () => {
 			['Cem', 0]
 		]);
 		expect(people.best.countries).toEqual(['Anna', 'Ben']);
+	});
+
+	it('counts no country per bringer for a name without a code', () => {
+		const { people } = build(
+			[T1],
+			[
+				bottle({ username: 'Anna', slot: 1, distillery: 'Ardbeg', country: 'Schotland' }),
+				bottle({ username: 'Ben', slot: 1, distillery: 'Kavalan', country: 'Taiwan' })
+			]
+		);
+		expect(people.persons.map((p) => [p.name, p.countries])).toEqual([
+			['Anna', 0],
+			['Ben', 1]
+		]);
+		expect(people.best.countries).toEqual(['Ben']);
 	});
 
 	it('names the largest and the smallest distillery with everybody who brought one', () => {
