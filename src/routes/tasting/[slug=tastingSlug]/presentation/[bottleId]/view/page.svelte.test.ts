@@ -7,8 +7,9 @@ vi.mock('$app/state', () => ({ page: { params: { slug: 'fluffy-otter', bottleId:
 
 import Page from './+page.svelte';
 
-function show(back: 'tasting' | 'history') {
-	return render(Page, { data: { user: null, back } } as never);
+function show(back: 'tasting' | 'history' | 'tastings') {
+	const tastingId = back === 'tastings' ? { tastingId: 't1' } : {};
+	return render(Page, { data: { user: null, back, ...tastingId } } as never);
 }
 
 // Never answered: the viewer stays in its loading state.
@@ -42,11 +43,18 @@ describe('presentation viewer page', () => {
 		await expect.element(download).toHaveAttribute('download');
 	});
 
-	test('leads back to the history it came from', async () => {
+	test('leads back to the bottle database it came from', async () => {
 		show('history');
 		await expect
-			.element(page.getByRole('link', { name: 'Historie', exact: true }))
+			.element(page.getByRole('link', { name: 'Flaschen-Datenbank', exact: true }))
 			.toHaveAttribute('href', '/history');
+	});
+
+	test('leads back to the tasting’s page in the tasting history it came from', async () => {
+		show('tastings');
+		await expect
+			.element(page.getByRole('link', { name: 'Tasting', exact: true }))
+			.toHaveAttribute('href', '/tastings/t1');
 	});
 
 	test('fetches the PDF through the tasting link after the mount', async () => {

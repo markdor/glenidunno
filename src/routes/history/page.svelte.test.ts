@@ -34,7 +34,7 @@ describe('/history', () => {
 		render(Page, { data: { user, bottles: [BOTTLE] } });
 
 		await expect
-			.element(page.getByRole('heading', { level: 1, name: 'Historie' }))
+			.element(page.getByRole('heading', { level: 1, name: 'Flaschen-Datenbank' }))
 			.toBeInTheDocument();
 		await expect
 			.element(page.getByRole('link', { name: 'Startseite' }))
@@ -43,7 +43,7 @@ describe('/history', () => {
 		const row = table.getByRole('row').filter({ hasText: 'P1' }).first();
 		await expect.element(row).toHaveTextContent('Glen Spey 24 Jahre');
 		expect(document.getElementById('bottle-1')).not.toBeNull();
-		expect(document.title).toBe('Historie · Glen Idunno');
+		expect(document.title).toBe('Flaschen-Datenbank · Glen Idunno');
 	});
 
 	test('shows the empty state while nothing is revealed', async () => {

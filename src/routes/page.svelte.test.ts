@@ -79,17 +79,20 @@ describe('Start page', () => {
 		await expect.element(page.getByText('Kein Tasting geplant.')).toBeVisible();
 		await expect.element(page.getByText('Noch kein Tasting aufgelöst.')).toBeVisible();
 		// Only the tiles.
-		expect(hrefs()).toEqual(['/history', '/statistics', '/map']);
+		expect(hrefs()).toEqual(['/tastings', '/history', '/statistics', '/map']);
 	});
 
-	test('links everybody to the history, the statistics and the world map, no section is still to come', async () => {
+	test('links everybody to both histories, the statistics and the world map, no section is still to come', async () => {
 		render(Page, { data: { user, ...bothTastings } });
 		for (const title of COMING_SOON) {
 			await expect.element(page.getByText(title, { exact: true })).toBeVisible();
 		}
 		expect(page.getByText('Demnächst').elements()).toHaveLength(COMING_SOON.length);
 		await expect
-			.element(page.getByRole('link', { name: 'Historie' }))
+			.element(page.getByRole('link', { name: 'Tasting-Historie' }))
+			.toHaveAttribute('href', '/tastings');
+		await expect
+			.element(page.getByRole('link', { name: 'Flaschen-Datenbank' }))
 			.toHaveAttribute('href', '/history');
 		await expect
 			.element(page.getByRole('link', { name: 'Statistiken' }))
@@ -101,6 +104,7 @@ describe('Start page', () => {
 		expect(hrefs()).toEqual([
 			'/tasting/fluffy-otter',
 			'/tasting/sleepy-panda',
+			'/tastings',
 			'/history',
 			'/statistics',
 			'/map'
@@ -109,6 +113,8 @@ describe('Start page', () => {
 		for (const removed of ['Neues Tasting', 'Abgeschlossene Tastings']) {
 			expect(page.getByText(removed).elements()).toHaveLength(0);
 		}
+		// Renamed to "Flaschen-Datenbank".
+		expect(page.getByText('Historie', { exact: true }).elements()).toHaveLength(0);
 	});
 
 	test('orders greeting, next, last and tiles, for the admin too', async () => {
@@ -119,12 +125,13 @@ describe('Start page', () => {
 			page.getByRole('heading', { level: 1 }).element(),
 			heading('Nächstes Tasting'),
 			heading('Letztes Tasting'),
-			page.getByText('Historie', { exact: true }).element()
+			page.getByText('Tasting-Historie', { exact: true }).element()
 		);
 		// The tasting management is on /admin, which the header links.
 		expect(hrefs()).toEqual([
 			'/tasting/fluffy-otter',
 			'/tasting/sleepy-panda',
+			'/tastings',
 			'/history',
 			'/statistics',
 			'/map'
@@ -137,7 +144,7 @@ describe('Start page', () => {
 		render(Page, { data: { user: admin, ...noTastings } });
 		await expect.element(page.getByRole('heading', { name: 'Nächstes Tasting' })).toBeVisible();
 		await expect.element(page.getByText('Noch kein Tasting aufgelöst.')).toBeVisible();
-		expect(hrefs()).toEqual(['/history', '/statistics', '/map']);
+		expect(hrefs()).toEqual(['/tastings', '/history', '/statistics', '/map']);
 	});
 
 	test('shows the not-found notice as an info toast and drops it from the URL', async () => {

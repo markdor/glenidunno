@@ -164,7 +164,7 @@ describe('Statistics page', () => {
 		// No table of the bottles any more, they are in the history.
 		expect(page.getByRole('region', { name: 'Alle Flaschen' }).elements()).toHaveLength(0);
 		const last = [...document.querySelectorAll('a')].at(-1);
-		expect(last).toHaveTextContent('Alle Flaschen in der Historie');
+		expect(last).toHaveTextContent('Alle Flaschen in der Flaschen-Datenbank');
 		expect(last).toHaveAttribute('href', '/history');
 	});
 

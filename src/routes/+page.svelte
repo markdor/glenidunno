@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { ChartColumn, Earth, RotateCcwClock } from '@lucide/svelte';
+	import { ChartColumn, Database, Earth, RotateCcwClock } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import DashboardLastTastingCard from '$lib/components/DashboardLastTastingCard.svelte';
@@ -48,7 +48,8 @@
 		     moment). With an odd number of tiles the last one spans both columns
 		     instead of leaving a gap. -->
 		<div class="grid auto-rows-fr grid-cols-2 gap-4 [&>:last-child:nth-child(odd)]:col-span-2">
-			<DashboardTile title="Historie" icon={RotateCcwClock} href={resolve('/history')} />
+			<DashboardTile title="Tasting-Historie" icon={RotateCcwClock} href={resolve('/tastings')} />
+			<DashboardTile title="Flaschen-Datenbank" icon={Database} href={resolve('/history')} />
 			<DashboardTile title="Statistiken" icon={ChartColumn} href={resolve('/statistics')} />
 			<DashboardTile title="Weltkarte" icon={Earth} href={resolve('/map')} />
 		</div>

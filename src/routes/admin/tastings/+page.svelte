@@ -2,7 +2,8 @@
 	import { resolve } from '$app/paths';
 	import { Plus } from '@lucide/svelte';
 	import SubHeader from '$lib/components/SubHeader.svelte';
-	import { formatTastingDate, TASTING_PHASE_LABEL } from '$lib/tasting';
+	import TastingListCard from '$lib/components/TastingListCard.svelte';
+	import { TASTING_PHASE_LABEL } from '$lib/tasting';
 
 	let { data } = $props();
 </script>
@@ -30,28 +31,15 @@
 		<ul class="space-y-2">
 			{#each data.tastings as t (t.id)}
 				<li>
-					<a
+					<TastingListCard
 						href={resolve('/admin/tastings/[id]', { id: t.id })}
-						class="block rounded-xl border border-slate-200 bg-white p-4 hover:bg-slate-100"
+						name={t.name}
+						motto={t.motto}
+						tastingDate={t.tastingDate}
+						badge={TASTING_PHASE_LABEL[t.phase]}
 					>
-						<div class="flex items-start justify-between gap-3">
-							<div class="min-w-0">
-								<p class="truncate font-medium">{t.name}</p>
-								{#if t.motto}
-									<p class="truncate text-sm text-slate-700">{t.motto}</p>
-								{/if}
-								<p class="text-sm text-slate-500">{formatTastingDate(t.tastingDate)}</p>
-							</div>
-							<span
-								class="shrink-0 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700"
-							>
-								{TASTING_PHASE_LABEL[t.phase]}
-							</span>
-						</div>
-						<p class="mt-2 text-sm text-slate-500">
-							{t.progress.entered}/{t.progress.total} Flaschen eingetragen
-						</p>
-					</a>
+						{t.progress.entered}/{t.progress.total} Flaschen eingetragen
+					</TastingListCard>
 				</li>
 			{/each}
 		</ul>

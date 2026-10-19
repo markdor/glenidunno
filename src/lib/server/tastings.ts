@@ -16,6 +16,8 @@ import {
 	type RevealedBottle,
 	type Statistics,
 	type TastingBottle,
+	type TastingHistoryDetail,
+	type TastingHistoryItem,
 	type TastingPhase
 } from '$lib/tasting';
 import {
@@ -188,7 +190,10 @@ type BottleWithBringer = { bottle: BottleRow; username: string; deactivatedAt: D
  * (compared here, SQLite only compares bytes) and slot. Picked explicitly – a
  * spread would put the NULL factors into the payload.
  */
-function toArchivedReveal(rows: ReadonlyArray<BottleWithBringer>): ArchivedRevealedBottle[] {
+function toArchivedReveal(
+	rows: ReadonlyArray<BottleWithBringer>,
+	presentations: boolean
+): ArchivedRevealedBottle[] {
 	return [...rows]
 		.sort((a, b) => a.username.localeCompare(b.username, 'de-DE') || a.bottle.slot - b.bottle.slot)
 		.map(({ bottle, username, deactivatedAt }): ArchivedRevealedBottle => ({
@@ -201,7 +206,7 @@ function toArchivedReveal(rows: ReadonlyArray<BottleWithBringer>): ArchivedRevea
 			whiskybaseUrl: bottle.whiskybaseUrl,
 			abv: bottle.abv,
 			broughtBy: participantLabel(username, deactivatedAt),
-			presentation: presentationRef(bottle)
+			presentation: presentations ? presentationRef(bottle) : null
 		}));
 }
 
@@ -209,11 +214,14 @@ function toArchivedReveal(rows: ReadonlyArray<BottleWithBringer>): ArchivedRevea
  * All bottles of a tasting with their participant, in pouring order. As soon
  * as one of them is archived (imported from the tasting history without
  * smoke, cask and value), there is no order: then all of them come as
- * archived bottles, see toArchivedReveal().
+ * archived bottles, see toArchivedReveal(). Without `presentations` (a viewer
+ * who didn't take part) no bottle carries one: the download runs through the
+ * participant's link, and the original file name stays on the server.
  */
 function pouredBottles(
 	db: Db,
-	tastingId: string
+	tastingId: string,
+	presentations = true
 ):
 	| { archived: false; bottles: PouredBottle[] }
 	| { archived: true; bottles: ArchivedRevealedBottle[] } {
@@ -235,14 +243,14 @@ function pouredBottles(
 					{
 						...toDomain(bottle),
 						broughtBy: participantLabel(username, deactivatedAt),
-						presentation: presentationRef(bottle)
+						presentation: presentations ? presentationRef(bottle) : null
 					}
 				]
 			: []
 	);
 	return active.length === rows.length
 		? { archived: false, bottles: sortForPouring(active) }
-		: { archived: true, bottles: toArchivedReveal(rows) };
+		: { archived: true, bottles: toArchivedReveal(rows, presentations) };
 }
 
 function presentationRef(bottle: BottleRow): PresentationRef | null {
@@ -821,6 +829,88 @@ export function getHistory(db: Db, userId: string, now: Date = new Date()): Hist
 						: null
 			};
 		});
+}
+
+/**
+ * The tasting history (/tastings): all revealed tastings for every user,
+ * newest first – the same extended visibility as revealedBottles, with the
+ * phase computed per tasting, so a tasting revealed early counts at once.
+ * Management data plus the number of bottles, no slug (see
+ * getTastingHistoryDetail).
+ */
+export function listTastingHistory(db: Db, now: Date = new Date()): TastingHistoryItem[] {
+	const revealed = db
+		.select({ id: tasting.id, name: tasting.name, motto: tasting.motto, ...phaseColumns })
+		.from(tasting)
+		// created_at only has second precision: see getDashboardTasting.
+		.orderBy(desc(tasting.tastingDate), desc(tasting.createdAt), desc(sql`${tasting}.rowid`))
+		.all()
+		.filter((t) => getTastingPhase(t.tastingDate, now, t) === 'revealed');
+	if (revealed.length === 0) return [];
+
+	const ids = revealed.map((t) => t.id);
+	const bottleCounts = new Map(
+		db
+			.select({ tastingId: tastingParticipant.tastingId, bottles: count(tastingBottle.id) })
+			.from(tastingBottle)
+			.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+			.where(inArray(tastingParticipant.tastingId, ids))
+			.groupBy(tastingParticipant.tastingId)
+			.all()
+			.map((row) => [row.tastingId, row.bottles])
+	);
+	return revealed.map((t) => ({
+		id: t.id,
+		name: t.name,
+		motto: t.motto,
+		tastingDate: t.tastingDate,
+		bottleCount: bottleCounts.get(t.id) ?? 0
+	}));
+}
+
+/**
+ * A revealed tasting's page in the tasting history (/tastings/[id]), for
+ * every user: the reveal like on the participant page. The slug and the
+ * presentations only with an own participation, like in getHistory. `null`
+ * for an unknown tasting and for one that isn't revealed yet – the bottles of
+ * those aren't even queried.
+ */
+export function getTastingHistoryDetail(
+	db: Db,
+	id: string,
+	userId: string,
+	now: Date = new Date()
+): TastingHistoryDetail | null {
+	const t = db
+		.select({
+			slug: tasting.slug,
+			name: tasting.name,
+			motto: tasting.motto,
+			mottoDescription: tasting.mottoDescription,
+			...phaseColumns
+		})
+		.from(tasting)
+		.where(eq(tasting.id, id))
+		.get();
+	if (!t || getTastingPhase(t.tastingDate, now, t) !== 'revealed') return null;
+
+	const own =
+		db
+			.select({ id: tastingParticipant.id })
+			.from(tastingParticipant)
+			.where(and(eq(tastingParticipant.tastingId, id), eq(tastingParticipant.userId, userId)))
+			.get() !== undefined;
+	const head = {
+		name: t.name,
+		tastingDate: t.tastingDate,
+		motto: t.motto,
+		mottoDescription: t.mottoDescription
+	};
+	const slug = own ? t.slug : null;
+	const poured = pouredBottles(db, id, own);
+	return poured.archived
+		? { tasting: head, slug, archived: true, bottles: poured.bottles }
+		: { tasting: head, slug, archived: false, bottles: toReveal(poured.bottles) };
 }
 
 /** `name` is the display label: the username, marked if deactivated. */

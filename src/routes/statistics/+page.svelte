@@ -299,7 +299,7 @@
 
 		<p>
 			<a href={resolve('/history')} class="font-medium text-brand underline hover:text-brand-hover">
-				Alle Flaschen in der Historie
+				Alle Flaschen in der Flaschen-Datenbank
 			</a>
 		</p>
 	{/if}

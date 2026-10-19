@@ -175,6 +175,35 @@ export type Reveal =
 	| { archived: false; bottles: RevealedBottle[] }
 	| { archived: true; bottles: ArchivedRevealedBottle[] };
 
+/**
+ * A revealed tasting in the list of the tasting history (/tastings), for
+ * every user: management data (the motto heading only) plus the number of
+ * bottles.
+ */
+export type TastingHistoryItem = {
+	id: string;
+	name: string;
+	motto: string | null;
+	tastingDate: string;
+	bottleCount: number;
+};
+
+/**
+ * A revealed tasting's page in the tasting history (/tastings/[id]), for
+ * every user: the reveal as the participants see it. The slug, and with it
+ * the presentations (which run through the participant's link), only for an
+ * own participation.
+ */
+export type TastingHistoryDetail = {
+	tasting: {
+		name: string;
+		tastingDate: string;
+		motto: string | null;
+		mottoDescription: string | null;
+	};
+	slug: string | null;
+} & Reveal;
+
 /** Points each factor contributes to the score (they add up to it). */
 export type ScoreBreakdown = { smoke: number; cask: number; abv: number; value: number };
 

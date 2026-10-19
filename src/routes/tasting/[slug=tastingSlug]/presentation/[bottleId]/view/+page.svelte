@@ -8,8 +8,8 @@
 	let { data } = $props();
 
 	// PDF, download and back link run through the tasting's link like on the
-	// participant page; the history's filters are not restored (the browser's
-	// back button does that).
+	// participant page; the bottle database's filters are not restored (the
+	// browser's back button does that).
 	const params = $derived({ slug: page.params.slug ?? '', bottleId: page.params.bottleId ?? '' });
 	const pdfHref = $derived(
 		resolve('/tasting/[slug=tastingSlug]/presentation/[bottleId]/pdf', params)
@@ -20,7 +20,9 @@
 	const backHref = $derived(
 		data.back === 'history'
 			? resolve('/history')
-			: resolve('/tasting/[slug=tastingSlug]', { slug: params.slug })
+			: data.back === 'tastings'
+				? resolve('/tastings/[id]', { id: data.tastingId })
+				: resolve('/tasting/[slug=tastingSlug]', { slug: params.slug })
 	);
 </script>
 
@@ -33,7 +35,7 @@
 <div class="mx-auto max-w-5xl space-y-6 px-4 py-8">
 	<SubHeader
 		{backHref}
-		backLabel={data.back === 'history' ? 'Historie' : 'Tasting'}
+		backLabel={data.back === 'history' ? 'Flaschen-Datenbank' : 'Tasting'}
 		title="Präsentation"
 	>
 		{#snippet action()}

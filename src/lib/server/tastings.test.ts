@@ -22,10 +22,12 @@ import {
 	getParticipantView,
 	getPresentationForParticipant,
 	getStatistics,
+	getTastingHistoryDetail,
 	getTastingSummary,
 	getWorldMap,
 	listPresentationFiles,
 	listSelectableUsers,
+	listTastingHistory,
 	listTastings,
 	openOrderEarly,
 	removeBottle,
@@ -1961,5 +1963,123 @@ describe('getHistory', () => {
 		expect([...history].sort((a, b) => a.number - b.number).map(row)).toEqual(
 			statistics.bottles.map(row)
 		);
+	});
+});
+
+describe('listTastingHistory', () => {
+	it('lists only revealed tastings, newest first, with their number of bottles', () => {
+		const earlier = setupWithBottles('2026-10-21');
+		const ctx = setupWithBottles();
+		saveBottle(db, ctx.anna, 3, bottle({ alias: 'Dritte' }), ENTRY);
+		const upcoming = setupWithBottles('2026-10-31');
+
+		expect(listTastingHistory(db, ENTRY)).toEqual([]);
+		expect(listTastingHistory(db, ORDER).map((t) => t.id)).toEqual([earlier.id]);
+		const list = listTastingHistory(db, REVEALED);
+		expect(list.map((t) => [t.id, t.bottleCount])).toEqual([
+			[ctx.id, 3],
+			[earlier.id, 2]
+		]);
+		expect(JSON.stringify(list)).not.toContain(upcoming.id);
+	});
+
+	it('counts a tasting the admin revealed early at once, also one without bottles', () => {
+		const ctx = setup();
+		openOrderEarly(db, ctx.id, ENTRY);
+		revealEarly(db, ctx.id, ENTRY);
+		expect(listTastingHistory(db, ENTRY).map((t) => [t.id, t.bottleCount])).toEqual([[ctx.id, 0]]);
+	});
+
+	it('carries management data only: the motto heading, neither description nor slug', () => {
+		const ctx = setupWithBottles();
+		updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: 'Nur Inseln.' });
+
+		const list = listTastingHistory(db, REVEALED);
+		expect(list).toEqual([
+			{
+				id: ctx.id,
+				name: 'Herbst-Tasting',
+				motto: 'Inselhüpfen',
+				tastingDate: TASTING_DATE,
+				bottleCount: 2
+			}
+		]);
+		const serialized = JSON.stringify(list);
+		for (const hidden of ['Nur Inseln.', ctx.slug, 'Nebel', 'Ardbeg']) {
+			expect(serialized).not.toContain(hidden);
+		}
+	});
+});
+
+describe('getTastingHistoryDetail', () => {
+	it('is null for an unknown tasting and for one that is not revealed yet', () => {
+		const ctx = setupWithBottles();
+		expect(getTastingHistoryDetail(db, 'unknown', 'u-anna', REVEALED)).toBeNull();
+		expect(getTastingHistoryDetail(db, ctx.id, 'u-anna', ENTRY)).toBeNull();
+		expect(getTastingHistoryDetail(db, ctx.id, 'u-anna', ORDER)).toBeNull();
+		// Sunday 8:59 in Berlin – one minute before the reveal.
+		expect(
+			getTastingHistoryDetail(db, ctx.id, 'u-anna', new Date('2026-10-25T07:59:00Z'))
+		).toBeNull();
+	});
+
+	it('gives a participant the reveal of the participant page, with slug and presentations', () => {
+		const ctx = setupWithBottles();
+		updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: 'Nur Inseln.' });
+		addPresentation(ctx.anna.id);
+
+		const detail = getTastingHistoryDetail(db, ctx.id, 'u-ben', REVEALED)!;
+		expect(detail).toMatchObject({
+			tasting: {
+				name: 'Herbst-Tasting',
+				tastingDate: TASTING_DATE,
+				motto: 'Inselhüpfen',
+				mottoDescription: 'Nur Inseln.'
+			},
+			slug: ctx.slug,
+			archived: false
+		});
+		const view = getParticipantView(db, ctx.ben, REVEALED) as { bottles: unknown };
+		expect(detail.bottles).toEqual(view.bottles);
+	});
+
+	it('shows every other user the same reveal, without slug and presentations', () => {
+		const ctx = setupWithBottles();
+		const annaBottle = addPresentation(ctx.anna.id);
+
+		const detail = getTastingHistoryDetail(db, ctx.id, 'u-admin', REVEALED)!;
+		expect(detail.slug).toBeNull();
+		expect(detail.archived).toBe(false);
+		expect(detail.bottles.map((b) => [b.alias, b.broughtBy, b.presentation])).toEqual([
+			['Nebel 2026-10-24', 'Anna', null],
+			['Torf 2026-10-24', 'Ben', null]
+		]);
+		const serialized = JSON.stringify(detail);
+		for (const hidden of [ctx.slug, annaBottle, 'Islay.pptx', 'Tasting_2026']) {
+			expect(serialized).not.toContain(hidden);
+		}
+	});
+
+	it('lists an archived tasting by bringer, the presentation only for its participants', () => {
+		const ctx = setup();
+		insertArchivedBottle(ctx.ben.id, 1, 'Ahorn', {
+			presentationFile: 'Tasting_2026-10-24_Ahorn.pdf',
+			presentationName: 'Ahorn.pdf'
+		});
+		insertArchivedBottle(ctx.anna.id, 1, 'Birke');
+
+		const other = getTastingHistoryDetail(db, ctx.id, 'u-admin', REVEALED)!;
+		expect(other.archived).toBe(true);
+		expect(other.bottles.map((b) => [b.alias, b.broughtBy, b.presentation])).toEqual([
+			['Birke', 'Anna', null],
+			['Ahorn', 'Ben', null]
+		]);
+		expect(JSON.stringify(other)).not.toMatch(/"(smoke|cask|value|score|position)":|Ahorn\.pdf/);
+
+		const own = getTastingHistoryDetail(db, ctx.id, 'u-cem', REVEALED)!;
+		expect(own.bottles.map((b) => b.presentation)).toEqual([
+			null,
+			{ bottleId: 'b-Ahorn', viewable: true, name: 'Ahorn.pdf' }
+		]);
 	});
 });
