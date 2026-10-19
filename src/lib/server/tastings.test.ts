@@ -2,8 +2,19 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq, ne } from 'drizzle-orm';
-import type { TastingBottle } from '$lib/tasting';
-import { TASTING_MOTTO_LENGTH, TASTING_SLUG_RE } from '$lib/validation';
+import {
+	normalizeScoreFactors,
+	SCORE_RULES,
+	type OrderEntry,
+	type RevealedBottle,
+	type ScoreRules,
+	type TastingBottle
+} from '$lib/tasting';
+import {
+	TASTING_MOTTO_DESCRIPTION_LENGTH,
+	TASTING_MOTTO_LENGTH,
+	TASTING_SLUG_RE
+} from '$lib/validation';
 import { runMigrations } from './db/migrate';
 import * as schema from './db/schema';
 import { presentationExtension } from './presentationFiles';
@@ -12,16 +23,19 @@ import {
 	createTasting,
 	deleteTasting,
 	findParticipant,
+	freezeDueOrders,
 	getAdminTastingDetail,
 	getDashboardTasting,
 	getHistory,
 	getParticipantView,
 	getPresentationForParticipant,
-	getStartPageSummary,
 	getStatistics,
+	getTastingHistoryDetail,
+	getTastingSummary,
 	getWorldMap,
 	listPresentationFiles,
 	listSelectableUsers,
+	listTastingHistory,
 	listTastings,
 	openOrderEarly,
 	removeBottle,
@@ -203,12 +217,22 @@ describe('createTasting', () => {
 		expect(getAdminTastingDetail(db, id, ENTRY)?.participants).toHaveLength(2);
 	});
 
-	it('stores the motto, none if left out', () => {
-		const withMotto = createTasting(db, newTasting({ motto: 'Islay gegen den Rest' }), ENTRY);
+	it('stores heading and description of the motto, none if left out', () => {
+		const withMotto = createTasting(
+			db,
+			newTasting({ motto: 'Inselhüpfen', mottoDescription: 'Bringt Inseln mit.\nKeine Blends.' }),
+			ENTRY
+		);
 		const without = createTasting(db, newTasting(), ENTRY);
-		const motto = (id: string) => getAdminTastingDetail(db, id, ENTRY)?.tasting.motto;
-		expect(motto(withMotto.id)).toBe('Islay gegen den Rest');
-		expect(motto(without.id)).toBeNull();
+		const motto = (id: string) => {
+			const t = getAdminTastingDetail(db, id, ENTRY)?.tasting;
+			return { motto: t?.motto, mottoDescription: t?.mottoDescription };
+		};
+		expect(motto(withMotto.id)).toEqual({
+			motto: 'Inselhüpfen',
+			mottoDescription: 'Bringt Inseln mit.\nKeine Blends.'
+		});
+		expect(motto(without.id)).toEqual({ motto: null, mottoDescription: null });
 	});
 });
 
@@ -234,6 +258,8 @@ describe('findParticipant', () => {
 			tastingId: id,
 			tastingName: 'Herbst-Tasting',
 			tastingDate: TASTING_DATE,
+			tastingMotto: null,
+			tastingMottoDescription: null,
 			orderOpenedAt: null,
 			revealedAt: null
 		});
@@ -488,6 +514,22 @@ describe('getParticipantView', () => {
 		expect(serialized).not.toContain('Ben');
 	});
 
+	it.each([
+		{ phase: 'entry', now: ENTRY },
+		{ phase: 'order', now: ORDER },
+		{ phase: 'revealed', now: REVEALED }
+	])('shows heading and description of the motto in phase $phase', ({ phase, now }) => {
+		const ctx = setup();
+		fill(ctx);
+		const motto = { motto: 'Inselhüpfen', mottoDescription: 'Eine Insel pro Flasche.\nDanke!' };
+		updateTastingMotto(db, ctx.id, motto);
+		const holder = findParticipant(db, ctx.slug, 'u-anna')!;
+
+		const view = getParticipantView(db, holder, now);
+		expect(view.phase).toBe(phase);
+		expect(view.tasting).toEqual({ name: 'Herbst-Tasting', tastingDate: TASTING_DATE, ...motto });
+	});
+
 	it('offers the distilleries of revealed tastings during entry: one spelling each, no placeholder', () => {
 		const before = new Date('2026-10-01T10:00:00Z');
 		const past = setup('2026-10-03');
@@ -516,12 +558,19 @@ describe('getParticipantView', () => {
 		const view = getParticipantView(db, ctx.anna, ORDER);
 		expect(view).toEqual({
 			phase: 'order',
-			tasting: { name: 'Herbst-Tasting', tastingDate: TASTING_DATE },
+			tasting: {
+				name: 'Herbst-Tasting',
+				tastingDate: TASTING_DATE,
+				motto: null,
+				mottoDescription: null
+			},
 			manual: { orderOpenedAt: null, revealedAt: null },
 			order: [
 				{ position: 1, alias: 'Blume', score: 22.8, presentation: null },
 				{ position: 2, alias: 'Nebel', score: 78.6, presentation: null }
-			]
+			],
+			// The explainer tile's rules – no bottle content.
+			rules: SCORE_RULES
 		});
 	});
 
@@ -668,11 +717,16 @@ describe('getAdminTastingDetail', () => {
 	});
 
 	it('returns the management data of the tasting, but not its link', () => {
-		const { id } = createTasting(db, newTasting({ motto: 'Sherry' }), ENTRY);
+		const { id } = createTasting(
+			db,
+			newTasting({ motto: 'Sherry', mottoDescription: 'Nur Sherryfässer.' }),
+			ENTRY
+		);
 		expect(getAdminTastingDetail(db, id, ENTRY)?.tasting).toEqual({
 			id,
 			name: 'Herbst-Tasting',
 			motto: 'Sherry',
+			mottoDescription: 'Nur Sherryfässer.',
 			tastingDate: TASTING_DATE
 		});
 	});
@@ -732,7 +786,7 @@ describe('getAdminTastingDetail', () => {
 	});
 });
 
-describe('listTastings and getStartPageSummary', () => {
+describe('listTastings and getTastingSummary', () => {
 	it('lists management data with phase and progress, newest date first', () => {
 		const later = setup('2026-11-14');
 		const earlier = setup(TASTING_DATE);
@@ -744,6 +798,24 @@ describe('listTastings and getStartPageSummary', () => {
 			[earlier.id, 'entry', { entered: 1, total: 6 }]
 		]);
 		expect(JSON.stringify(list)).not.toContain('Nebel');
+	});
+
+	it('lists the motto heading, never its description, also in the admin page preview', () => {
+		const ctx = setup();
+		updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: 'Nur Inseln.' });
+		const plain = setup('2026-11-14');
+
+		const list = listTastings(db, ENTRY);
+		expect(list.map((t) => [t.id, t.motto])).toEqual([
+			[plain.id, null],
+			[ctx.id, 'Inselhüpfen']
+		]);
+		const preview = getTastingSummary(db, ENTRY).preview;
+		expect(preview.map((t) => [t.id, t.motto])).toEqual([
+			[ctx.id, 'Inselhüpfen'],
+			[plain.id, null]
+		]);
+		expect(JSON.stringify([list, preview])).not.toContain('Nur Inseln.');
 	});
 
 	it.each([
@@ -778,7 +850,7 @@ describe('listTastings and getStartPageSummary', () => {
 		const today = setup('2026-10-25');
 		const next = setup('2026-11-01');
 
-		const summary = getStartPageSummary(db, REVEALED);
+		const summary = getTastingSummary(db, REVEALED);
 		expect(summary.upcomingCount).toBe(2);
 		expect(summary.preview.map((t) => [t.id, t.isToday])).toEqual([
 			[today.id, true],
@@ -788,7 +860,7 @@ describe('listTastings and getStartPageSummary', () => {
 
 	it('previews at most three tastings', () => {
 		for (const day of ['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04']) setup(day);
-		const summary = getStartPageSummary(db, ENTRY);
+		const summary = getTastingSummary(db, ENTRY);
 		expect(summary.upcomingCount).toBe(4);
 		expect(summary.preview).toHaveLength(3);
 	});
@@ -806,7 +878,11 @@ describe('getDashboardTasting', () => {
 
 	it('shows the own next tasting with management data and the own progress only', () => {
 		const ctx = setup();
-		updateTastingMotto(db, ctx.id, 'Islay gegen den Rest');
+		// The cards show the heading only, the description stays on the server.
+		updateTastingMotto(db, ctx.id, {
+			motto: 'Islay gegen den Rest',
+			mottoDescription: 'Eine Flasche von Islay.'
+		});
 		saveBottle(db, ctx.anna, 1, bottle(), ENTRY);
 		saveBottle(db, ctx.ben, 1, bottle({ alias: 'Torf' }), ENTRY);
 		saveBottle(db, ctx.ben, 2, bottle({ alias: 'Rauch' }), ENTRY);
@@ -842,7 +918,7 @@ describe('getDashboardTasting', () => {
 
 	it('shows the own last revealed tasting with title, motto and date only', () => {
 		const ctx = setup();
-		updateTastingMotto(db, ctx.id, 'Sherry');
+		updateTastingMotto(db, ctx.id, { motto: 'Sherry', mottoDescription: 'Nur Sherryfässer.' });
 		saveBottle(db, ctx.anna, 1, bottle(), ENTRY);
 
 		expect(getDashboardTasting(db, 'u-anna', REVEALED)).toEqual({
@@ -984,22 +1060,71 @@ describe('updateTastingDate', () => {
 });
 
 describe('validateTastingMotto', () => {
-	it('trims the motto, empty means none', () => {
-		expect(validateTastingMotto('  Islay gegen den Rest ')).toEqual({
-			motto: 'Islay gegen den Rest',
-			error: null
+	it('trims heading and description, empty or blank means none', () => {
+		expect(validateTastingMotto('  Inselhüpfen ', '\n  Bringt Inseln mit.  \n')).toEqual({
+			motto: 'Inselhüpfen',
+			mottoDescription: 'Bringt Inseln mit.',
+			fieldErrors: {}
 		});
-		expect(validateTastingMotto('   ')).toEqual({ motto: null, error: null });
+		expect(validateTastingMotto('   ', ' \r\n \t ')).toEqual({
+			motto: null,
+			mottoDescription: null,
+			fieldErrors: {}
+		});
+		expect(validateTastingMotto('Sherry', '')).toEqual({
+			motto: 'Sherry',
+			mottoDescription: null,
+			fieldErrors: {}
+		});
 	});
 
-	it('accepts the maximum length after trimming, one more character is invalid', () => {
-		const max = 'x'.repeat(TASTING_MOTTO_LENGTH.max);
-		expect(validateTastingMotto(` ${max} `)).toEqual({ motto: max, error: null });
-		expect(validateTastingMotto(`${max}x`).error).toBe('invalid');
+	it('keeps the line breaks of the description, normalized to \\n', () => {
+		expect(
+			validateTastingMotto('Inselhüpfen', 'Eine Insel pro Flasche.\r\n\r\nKeine Blends.\rDanke!')
+				.mottoDescription
+		).toBe('Eine Insel pro Flasche.\n\nKeine Blends.\nDanke!');
+	});
+
+	it('accepts the maximum lengths after trimming, one more character is invalid', () => {
+		const heading = 'x'.repeat(TASTING_MOTTO_LENGTH.max);
+		const description = 'y'.repeat(TASTING_MOTTO_DESCRIPTION_LENGTH.max);
+		expect(validateTastingMotto(` ${heading} `, ` ${description} `)).toEqual({
+			motto: heading,
+			mottoDescription: description,
+			fieldErrors: {}
+		});
+		expect(validateTastingMotto(`${heading}x`, `${description}y`).fieldErrors).toEqual({
+			motto: 'invalid',
+			mottoDescription: 'invalid'
+		});
+	});
+
+	it('counts a \\r\\n line break as one character, like the textarea', () => {
+		const description = `${'y'.repeat(TASTING_MOTTO_DESCRIPTION_LENGTH.max - 2)}\r\ny`;
+		expect(validateTastingMotto('Sherry', description).fieldErrors).toEqual({});
+	});
+
+	it('refuses a description without a heading at the heading', () => {
+		expect(validateTastingMotto('  ', 'Bringt Inseln mit.').fieldErrors).toEqual({
+			motto: 'required'
+		});
+		const tooLong = 'y'.repeat(TASTING_MOTTO_DESCRIPTION_LENGTH.max + 1);
+		expect(validateTastingMotto('', tooLong).fieldErrors).toEqual({
+			motto: 'required',
+			mottoDescription: 'invalid'
+		});
 	});
 });
 
 describe('updateTastingMotto', () => {
+	const MOTTO = { motto: 'Inselhüpfen', mottoDescription: 'Bringt Inseln mit.\nKeine Blends.' };
+	const NO_MOTTO = { motto: null, mottoDescription: null };
+
+	function mottoOf(id: string) {
+		const { motto, mottoDescription } = getAdminTastingDetail(db, id, ENTRY)!.tasting;
+		return { motto, mottoDescription };
+	}
+
 	it.each([
 		{ phase: 'entry', press: () => {} },
 		{ phase: 'order', press: (id: string) => openOrderEarly(db, id, ENTRY) },
@@ -1010,20 +1135,30 @@ describe('updateTastingMotto', () => {
 				revealEarly(db, id, ENTRY);
 			}
 		}
-	])('sets and clears the motto in phase $phase', ({ phase, press }) => {
+	])('sets and clears heading and description in phase $phase', ({ phase, press }) => {
 		const { id } = setup();
 		press(id);
-		const detail = () => getAdminTastingDetail(db, id, ENTRY)!;
-		expect(detail().phase).toBe(phase);
+		expect(getAdminTastingDetail(db, id, ENTRY)!.phase).toBe(phase);
 
-		expect(updateTastingMotto(db, id, 'Sherry')).toBe(true);
-		expect(detail().tasting.motto).toBe('Sherry');
-		expect(updateTastingMotto(db, id, null)).toBe(true);
-		expect(detail().tasting.motto).toBeNull();
+		expect(updateTastingMotto(db, id, MOTTO)).toBe(true);
+		expect(mottoOf(id)).toEqual(MOTTO);
+		expect(updateTastingMotto(db, id, { motto: 'Sherry', mottoDescription: null })).toBe(true);
+		expect(mottoOf(id)).toEqual({ motto: 'Sherry', mottoDescription: null });
+		expect(updateTastingMotto(db, id, NO_MOTTO)).toBe(true);
+		expect(mottoOf(id)).toEqual(NO_MOTTO);
+	});
+
+	it('changes the motto of an archived tasting too', () => {
+		const { id, anna } = setup('2026-10-03');
+		insertArchivedBottle(anna.id, 1, 'Moor');
+		expect(getAdminTastingDetail(db, id, ENTRY)!.phase).toBe('revealed');
+
+		expect(updateTastingMotto(db, id, MOTTO)).toBe(true);
+		expect(mottoOf(id)).toEqual(MOTTO);
 	});
 
 	it('returns false for an unknown tasting', () => {
-		expect(updateTastingMotto(db, 'nope', 'Sherry')).toBe(false);
+		expect(updateTastingMotto(db, 'nope', MOTTO)).toBe(false);
 	});
 });
 
@@ -1083,7 +1218,7 @@ describe('openOrderEarly and revealEarly (admin buttons)', () => {
 			bottles: [{ alias: 'Nebel', distillery: 'Ardbeg', broughtBy: 'Anna' }]
 		});
 		// Revealed tastings no longer count as upcoming.
-		expect(getStartPageSummary(db, REVEAL_PRESSED).upcomingCount).toBe(0);
+		expect(getTastingSummary(db, REVEAL_PRESSED).upcomingCount).toBe(0);
 		expect(listTastings(db, REVEAL_PRESSED)[0].phase).toBe('revealed');
 	});
 
@@ -1431,6 +1566,7 @@ describe('getStatistics', () => {
 	it('leaves out everything only the history shows, also for the own tasting', () => {
 		const ctx = setupWithBottles();
 		const annaBottle = addPresentation(ctx.anna.id);
+		updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: 'Nur Inseln.' });
 
 		const own = getStatistics(db, 'u-anna', REVEALED)!;
 		// No factors either: the bottles carry exactly these fields (a record's
@@ -1453,7 +1589,9 @@ describe('getStatistics', () => {
 			'Nebel 2026-10-24',
 			'whiskybase.com',
 			'Islay.pptx',
-			'Tasting_2026'
+			'Tasting_2026',
+			'Inselhüpfen',
+			'Nur Inseln.'
 		]) {
 			expect(serialized).not.toContain(hidden);
 		}
@@ -1758,6 +1896,7 @@ describe('getHistory', () => {
 			'bottling',
 			'broughtBy',
 			'distillery',
+			'motto',
 			'number',
 			'presentation',
 			'slug',
@@ -1765,6 +1904,21 @@ describe('getHistory', () => {
 			'whiskybaseUrl'
 		]);
 		expect(serialized).not.toMatch(/"(smoke|cask|score)":/);
+	});
+
+	it('carries the motto heading of each bottle’s tasting, never its description', () => {
+		setupWithBottles('2026-10-21');
+		const ctx = setupWithBottles();
+		updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: 'Nur Inseln.' });
+
+		const result = getHistory(db, 'u-admin', REVEALED)!;
+		expect(result.map((b) => [b.tastingDate, b.motto])).toEqual([
+			['2026-10-24', 'Inselhüpfen'],
+			['2026-10-24', 'Inselhüpfen'],
+			['2026-10-21', null],
+			['2026-10-21', null]
+		]);
+		expect(JSON.stringify(result)).not.toContain('Nur Inseln.');
 	});
 
 	it('links a presentation only with file and name, like the download route', () => {
@@ -1819,5 +1973,291 @@ describe('getHistory', () => {
 		expect([...history].sort((a, b) => a.number - b.number).map(row)).toEqual(
 			statistics.bottles.map(row)
 		);
+	});
+});
+
+describe('listTastingHistory', () => {
+	it('lists only revealed tastings, newest first, with their number of bottles', () => {
+		const earlier = setupWithBottles('2026-10-21');
+		const ctx = setupWithBottles();
+		saveBottle(db, ctx.anna, 3, bottle({ alias: 'Dritte' }), ENTRY);
+		const upcoming = setupWithBottles('2026-10-31');
+
+		expect(listTastingHistory(db, ENTRY)).toEqual([]);
+		expect(listTastingHistory(db, ORDER).map((t) => t.id)).toEqual([earlier.id]);
+		const list = listTastingHistory(db, REVEALED);
+		expect(list.map((t) => [t.id, t.bottleCount])).toEqual([
+			[ctx.id, 3],
+			[earlier.id, 2]
+		]);
+		expect(JSON.stringify(list)).not.toContain(upcoming.id);
+	});
+
+	it('counts a tasting the admin revealed early at once, also one without bottles', () => {
+		const ctx = setup();
+		openOrderEarly(db, ctx.id, ENTRY);
+		revealEarly(db, ctx.id, ENTRY);
+		expect(listTastingHistory(db, ENTRY).map((t) => [t.id, t.bottleCount])).toEqual([[ctx.id, 0]]);
+	});
+
+	it('carries management data only: the motto heading, neither description nor slug', () => {
+		const ctx = setupWithBottles();
+		updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: 'Nur Inseln.' });
+
+		const list = listTastingHistory(db, REVEALED);
+		expect(list).toEqual([
+			{
+				id: ctx.id,
+				name: 'Herbst-Tasting',
+				motto: 'Inselhüpfen',
+				tastingDate: TASTING_DATE,
+				bottleCount: 2
+			}
+		]);
+		const serialized = JSON.stringify(list);
+		for (const hidden of ['Nur Inseln.', ctx.slug, 'Nebel', 'Ardbeg']) {
+			expect(serialized).not.toContain(hidden);
+		}
+	});
+});
+
+describe('getTastingHistoryDetail', () => {
+	it('is null for an unknown tasting and for one that is not revealed yet', () => {
+		const ctx = setupWithBottles();
+		expect(getTastingHistoryDetail(db, 'unknown', 'u-anna', REVEALED)).toBeNull();
+		expect(getTastingHistoryDetail(db, ctx.id, 'u-anna', ENTRY)).toBeNull();
+		expect(getTastingHistoryDetail(db, ctx.id, 'u-anna', ORDER)).toBeNull();
+		// Sunday 8:59 in Berlin – one minute before the reveal.
+		expect(
+			getTastingHistoryDetail(db, ctx.id, 'u-anna', new Date('2026-10-25T07:59:00Z'))
+		).toBeNull();
+	});
+
+	it('gives a participant the reveal of the participant page, with slug and presentations', () => {
+		const ctx = setupWithBottles();
+		updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: 'Nur Inseln.' });
+		addPresentation(ctx.anna.id);
+
+		const detail = getTastingHistoryDetail(db, ctx.id, 'u-ben', REVEALED)!;
+		expect(detail).toMatchObject({
+			tasting: {
+				name: 'Herbst-Tasting',
+				tastingDate: TASTING_DATE,
+				motto: 'Inselhüpfen',
+				mottoDescription: 'Nur Inseln.'
+			},
+			slug: ctx.slug,
+			archived: false
+		});
+		const view = getParticipantView(db, ctx.ben, REVEALED) as { bottles: unknown };
+		expect(detail.bottles).toEqual(view.bottles);
+	});
+
+	it('shows every other user the same reveal, without slug and presentations', () => {
+		const ctx = setupWithBottles();
+		const annaBottle = addPresentation(ctx.anna.id);
+
+		const detail = getTastingHistoryDetail(db, ctx.id, 'u-admin', REVEALED)!;
+		expect(detail.slug).toBeNull();
+		expect(detail.archived).toBe(false);
+		expect(detail.bottles.map((b) => [b.alias, b.broughtBy, b.presentation])).toEqual([
+			['Nebel 2026-10-24', 'Anna', null],
+			['Torf 2026-10-24', 'Ben', null]
+		]);
+		const serialized = JSON.stringify(detail);
+		for (const hidden of [ctx.slug, annaBottle, 'Islay.pptx', 'Tasting_2026']) {
+			expect(serialized).not.toContain(hidden);
+		}
+	});
+
+	it('lists an archived tasting by bringer, the presentation only for its participants', () => {
+		const ctx = setup();
+		insertArchivedBottle(ctx.ben.id, 1, 'Ahorn', {
+			presentationFile: 'Tasting_2026-10-24_Ahorn.pdf',
+			presentationName: 'Ahorn.pdf'
+		});
+		insertArchivedBottle(ctx.anna.id, 1, 'Birke');
+
+		const other = getTastingHistoryDetail(db, ctx.id, 'u-admin', REVEALED)!;
+		expect(other.archived).toBe(true);
+		expect(other.bottles.map((b) => [b.alias, b.broughtBy, b.presentation])).toEqual([
+			['Birke', 'Anna', null],
+			['Ahorn', 'Ben', null]
+		]);
+		expect(JSON.stringify(other)).not.toMatch(/"(smoke|cask|value|score|position)":|Ahorn\.pdf/);
+
+		const own = getTastingHistoryDetail(db, ctx.id, 'u-cem', REVEALED)!;
+		expect(own.bottles.map((b) => b.presentation)).toEqual([
+			null,
+			{ bottleId: 'b-Ahorn', viewable: true, name: 'Ahorn.pdf' }
+		]);
+	});
+});
+
+describe('frozen pouring order', () => {
+	/** Alias, frozen position, score and shares of the tasting's bottles, as stored. */
+	function pours(tastingId: string) {
+		return db
+			.select({
+				alias: schema.tastingBottle.alias,
+				position: schema.tastingBottle.pourPosition,
+				score: schema.tastingBottle.pourScore,
+				smoke: schema.tastingBottle.pourSmokeShare,
+				cask: schema.tastingBottle.pourCaskShare,
+				abv: schema.tastingBottle.pourAbvShare,
+				value: schema.tastingBottle.pourValueShare
+			})
+			.from(schema.tastingBottle)
+			.innerJoin(
+				schema.tastingParticipant,
+				eq(schema.tastingParticipant.id, schema.tastingBottle.participantId)
+			)
+			.where(eq(schema.tastingParticipant.tastingId, tastingId))
+			.orderBy(schema.tastingBottle.alias)
+			.all();
+	}
+
+	function frozenRules(tastingId: string) {
+		const t = db.select().from(schema.tasting).where(eq(schema.tasting.id, tastingId)).get()!;
+		return t.pourRules === null ? null : JSON.parse(t.pourRules);
+	}
+
+	// Rules of an older algorithm: other groups and weights.
+	const OLD_RULES: ScoreRules = {
+		...SCORE_RULES,
+		smokeGroups: [
+			{ label: 'mild', range: '0–1' },
+			{ label: 'rauchig', range: '2–5' }
+		],
+		factors: [
+			{ key: 'cask', weight: 0.5 },
+			{ key: 'smoke', weight: 0.3 },
+			{ key: 'value', weight: 0.1 },
+			{ key: 'abv', weight: 0.1 }
+		]
+	};
+
+	/** Pretends an older algorithm had poured Torf before Nebel. */
+	function freezeOtherwise(tastingId: string) {
+		for (const [alias, pourPosition, pourScore, share] of [
+			['Torf 2026-10-24', 1, 11.1, 0.1],
+			['Nebel 2026-10-24', 2, 99.9, 0.9]
+		] as const) {
+			db.update(schema.tastingBottle)
+				.set({
+					pourPosition,
+					pourScore,
+					pourSmokeShare: share,
+					pourCaskShare: share,
+					pourAbvShare: share,
+					pourValueShare: share
+				})
+				.where(eq(schema.tastingBottle.alias, alias))
+				.run();
+		}
+		db.update(schema.tasting)
+			.set({ pourRules: JSON.stringify(OLD_RULES) })
+			.where(eq(schema.tasting.id, tastingId))
+			.run();
+		expect(pours(tastingId).map((p) => p.position)).toEqual([2, 1]);
+	}
+
+	it('freezes the order of every tasting whose order is out, as computed then', () => {
+		const ctx = setupWithBottles();
+		const later = setupWithBottles('2026-10-31');
+		const computed = getParticipantView(db, ctx.ben, REVEALED) as { bottles: RevealedBottle[] };
+
+		expect(freezeDueOrders(db, ENTRY)).toBe(0);
+		expect(pours(ctx.id).map((p) => p.position)).toEqual([null, null]);
+		expect(frozenRules(ctx.id)).toBeNull();
+
+		expect(freezeDueOrders(db, ORDER)).toBe(1);
+		expect(pours(ctx.id)).toEqual(
+			computed.bottles
+				.map((b) => ({ alias: b.alias, position: b.position, score: b.score, ...b.shares }))
+				.sort((a, b) => a.alias.localeCompare(b.alias))
+		);
+		expect(frozenRules(ctx.id)).toEqual(SCORE_RULES);
+		// Still in entry: its bottles may change, nothing is frozen.
+		expect(pours(later.id).map((p) => p.position)).toEqual([null, null]);
+		expect(frozenRules(later.id)).toBeNull();
+		// Idempotent, also after the reveal.
+		expect(freezeDueOrders(db, REVEALED)).toBe(0);
+	});
+
+	it('computes the current order, shares and rules while nothing is frozen', () => {
+		const ctx = setupWithBottles();
+		const revealed = getParticipantView(db, ctx.ben, REVEALED) as {
+			bottles: RevealedBottle[];
+			rules: ScoreRules;
+		};
+		expect(revealed.bottles.map((b) => b.alias)).toEqual(['Nebel 2026-10-24', 'Torf 2026-10-24']);
+		expect(revealed.bottles[0].shares).toEqual(
+			normalizeScoreFactors(bottle({ alias: 'Nebel 2026-10-24', abv: 40 }))
+		);
+		expect(revealed.rules).toEqual(SCORE_RULES);
+	});
+
+	it('keeps order, scores, chart and explanation when the algorithm would differ now', () => {
+		const ctx = setupWithBottles();
+		freezeDueOrders(db, ORDER);
+		freezeOtherwise(ctx.id);
+
+		const order = getParticipantView(db, ctx.ben, ORDER) as {
+			order: OrderEntry[];
+			rules: ScoreRules;
+		};
+		expect(order.order.map((o) => [o.position, o.alias, o.score])).toEqual([
+			[1, 'Torf 2026-10-24', 11.1],
+			[2, 'Nebel 2026-10-24', 99.9]
+		]);
+		expect(order.rules).toEqual(OLD_RULES);
+
+		const revealed = getParticipantView(db, ctx.ben, REVEALED) as {
+			bottles: RevealedBottle[];
+			rules: ScoreRules;
+		};
+		expect(revealed.bottles.map((b) => [b.position, b.alias, b.score, b.shares.smoke])).toEqual([
+			[1, 'Torf 2026-10-24', 11.1, 0.1],
+			[2, 'Nebel 2026-10-24', 99.9, 0.9]
+		]);
+		expect(revealed.rules).toEqual(OLD_RULES);
+
+		const detail = getTastingHistoryDetail(db, ctx.id, 'u-admin', REVEALED)!;
+		expect(detail.bottles.map((b) => b.alias)).toEqual(['Torf 2026-10-24', 'Nebel 2026-10-24']);
+		expect(detail).toMatchObject({ archived: false, rules: OLD_RULES });
+
+		// Never refrozen with the current algorithm.
+		expect(freezeDueOrders(db, REVEALED)).toBe(0);
+		expect(pours(ctx.id).map((p) => p.position)).toEqual([2, 1]);
+		expect(frozenRules(ctx.id)).toEqual(OLD_RULES);
+	});
+
+	it('freezes at once when the admin opens the order early', () => {
+		const ctx = setupWithBottles();
+		openOrderEarly(db, ctx.id, ENTRY);
+		expect(pours(ctx.id).map((p) => p.position)).toEqual([1, 2]);
+		expect(frozenRules(ctx.id)).toEqual(SCORE_RULES);
+	});
+
+	it('freezes with the early reveal should the order not be frozen yet', () => {
+		const ctx = setupWithBottles();
+		revealEarly(db, ctx.id, ORDER);
+		expect(pours(ctx.id).map((p) => p.position)).toEqual([1, 2]);
+		expect(frozenRules(ctx.id)).toEqual(SCORE_RULES);
+	});
+
+	it('leaves archived tastings as they are, a tasting without bottles keeps its rules', () => {
+		// A mixed tasting: saving is locked once an archived bottle is in.
+		const archived = setup();
+		saveBottle(db, archived.anna, 1, bottle(), ENTRY);
+		insertArchivedBottle(archived.ben.id, 1, 'Ahorn');
+		const empty = setup();
+
+		expect(freezeDueOrders(db, REVEALED)).toBe(1);
+		expect(pours(archived.id).map((p) => p.position)).toEqual([null, null]);
+		expect(frozenRules(archived.id)).toBeNull();
+		// Its explainer tile shows in the order phase, too.
+		expect(frozenRules(empty.id)).toEqual(SCORE_RULES);
 	});
 });

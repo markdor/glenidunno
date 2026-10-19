@@ -15,7 +15,7 @@ import { logger } from './logger';
 import { StartupJobError, type StartupJob } from './startupJobs';
 
 // Runs of the distillery research over all distilleries of released tastings.
-// Triggers: the daily timer at 21:00 (distilleryResearchTimer.ts), "Jetzt
+// Triggers: the daily timer at 21:00 (dailyTimer.ts, hooks.server.ts), "Jetzt
 // auflösen" and the startup job – the latter only from its button on the
 // admin page, never after a deployment (every run costs money). Never after
 // saving a bottle (rising costs would tell the admin that somebody entered a

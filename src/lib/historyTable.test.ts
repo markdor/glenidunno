@@ -17,6 +17,7 @@ function bottle(number: number, overrides: Partial<HistoryBottle> = {}): History
 	return {
 		number,
 		tastingDate: '2022-10-21',
+		motto: null,
 		slug: null,
 		alias: `P${number}`,
 		distillery: 'Ardbeg',
@@ -35,6 +36,7 @@ function bottle(number: number, overrides: Partial<HistoryBottle> = {}): History
 const BOTTLES = [
 	bottle(4, {
 		tastingDate: '2024-09-27',
+		motto: 'Inselhüpfen',
 		alias: 'P113',
 		distillery: 'Deanston',
 		age: 12,
@@ -45,6 +47,7 @@ const BOTTLES = [
 	}),
 	bottle(5, {
 		tastingDate: '2024-09-27',
+		motto: 'Inselhüpfen',
 		alias: 'P21',
 		distillery: 'ardbeg',
 		abv: 54.1,
@@ -152,7 +155,8 @@ describe('filterBottles', () => {
 		['the bottler', 'originalabf', [5, 2]],
 		['NAS', 'nas', [5]],
 		['the age', '24 Jahre', [1]],
-		['the ABV as shown', '54,1 %', [5]]
+		['the ABV as shown', '54,1 %', [5]],
+		['the motto heading of the tasting', 'INSELHÜPF', [4, 5]]
 	])('finds %s, ignoring case', (_label, q, expected) => {
 		expect(numbers(filterBottles(BOTTLES, query({ q })))).toEqual(expected);
 	});
@@ -160,6 +164,9 @@ describe('filterBottles', () => {
 	it('matches within one column only', () => {
 		// "Ben" + line break + "P113" – never across two columns.
 		expect(filterBottles(BOTTLES, query({ q: 'benp113' }))).toEqual([]);
+		// Neither across the last column and the motto: "66,6 %" + "Inselhüpfen".
+		expect(filterBottles(BOTTLES, query({ q: '%insel' }))).toEqual([]);
+		expect(filterBottles(BOTTLES, query({ q: '% insel' }))).toEqual([]);
 	});
 
 	it('combines the search with the bringer and the year', () => {

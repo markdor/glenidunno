@@ -35,9 +35,21 @@ function realMigrationsUpTo(lastTag: string): string {
 	return dir;
 }
 
-/** Bottle rows from before migration 0009, which adds the archive flag – off for all of them. */
+/**
+ * Bottle rows from before migration 0009, as they read after all migrations:
+ * the archive flag (0009) off for all of them, no frozen pouring order (0015).
+ */
 function notArchived(bottles: unknown[]): unknown[] {
-	return bottles.map((bottle) => ({ ...(bottle as object), archived: 0 }));
+	return bottles.map((bottle) => ({
+		...(bottle as object),
+		archived: 0,
+		pour_position: null,
+		pour_score: null,
+		pour_smoke_share: null,
+		pour_cask_share: null,
+		pour_abv_share: null,
+		pour_value_share: null
+	}));
 }
 
 /** A throwaway migrations folder in drizzle-kit's layout (SQL files + journal). */
@@ -348,7 +360,7 @@ describe('migration 0008: no fixed number of bottles per participant', () => {
 		for (const table of TABLES) {
 			expect(rows(`SELECT * FROM ${table} ORDER BY rowid`), table).toEqual(before[table]);
 		}
-		expect(rows('SELECT * FROM tasting')).toEqual(before.tasting);
+		expect(rows(`SELECT ${TASTING_COLUMNS} FROM tasting`)).toEqual(before.tasting);
 		expect(sqlite.pragma('foreign_key_check')).toEqual([]);
 		expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
 	});
@@ -470,5 +482,28 @@ describe('migration 0013: distillery variants', () => {
 		expect([all('distillery'), all('distillery_research_call')]).toEqual(before);
 		expect(all('distillery_variant_call')).toEqual([]);
 		expect(all('distillery_variant_suggestion')).toEqual([]);
+	});
+});
+
+describe('migration 0014: motto description', () => {
+	it('keeps the motto of existing tastings, without a description', () => {
+		const sqlite = new Database(':memory:');
+		runMigrations(sqlite, realMigrationsUpTo('0013_distillery_variants'));
+		sqlite
+			.prepare(
+				`INSERT INTO tasting (id, slug, name, motto, tasting_date, created_at)
+				 VALUES ('t-autumn', 'fluffy-otter', 'Herbst', 'Inselhüpfen', '2026-10-24', 100),
+				        ('t-winter', 'bouncy-alpaca', 'Winter', NULL, '2026-12-12', 100)`
+			)
+			.run();
+
+		runMigrations(sqlite, './drizzle');
+
+		expect(
+			sqlite.prepare('SELECT id, motto, motto_description FROM tasting ORDER BY id').all()
+		).toEqual([
+			{ id: 't-autumn', motto: 'Inselhüpfen', motto_description: null },
+			{ id: 't-winter', motto: null, motto_description: null }
+		]);
 	});
 });

@@ -6,6 +6,7 @@ import TastingCard from './TastingCard.svelte';
 const today = {
 	id: 't1',
 	name: 'Herbst-Tasting',
+	motto: 'Islay gegen den Rest',
 	tastingDate: '2026-10-24',
 	phase: 'entry' as const,
 	progress: { entered: 5, total: 6 },
@@ -15,6 +16,7 @@ const today = {
 const later = {
 	id: 't2',
 	name: 'Winter-Tasting',
+	motto: null,
 	tastingDate: '2026-12-12',
 	phase: 'entry' as const,
 	progress: { entered: 0, total: 4 },
@@ -38,6 +40,20 @@ describe('TastingCard', () => {
 		await expect.element(page.getByText(/Sa\., 24\.10\.2026 · 5\/6 Flaschen/)).toBeVisible();
 		await expect.element(page.getByText(/Sa\., 12\.12\.2026 · 0\/4 Flaschen/)).toBeVisible();
 		expect(page.getByText('heute').elements()).toHaveLength(1);
+	});
+
+	test('shows the motto heading below the name, one line, nothing without one', async () => {
+		render(TastingCard, { summary: { upcomingCount: 2, preview: [today, later] } });
+
+		const items = page.getByRole('listitem').elements();
+		const motto = page.getByText('Islay gegen den Rest');
+		await expect.element(motto).toBeVisible();
+		expect(motto.element().classList).toContain('truncate');
+		expect(items[0].contains(motto.element())).toBe(true);
+		const name = page.getByText('Herbst-Tasting').element();
+		expect(name.compareDocumentPosition(motto.element())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+		// Name, date and progress only: no empty line for the missing motto.
+		expect(items[1].querySelectorAll('.truncate')).toHaveLength(1);
 	});
 
 	test('shows no progress once the entry phase is over', async () => {

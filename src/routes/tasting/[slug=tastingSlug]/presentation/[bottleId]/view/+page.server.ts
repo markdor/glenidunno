@@ -15,9 +15,15 @@ export const load: PageServerLoad = ({ locals, params, url }) => {
 	const participant = requireParticipant(locals, params.slug);
 	const presentation = getPresentationForParticipant(db, participant, params.bottleId);
 	if (!presentation || !isViewablePresentation(presentation.file)) redirectNotFound();
-	// The back link: the history's table passes ?from=history, everything else
+	// The back link: the bottle database passes ?from=history, a tasting's page
+	// in the tasting history (/tastings/[id]) ?from=tastings, everything else
 	// returns to the participant page.
-	const back: 'tasting' | 'history' =
-		url.searchParams.get('from') === 'history' ? 'history' : 'tasting';
-	return { back };
+	switch (url.searchParams.get('from')) {
+		case 'history':
+			return { back: 'history' as const };
+		case 'tastings':
+			return { back: 'tastings' as const, tastingId: participant.tastingId };
+		default:
+			return { back: 'tasting' as const };
+	}
 };

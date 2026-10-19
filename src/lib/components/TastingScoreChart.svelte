@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { ChartLine } from '@lucide/svelte';
-	import { formatOneDecimal, normalizeScoreFactors, type RevealedBottle } from '$lib/tasting';
+	import { formatOneDecimal, type RevealedBottle } from '$lib/tasting';
 	import TastingLineChart from './TastingLineChart.svelte';
 
+	// The shares come from the server, frozen with the order: a later change
+	// of the normalization doesn't redraw a tasting that was poured already.
 	type ChartBottle = Pick<
 		RevealedBottle,
-		'position' | 'alias' | 'smoke' | 'cask' | 'abv' | 'value'
+		'position' | 'alias' | 'smoke' | 'cask' | 'abv' | 'value' | 'shares'
 	>;
 
 	let { bottles }: { bottles: ChartBottle[] } = $props();
@@ -28,10 +30,9 @@
 		{ key: 'value', label: 'Kaliber', color: '#eda100' }
 	] as const;
 
-	const series = $derived.by(() => {
-		const factors = bottles.map((b) => normalizeScoreFactors(b));
-		return SERIES.map((s) => ({ ...s, values: factors.map((f) => f[s.key]) }));
-	});
+	const series = $derived(
+		SERIES.map((s) => ({ ...s, values: bottles.map((b) => b.shares[s.key]) }))
+	);
 	const aliases = $derived(bottles.map((b) => b.alias));
 
 	let activeIndex: number | null = $state(null);

@@ -160,9 +160,13 @@ describe('presentation viewer load', () => {
 		expect(existsSync(join(mediaDir, 'pdf-cache'))).toBe(false);
 	});
 
-	it('goes back to the history only when the history asked for it', () => {
+	it('goes back to the bottle database or the tasting history only when they asked for it', () => {
 		vi.setSystemTime(REVEALED);
 		expect(view(BEN, bottleId, slug, '?from=history')).toEqual({ back: 'history' });
+		expect(view(BEN, bottleId, slug, '?from=tastings')).toEqual({
+			back: 'tastings',
+			tastingId: db.select().from(tasting).get()!.id
+		});
 		expect(view(BEN, bottleId, slug, '?from=https://example.com')).toEqual({ back: 'tasting' });
 	});
 

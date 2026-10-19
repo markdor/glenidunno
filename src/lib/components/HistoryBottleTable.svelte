@@ -263,6 +263,14 @@
 							{:else}
 								{cells.date}
 							{/if}
+							<!-- Below lg the tile lists the motto instead. -->
+							{#if bottle.motto}
+								<span
+									class="mt-0.5 hidden text-xs break-words hyphens-auto whitespace-normal text-slate-500 lg:block"
+								>
+									{bottle.motto}
+								</span>
+							{/if}
 						</td>
 						<td class="px-2 pt-3 pb-1 break-words lg:pb-3">{cells.broughtBy}</td>
 						{#each DETAIL_COLUMNS as key (key)}
@@ -279,6 +287,10 @@
 									<dt class="text-slate-500">{COLUMN_LABELS[key]}</dt>
 									<dd class="break-words">{cells[key]}</dd>
 								{/each}
+								{#if bottle.motto}
+									<dt class="text-slate-500">Motto</dt>
+									<dd class="break-words">{bottle.motto}</dd>
+								{/if}
 								{#if bottle.whiskybaseUrl || (bottle.presentation && bottle.slug)}
 									<dt class="self-center text-slate-500">Links</dt>
 									<dd class="flex flex-wrap gap-x-3">{@render links(bottle)}</dd>

@@ -35,7 +35,6 @@ const lastTasting: DashboardLastTasting = {
 };
 const noTastings = { nextTasting: null, lastTasting: null, notice: null };
 const bothTastings = { nextTasting, lastTasting, notice: null };
-const emptySummary = { upcomingCount: 0, preview: [] };
 
 // Every tile has its section by now.
 const COMING_SOON: string[] = [];
@@ -61,12 +60,12 @@ function heading(name: string) {
 
 describe('Start page', () => {
 	test('greets the logged-in user', async () => {
-		render(Page, { data: { user, ...noTastings, tastingSummary: null } });
+		render(Page, { data: { user, ...noTastings } });
 		await expect.element(page.getByRole('heading', { name: /Hallo maxi/ })).toBeVisible();
 	});
 
 	test('links the next and the last own tasting to the participant page', async () => {
-		render(Page, { data: { user, ...bothTastings, tastingSummary: null } });
+		render(Page, { data: { user, ...bothTastings } });
 		await expect
 			.element(page.getByRole('link', { name: /Nächstes Tasting/ }))
 			.toHaveAttribute('href', '/tasting/fluffy-otter');
@@ -76,21 +75,24 @@ describe('Start page', () => {
 	});
 
 	test('shows both cards in their empty state without an own tasting', async () => {
-		render(Page, { data: { user, ...noTastings, tastingSummary: null } });
+		render(Page, { data: { user, ...noTastings } });
 		await expect.element(page.getByText('Kein Tasting geplant.')).toBeVisible();
 		await expect.element(page.getByText('Noch kein Tasting aufgelöst.')).toBeVisible();
 		// Only the tiles.
-		expect(hrefs()).toEqual(['/history', '/statistics', '/map']);
+		expect(hrefs()).toEqual(['/tastings', '/history', '/statistics', '/map']);
 	});
 
-	test('links everybody to the history, the statistics and the world map, no section is still to come', async () => {
-		render(Page, { data: { user, ...bothTastings, tastingSummary: null } });
+	test('links everybody to both histories, the statistics and the world map, no section is still to come', async () => {
+		render(Page, { data: { user, ...bothTastings } });
 		for (const title of COMING_SOON) {
 			await expect.element(page.getByText(title, { exact: true })).toBeVisible();
 		}
 		expect(page.getByText('Demnächst').elements()).toHaveLength(COMING_SOON.length);
 		await expect
-			.element(page.getByRole('link', { name: 'Historie' }))
+			.element(page.getByRole('link', { name: 'Tasting-Historie' }))
+			.toHaveAttribute('href', '/tastings');
+		await expect
+			.element(page.getByRole('link', { name: 'Flaschen-Datenbank' }))
 			.toHaveAttribute('href', '/history');
 		await expect
 			.element(page.getByRole('link', { name: 'Statistiken' }))
@@ -98,10 +100,11 @@ describe('Start page', () => {
 		await expect
 			.element(page.getByRole('link', { name: 'Weltkarte' }))
 			.toHaveAttribute('href', '/map');
-		// Besides the two cards only the tiles link for non-admins: no admin card.
+		// Besides the two cards only the tiles link.
 		expect(hrefs()).toEqual([
 			'/tasting/fluffy-otter',
 			'/tasting/sleepy-panda',
+			'/tastings',
 			'/history',
 			'/statistics',
 			'/map'
@@ -110,41 +113,42 @@ describe('Start page', () => {
 		for (const removed of ['Neues Tasting', 'Abgeschlossene Tastings']) {
 			expect(page.getByText(removed).elements()).toHaveLength(0);
 		}
+		// Renamed to "Flaschen-Datenbank".
+		expect(page.getByText('Historie', { exact: true }).elements()).toHaveLength(0);
 	});
 
-	test('orders greeting, next, last, admin card and tiles for the admin', async () => {
-		render(Page, { data: { user: admin, ...bothTastings, tastingSummary: emptySummary } });
-		await expect.element(page.getByRole('link', { name: /Tasting-Verwaltung/ })).toBeVisible();
+	test('orders greeting, next, last and tiles, for the admin too', async () => {
+		render(Page, { data: { user: admin, ...bothTastings } });
+		await expect.element(page.getByRole('heading', { name: /Hallo admin/ })).toBeVisible();
 
 		expectInOrder(
 			page.getByRole('heading', { level: 1 }).element(),
 			heading('Nächstes Tasting'),
 			heading('Letztes Tasting'),
-			heading('Tasting-Verwaltung'),
-			page.getByText('Historie', { exact: true }).element()
+			page.getByText('Tasting-Historie', { exact: true }).element()
 		);
-		// Tastings are created via "Neues Tasting" on /admin/tastings, not here.
+		// The tasting management is on /admin, which the header links.
 		expect(hrefs()).toEqual([
 			'/tasting/fluffy-otter',
 			'/tasting/sleepy-panda',
-			'/admin/tastings',
+			'/tastings',
 			'/history',
 			'/statistics',
 			'/map'
 		]);
+		expect(page.getByText('Tasting-Verwaltung').elements()).toHaveLength(0);
 		expect(page.getByText('Demnächst').elements()).toHaveLength(COMING_SOON.length);
 	});
 
 	test('shows the admin both cards even without a participation', async () => {
-		render(Page, { data: { user: admin, ...noTastings, tastingSummary: emptySummary } });
-		await expect.element(page.getByRole('link', { name: /Tasting-Verwaltung/ })).toBeVisible();
+		render(Page, { data: { user: admin, ...noTastings } });
 		await expect.element(page.getByRole('heading', { name: 'Nächstes Tasting' })).toBeVisible();
 		await expect.element(page.getByText('Noch kein Tasting aufgelöst.')).toBeVisible();
-		expect(hrefs()).toEqual(['/admin/tastings', '/history', '/statistics', '/map']);
+		expect(hrefs()).toEqual(['/tastings', '/history', '/statistics', '/map']);
 	});
 
 	test('shows the not-found notice as an info toast and drops it from the URL', async () => {
-		render(Page, { data: { user, ...noTastings, notice: 'not-found', tastingSummary: null } });
+		render(Page, { data: { user, ...noTastings, notice: 'not-found' } });
 		await expect
 			.poll(() => toast.toasts.map((t) => [t.variant, t.message]))
 			.toEqual([['info', 'Diese Seite gibt es nicht (mehr).']]);
@@ -153,7 +157,7 @@ describe('Start page', () => {
 	});
 
 	test('shows no toast and keeps the URL without a notice', async () => {
-		render(Page, { data: { user, ...bothTastings, tastingSummary: null } });
+		render(Page, { data: { user, ...bothTastings } });
 		await expect.element(page.getByRole('heading', { name: /Hallo maxi/ })).toBeVisible();
 		expect(toast.toasts).toEqual([]);
 		expect(goto).not.toHaveBeenCalled();

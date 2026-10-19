@@ -34,11 +34,17 @@ export const USERNAME_RE = /^[a-zA-Z0-9_.-]{2,40}$/;
 
 export const TASTING_NAME_LENGTH = { max: 60 } as const;
 /**
- * Optional motto shown next to name and date; empty means none. Deliberately
- * without a CHECK constraint (see `motto` in db/schema.ts), so the server-side
- * validation is the only guard.
+ * Optional motto heading shown next to name and date; empty means none.
+ * Deliberately without a CHECK constraint (see `motto` in db/schema.ts), so the
+ * server-side validation is the only guard.
  */
 export const TASTING_MOTTO_LENGTH = { max: 120 } as const;
+/**
+ * Optional multi-line explanation of the motto, only together with a heading.
+ * Counted after normalizing line breaks to `\n` and trimming, like a
+ * textarea's maxlength counts. No CHECK constraint either.
+ */
+export const TASTING_MOTTO_DESCRIPTION_LENGTH = { max: 1000 } as const;
 /** Number of users the admin picks as participants of a tasting. */
 export const TASTING_PARTICIPANTS = { min: 2, max: 12 } as const;
 /**

@@ -66,7 +66,7 @@ import {
 } from '$lib/server/db/schema';
 import { DEFAULT_RESEARCH_RULES } from '$lib/server/distilleryResearch';
 import { logger } from '$lib/server/logger';
-import { createTasting } from '$lib/server/tastings';
+import { createTasting, findParticipant, saveBottle } from '$lib/server/tastings';
 import { actions, load } from './+page.server';
 
 /** Every missing page and missing admin right gets exactly this response. */
@@ -157,6 +157,50 @@ describe('admin load', () => {
 	it('returns the users for an admin', () => {
 		const result = load(loadEvent(ADMIN)) as { users: unknown[] };
 		expect(result.users.length).toBe(1);
+	});
+
+	it('summarizes the upcoming tastings for the card, without any bottle content', () => {
+		const anna = insertUser({ email: 'anna@glenidunno.de', username: 'anna' });
+		const { slug } = createTasting(db, {
+			name: 'Herbst-Tasting',
+			motto: 'Islay gegen den Rest',
+			mottoDescription: 'Eine Flasche von Islay.',
+			tastingDate: '2999-10-24',
+			participantUserIds: [ADMIN.id, anna]
+		});
+		saveBottle(db, findParticipant(db, slug, anna)!, 1, {
+			alias: 'Nebel',
+			distillery: 'Ardbeg',
+			bottler: null,
+			bottling: null,
+			age: null,
+			whiskybaseUrl: null,
+			smoke: 5,
+			cask: 2,
+			abv: 46,
+			value: 3
+		});
+
+		const { tastingSummary } = load(loadEvent(ADMIN)) as { tastingSummary: unknown };
+		expect(tastingSummary).toEqual({
+			upcomingCount: 1,
+			preview: [
+				{
+					id: expect.any(String),
+					name: 'Herbst-Tasting',
+					motto: 'Islay gegen den Rest',
+					tastingDate: '2999-10-24',
+					phase: 'entry',
+					progress: { entered: 1, total: 4 },
+					isToday: false
+				}
+			]
+		});
+		// Blind for the admin too; the card shows the motto heading only and no link.
+		const serialized = JSON.stringify(tastingSummary);
+		for (const secret of ['Nebel', 'Ardbeg', 'Eine Flasche von Islay.', slug]) {
+			expect(serialized).not.toContain(secret);
+		}
 	});
 
 	it('tells per user whether they are deactivated and took part in a tasting', () => {

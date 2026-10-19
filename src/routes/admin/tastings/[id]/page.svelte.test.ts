@@ -12,6 +12,7 @@ const base = {
 		id: 't1',
 		name: 'Herbst-Tasting',
 		motto: null,
+		mottoDescription: null,
 		tastingDate: '2026-10-24'
 	},
 	participants: [
@@ -62,28 +63,98 @@ describe('Tasting detail page', () => {
 	test.each(['entry', 'order', 'revealed'])(
 		'offers the motto form with the current motto in phase %s',
 		async (phase) => {
-			renderDetail({ phase, tasting: { ...base.tasting, motto: 'Islay gegen den Rest' } });
-			const motto = page.getByLabelText('Motto');
+			renderDetail({
+				phase,
+				tasting: {
+					...base.tasting,
+					motto: 'Islay gegen den Rest',
+					mottoDescription: 'Eine Flasche von Islay.\nKeine Blends.'
+				}
+			});
+			const motto = page.getByLabelText('Überschrift');
 			await expect.element(motto).toHaveValue('Islay gegen den Rest');
 			await expect.element(motto).toHaveAttribute('maxlength', '120');
 			await expect.element(motto).not.toBeRequired();
-			await expect.element(page.getByRole('button', { name: 'Motto speichern' })).toBeVisible();
+			const description = page.getByLabelText('Erklärung');
+			expect(description.element().tagName).toBe('TEXTAREA');
+			await expect.element(description).toHaveValue('Eine Flasche von Islay.\nKeine Blends.');
+			await expect.element(description).toHaveAttribute('maxlength', '1000');
+			await expect.element(description).toHaveAttribute('rows', '4');
+			await expect.element(description).not.toBeRequired();
+			await expect.element(description).toBeEnabled();
+			await expect
+				.element(page.getByRole('button', { name: 'Speichern', exact: true }))
+				.toBeVisible();
 		}
 	);
 
-	test('leaves the motto field empty without a motto', async () => {
+	test('leaves both motto fields empty without a motto, the description disabled', async () => {
 		renderDetail({ phase: 'entry' });
-		await expect.element(page.getByLabelText('Motto')).toHaveValue('');
+		await expect.element(page.getByLabelText('Überschrift')).toHaveValue('');
+		await expect.element(page.getByLabelText('Erklärung')).toHaveValue('');
+		await expect.element(page.getByLabelText('Erklärung')).toBeDisabled();
 	});
 
-	test('shows motto errors and keeps the sent motto', async () => {
-		const tooLong = 'x'.repeat(121);
+	test('enables the description only once a heading is typed', async () => {
+		renderDetail({ phase: 'order' });
+		const motto = page.getByLabelText('Überschrift');
+		const description = page.getByLabelText('Erklärung');
+
+		await motto.fill('   ');
+		await expect.element(description).toBeDisabled();
+		await motto.fill('Inselhüpfen');
+		await expect.element(description).toBeEnabled();
+	});
+
+	test('sends no description once the heading is cleared, so the whole motto goes', async () => {
+		renderDetail({
+			phase: 'revealed',
+			tasting: { ...base.tasting, motto: 'Sherry', mottoDescription: 'Nur Sherryfässer.' }
+		});
+		const description = page.getByLabelText('Erklärung');
+		await expect.element(description).toBeEnabled();
+
+		await page.getByLabelText('Überschrift').fill('');
+
+		await expect.element(description).toBeDisabled();
+		await expect.element(description).toHaveValue('Nur Sherryfässer.');
+		const form = description.element().closest('form')!;
+		expect(Object.fromEntries(new FormData(form))).toEqual({ motto: '' });
+	});
+
+	test('shows the length errors at their fields and keeps the sent motto', async () => {
+		const heading = 'x'.repeat(121);
+		const description = 'y'.repeat(1001);
 		renderDetail(
-			{ phase: 'order' },
-			{ action: 'updateMotto', motto: tooLong, fieldErrors: { motto: 'invalid' } }
+			{ phase: 'order', tasting: { ...base.tasting, motto: 'Sherry', mottoDescription: 'Alt' } },
+			{
+				action: 'updateMotto',
+				motto: heading,
+				mottoDescription: description,
+				fieldErrors: { motto: 'invalid', mottoDescription: 'invalid' }
+			}
 		);
 		await expect.element(page.getByText('Höchstens 120 Zeichen')).toBeVisible();
-		await expect.element(page.getByLabelText('Motto')).toHaveValue(tooLong);
+		await expect.element(page.getByText('Höchstens 1000 Zeichen')).toBeVisible();
+		await expect.element(page.getByLabelText('Überschrift')).toHaveValue(heading);
+		await expect.element(page.getByLabelText('Erklärung')).toHaveValue(description);
+	});
+
+	test('reports a description sent without a heading at the heading', async () => {
+		// Only possible without this form: the description field stays disabled.
+		renderDetail(
+			{ phase: 'revealed', tasting: { ...base.tasting, motto: 'Sherry', mottoDescription: null } },
+			{
+				action: 'updateMotto',
+				motto: '',
+				mottoDescription: 'Nur Inseln.',
+				fieldErrors: { motto: 'required' }
+			}
+		);
+		await expect.element(page.getByText('Pflichtfeld', { exact: true })).toBeVisible();
+		await expect.element(page.getByLabelText('Überschrift')).toHaveValue('');
+		await expect.element(page.getByLabelText('Erklärung')).toBeDisabled();
+		expect(page.getByText(/Höchstens/).elements()).toHaveLength(0);
 	});
 
 	test('offers no date form once the entry is closed', async () => {
@@ -113,7 +184,8 @@ describe('Tasting detail page', () => {
 		);
 		await expect.element(page.getByText('Ungültig oder in der Vergangenheit')).toBeVisible();
 		await expect.element(page.getByLabelText('Datum')).toHaveValue('2026-10-01');
-		expect(page.getByText('Höchstens 120 Zeichen').elements()).toHaveLength(0);
+		expect(page.getByText(/Höchstens/).elements()).toHaveLength(0);
+		expect(page.getByText(/Pflichtfeld/).elements()).toHaveLength(0);
 	});
 
 	test('reports failures and a changed date as toasts', async () => {

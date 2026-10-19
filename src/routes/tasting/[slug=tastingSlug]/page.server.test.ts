@@ -26,10 +26,12 @@ vi.mock('$lib/server/presentationPdf', async (importOriginal) => ({
 	convertInBackground: vi.fn()
 }));
 
+import { eq } from 'drizzle-orm';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { SCORE_RULES } from '$lib/tasting';
 import { TASTING_BOTTLING_LENGTH, TASTING_PRESENTATION_MAX_BYTES } from '$lib/validation';
 import { db } from '$lib/server/db';
 import { tasting, tastingBottle, tastingWriteThrottle, user } from '$lib/server/db/schema';
@@ -189,6 +191,24 @@ describe('participant page load', () => {
 		expect(serialized).not.toContain('Glenkinchie');
 	});
 
+	it.each([
+		{ phase: 'entry', now: ENTRY },
+		{ phase: 'order', now: ORDER },
+		{ phase: 'revealed', now: REVEALED }
+	])('shows heading and description of the motto in phase $phase', ({ phase, now }) => {
+		const motto = { motto: 'Inselhüpfen', mottoDescription: 'Eine Insel pro Flasche.\nDanke!' };
+		db.update(tasting).set(motto).where(eq(tasting.id, tastingId)).run();
+
+		vi.setSystemTime(now);
+		const { view } = loadFor(ANNA);
+		expect(view.phase).toBe(phase);
+		expect(view.tasting).toEqual({
+			name: 'Herbst-Tasting',
+			tastingDate: '2026-10-24',
+			...motto
+		});
+	});
+
 	it('offers only distilleries of revealed tastings as input help, and only during entry', async () => {
 		const tastingOf = (date: string) =>
 			createTasting(db, { name: date, tastingDate: date, participantUserIds: [ANNA, BEN] });
@@ -220,12 +240,19 @@ describe('participant page load', () => {
 		const result = loadFor(ANNA);
 		expect(result.view).toEqual({
 			phase: 'order',
-			tasting: { name: 'Herbst-Tasting', tastingDate: '2026-10-24' },
+			tasting: {
+				name: 'Herbst-Tasting',
+				tastingDate: '2026-10-24',
+				motto: null,
+				mottoDescription: null
+			},
 			manual: { orderOpenedAt: null, revealedAt: null },
 			order: [
 				{ position: 1, alias: 'Blume', score: 38.6, presentation: null },
 				{ position: 2, alias: 'Nebel', score: 78.6, presentation: null }
-			]
+			],
+			// The explainer tile's rules name the factors, but carry no bottle's values.
+			rules: SCORE_RULES
 		});
 		const serialized = JSON.stringify(result);
 		for (const hidden of [
@@ -235,7 +262,7 @@ describe('participant page load', () => {
 			'Anna',
 			'Ben',
 			'breakdown',
-			'smoke'
+			'"smoke":'
 		]) {
 			expect(serialized).not.toContain(hidden);
 		}
@@ -784,7 +811,12 @@ describe('participant page with archived bottles', () => {
 		const result = loadFor(BEN);
 		expect(result.view).toEqual({
 			phase: 'revealed',
-			tasting: { name: 'Herbst-Tasting', tastingDate: '2026-10-24' },
+			tasting: {
+				name: 'Herbst-Tasting',
+				tastingDate: '2026-10-24',
+				motto: null,
+				mottoDescription: null
+			},
 			manual: { orderOpenedAt: null, revealedAt: null },
 			archived: true,
 			bottles: [archived('Ahorn', 'Anna'), archived('Zeder', 'Anna'), archived('Moor', 'Ben')]

@@ -7,14 +7,14 @@
 </script>
 
 <svelte:head>
-	<title>Historie · Glen Idunno</title>
+	<title>Flaschen-Datenbank · Glen Idunno</title>
 </svelte:head>
 
 <!-- A <div>, not <main>: the layout already wraps every page in one. Wider
      than the other pages, so from lg on all columns stand side by side; the
      header shares the container to stay flush with the table. -->
 <div class="mx-auto max-w-6xl space-y-8 px-4 py-8">
-	<SubHeader backHref={resolve('/')} backLabel="Startseite" title="Historie" />
+	<SubHeader backHref={resolve('/')} backLabel="Startseite" title="Flaschen-Datenbank" />
 
 	{#if data.bottles}
 		<HistoryBottleTable bottles={data.bottles} />

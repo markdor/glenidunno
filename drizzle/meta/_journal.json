@@ -99,6 +99,20 @@
 			"when": 1792234377114,
 			"tag": "0013_distillery_variants",
 			"breakpoints": true
+		},
+		{
+			"idx": 14,
+			"version": "6",
+			"when": 1792405325392,
+			"tag": "0014_tasting_motto_description",
+			"breakpoints": true
+		},
+		{
+			"idx": 15,
+			"version": "6",
+			"when": 1792416451375,
+			"tag": "0015_tasting_frozen_pour_order",
+			"breakpoints": true
 		}
 	]
 }

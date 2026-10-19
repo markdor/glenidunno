@@ -5,8 +5,9 @@ import { test, expect } from '@playwright/test';
 // at 18:00 and 9:00 is covered by route and component tests.
 //
 // The participant page is reached via the start page's hero. This spec
-// enters a single bottle there, only so the history has a real row for its
-// layout check and the statistics a record to link to it: entering bottles
+// enters a single bottle there, only so the tasting history shows a bottle,
+// the bottle database has a real row for its layout check and the
+// statistics a record to link to it: entering bottles
 // and the presentation downloads are covered by route and component tests.
 // Its presentation is a small PDF, so the viewer can show its first slide in
 // the built app (pdf.js worker bundling) without Gotenberg.
@@ -206,10 +207,21 @@ test.describe('Tasting – Ablauf', () => {
 				() => document.documentElement.scrollWidth > document.documentElement.clientWidth
 			);
 
-		await test.step('Historie: ab lg alle Spalten, bei 360 px kein horizontales Scrollen, Spaltenköpfe einzeilig', async () => {
+		await test.step('Tasting-Historie: das aufgelöste Tasting zeigt seine Flasche', async () => {
 			// Reached via the dashboard tile, the only way in.
 			await page.goto('/');
-			await page.getByRole('link', { name: 'Historie' }).click();
+			await page.getByRole('link', { name: 'Tasting-Historie' }).click();
+			await expect(page).toHaveURL(/\/tastings$/);
+			await page.getByRole('link', { name: tastingName }).click();
+			await expect(page).toHaveURL(/\/tastings\/[0-9a-f-]{36}$/);
+			await expect(page.getByRole('heading', { level: 1, name: tastingName })).toBeVisible();
+			await expect(page.getByRole('heading', { name: BOTTLE_ALIAS })).toBeVisible();
+		});
+
+		await test.step('Flaschen-Datenbank: ab lg alle Spalten, bei 360 px kein horizontales Scrollen, Spaltenköpfe einzeilig', async () => {
+			// Reached via the dashboard tile, the only way in.
+			await page.goto('/');
+			await page.getByRole('link', { name: 'Flaschen-Datenbank' }).click();
 			await expect(page).toHaveURL(/\/history$/);
 			const table = page.getByRole('region', { name: 'Alle Flaschen' }).getByRole('table');
 			const heading = (name: string) => table.getByRole('columnheader', { name, exact: true });
@@ -278,7 +290,7 @@ test.describe('Tasting – Ablauf', () => {
 			if (viewport) await page.setViewportSize(viewport);
 		});
 
-		await test.step('Statistikseite: ein Rekord-Link landet auf der hervorgehobenen Zeile der Historie', async () => {
+		await test.step('Statistikseite: ein Rekord-Link landet auf der hervorgehobenen Zeile der Flaschen-Datenbank', async () => {
 			const record = page
 				.getByRole('region', { name: 'Kennzahlen und Rekorde' })
 				.locator('a[href^="/history#bottle-"]')
@@ -322,6 +334,8 @@ test.describe('Tasting – Zugriff ohne Login', () => {
 		'/tasting',
 		'/statistics',
 		'/history',
+		'/tastings',
+		'/tastings/00000000-0000-4000-8000-000000000000',
 		'/map',
 		UNKNOWN_SLUG_LINK,
 		`${UNKNOWN_SLUG_LINK}/presentation/some-id`,
@@ -344,14 +358,15 @@ test.describe('Tasting – Zugriff mit Login', () => {
 	// The bare dashboard: no ?notice left behind.
 	const DASHBOARD_URL = /^https?:\/\/[^/]+\/$/;
 
-	// Unknown slug, old token link, unknown path and unknown admin ID: one
+	// Unknown slug, old token link, unknown path and unknown tasting IDs: one
 	// response for all of them, so it doesn't reveal which case applied.
 	for (const path of [
 		UNKNOWN_SLUG_LINK,
 		`${UNKNOWN_SLUG_LINK}/presentation/some-id/view`,
 		OLD_TOKEN_LINK,
 		'/gibt-es-nicht',
-		'/admin/tastings/00000000-0000-4000-8000-000000000000'
+		'/admin/tastings/00000000-0000-4000-8000-000000000000',
+		'/tastings/00000000-0000-4000-8000-000000000000'
 	]) {
 		test(`${path} leitet mit derselben Antwort aufs Dashboard um`, async ({ request }) => {
 			const res = await request.get(path, { maxRedirects: 0 });

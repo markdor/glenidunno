@@ -86,6 +86,13 @@
 			Whisky-Tasting · {formatTastingDate(view.tasting.tastingDate)}
 		</p>
 		<h1 class="text-2xl font-semibold tracking-tight break-words">{view.tasting.name}</h1>
+		<!-- Plain text, never {@html}: line breaks of the description only via CSS. -->
+		{#if view.tasting.motto}
+			<p class="pt-1 text-lg font-medium break-words text-slate-800">{view.tasting.motto}</p>
+		{/if}
+		{#if view.tasting.mottoDescription}
+			<p class="break-words whitespace-pre-line text-slate-600">{view.tasting.mottoDescription}</p>
+		{/if}
 	</header>
 
 	{#if view.phase === 'entry'}
@@ -124,8 +131,8 @@
 			</p>
 			<TastingOrderList order={view.order} {presentationHref} {viewHref} />
 		</section>
-		<TastingOrderChart order={view.order} />
-		<TastingScoreExplainer />
+		<TastingOrderChart order={view.order} smokeGroups={view.rules.smokeGroups.length > 0} />
+		<TastingScoreExplainer rules={view.rules} />
 	{:else}
 		<TastingManualNotice manual={view.manual} />
 		<section class="space-y-3">
@@ -135,7 +142,7 @@
 		<!-- Archived bottles have no factors: no score to chart, no order to explain. -->
 		{#if !view.archived}
 			<TastingScoreChart bottles={view.bottles} />
-			<TastingScoreExplainer />
+			<TastingScoreExplainer rules={view.rules} />
 		{/if}
 	{/if}
 </div>

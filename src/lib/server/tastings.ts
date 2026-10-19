@@ -3,22 +3,33 @@ import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from 'driz
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
 	isViewablePresentation,
+	normalizeScoreFactors,
 	participantLabel,
+	SCORE_RULES,
 	type ArchivedRevealedBottle,
 	type DashboardLastTasting,
 	type DashboardTasting,
 	type HistoryBottle,
 	type ManualPhaseChanges,
+	type NormalizedScoreFactors,
 	type OrderEntry,
 	type PresentationRef,
 	type Progress,
 	type Reveal,
 	type RevealedBottle,
+	type ScoreRules,
 	type Statistics,
 	type TastingBottle,
+	type TastingHistoryDetail,
+	type TastingHistoryItem,
 	type TastingPhase
 } from '$lib/tasting';
-import { isValidTastingDate, TASTING_BOTTLE_SLOTS, TASTING_MOTTO_LENGTH } from '$lib/validation';
+import {
+	isValidTastingDate,
+	TASTING_BOTTLE_SLOTS,
+	TASTING_MOTTO_DESCRIPTION_LENGTH,
+	TASTING_MOTTO_LENGTH
+} from '$lib/validation';
 import type { WorldMapData } from '$lib/worldMap';
 import { distinctDistilleryNames, nameKey } from '$lib/distilleryNames';
 import type * as Schema from './db/schema';
@@ -42,7 +53,7 @@ import { getBerlinToday, getTastingPhase, isTastingReleased } from './tastingPha
 import { buildStatistics, numberBottles } from './statistics';
 import { buildWorldMap } from './worldMap';
 import type { PendingUpload, StoredPresentation } from './tastingMedia';
-import { sortForPouring, type BottleScore } from './tastingScore';
+import { sortForPouring } from './tastingScore';
 
 type Db = BetterSQLite3Database<typeof Schema>;
 /** The database or a transaction on it – both can run the same queries. */
@@ -79,18 +90,30 @@ export function validateTastingDate(
 	return { tastingDate, error: null };
 }
 
+export type TastingMotto = { motto: string | null; mottoDescription: string | null };
+
 /**
  * Field-level check of the optional motto shared by "create" and "change
- * motto": trimmed, empty means no motto (`null`). The only length guard – the
- * column has no CHECK constraint.
+ * motto": a heading and a multi-line description, both trimmed, empty means
+ * none (`null`). The description keeps its line breaks (normalized to `\n`)
+ * and needs a heading – without one the heading reports `required`. The only
+ * length guard: neither column has a CHECK constraint.
  */
-export function validateTastingMotto(raw: string): {
-	motto: string | null;
-	error: 'invalid' | null;
+export function validateTastingMotto(
+	rawMotto: string,
+	rawDescription: string
+): TastingMotto & {
+	fieldErrors: { motto?: 'invalid' | 'required'; mottoDescription?: 'invalid' };
 } {
-	const motto = raw.trim();
-	if (motto.length > TASTING_MOTTO_LENGTH.max) return { motto, error: 'invalid' };
-	return { motto: motto || null, error: null };
+	const motto = rawMotto.trim() || null;
+	const mottoDescription = rawDescription.replace(/\r\n?/g, '\n').trim() || null;
+	const fieldErrors: { motto?: 'invalid' | 'required'; mottoDescription?: 'invalid' } = {};
+	if (motto && motto.length > TASTING_MOTTO_LENGTH.max) fieldErrors.motto = 'invalid';
+	else if (!motto && mottoDescription) fieldErrors.motto = 'required';
+	if (mottoDescription && mottoDescription.length > TASTING_MOTTO_DESCRIPTION_LENGTH.max) {
+		fieldErrors.mottoDescription = 'invalid';
+	}
+	return { motto, mottoDescription, fieldErrors };
 }
 
 type BottleRow = typeof tastingBottle.$inferSelect;
@@ -141,8 +164,11 @@ function toOrder(
 	}));
 }
 
+/** Score and factor shares of a bottle in the pouring order. */
+type Pour = { score: number; shares: NormalizedScoreFactors };
+
 type PouredBottle = TastingBottle &
-	BottleScore & { broughtBy: string; presentation: PresentationRef | null };
+	Pour & { broughtBy: string; presentation: PresentationRef | null };
 
 function toReveal(poured: ReadonlyArray<PouredBottle>) {
 	return poured.map((b, i): RevealedBottle => ({
@@ -159,6 +185,12 @@ function toReveal(poured: ReadonlyArray<PouredBottle>) {
 		value: b.value,
 		broughtBy: b.broughtBy,
 		score: b.score,
+		shares: {
+			smoke: b.shares.smoke,
+			cask: b.shares.cask,
+			abv: b.shares.abv,
+			value: b.shares.value
+		},
 		presentation: b.presentation
 	}));
 }
@@ -171,7 +203,10 @@ type BottleWithBringer = { bottle: BottleRow; username: string; deactivatedAt: D
  * (compared here, SQLite only compares bytes) and slot. Picked explicitly – a
  * spread would put the NULL factors into the payload.
  */
-function toArchivedReveal(rows: ReadonlyArray<BottleWithBringer>): ArchivedRevealedBottle[] {
+function toArchivedReveal(
+	rows: ReadonlyArray<BottleWithBringer>,
+	presentations: boolean
+): ArchivedRevealedBottle[] {
 	return [...rows]
 		.sort((a, b) => a.username.localeCompare(b.username, 'de-DE') || a.bottle.slot - b.bottle.slot)
 		.map(({ bottle, username, deactivatedAt }): ArchivedRevealedBottle => ({
@@ -184,7 +219,7 @@ function toArchivedReveal(rows: ReadonlyArray<BottleWithBringer>): ArchivedRevea
 			whiskybaseUrl: bottle.whiskybaseUrl,
 			abv: bottle.abv,
 			broughtBy: participantLabel(username, deactivatedAt),
-			presentation: presentationRef(bottle)
+			presentation: presentations ? presentationRef(bottle) : null
 		}));
 }
 
@@ -192,14 +227,22 @@ function toArchivedReveal(rows: ReadonlyArray<BottleWithBringer>): ArchivedRevea
  * All bottles of a tasting with their participant, in pouring order. As soon
  * as one of them is archived (imported from the tasting history without
  * smoke, cask and value), there is no order: then all of them come as
- * archived bottles, see toArchivedReveal().
+ * archived bottles, see toArchivedReveal(). Without `presentations` (a viewer
+ * who didn't take part) no bottle carries one: the download runs through the
+ * participant's link, and the original file name stays on the server.
  */
 function pouredBottles(
 	db: Db,
-	tastingId: string
+	tastingId: string,
+	presentations = true
 ):
-	| { archived: false; bottles: PouredBottle[] }
+	| { archived: false; bottles: PouredBottle[]; rules: ScoreRules }
 	| { archived: true; bottles: ArchivedRevealedBottle[] } {
+	const frozenRules = db
+		.select({ pourRules: tasting.pourRules })
+		.from(tasting)
+		.where(eq(tasting.id, tastingId))
+		.get()?.pourRules;
 	const rows = db
 		.select({
 			bottle: tastingBottle,
@@ -218,14 +261,126 @@ function pouredBottles(
 					{
 						...toDomain(bottle),
 						broughtBy: participantLabel(username, deactivatedAt),
-						presentation: presentationRef(bottle)
+						presentation: presentations ? presentationRef(bottle) : null,
+						frozen: frozenPour(bottle)
 					}
 				]
 			: []
 	);
-	return active.length === rows.length
-		? { archived: false, bottles: sortForPouring(active) }
-		: { archived: true, bottles: toArchivedReveal(rows) };
+	if (active.length !== rows.length) {
+		return { archived: true, bottles: toArchivedReveal(rows, presentations) };
+	}
+	// Frozen with the order like positions and scores, the current ones before.
+	const rules = frozenRules ? (JSON.parse(frozenRules) as ScoreRules) : SCORE_RULES;
+	return { archived: false, bottles: inPouringOrder(active), rules };
+}
+
+type FrozenPour = Pour & { position: number };
+
+function frozenPour(bottle: BottleRow): FrozenPour | null {
+	const {
+		pourPosition: position,
+		pourScore: score,
+		pourSmokeShare: smoke,
+		pourCaskShare: cask,
+		pourAbvShare: abv,
+		pourValueShare: value
+	} = bottle;
+	return position !== null &&
+		score !== null &&
+		smoke !== null &&
+		cask !== null &&
+		abv !== null &&
+		value !== null
+		? { position, score, shares: { smoke, cask, abv, value } }
+		: null;
+}
+
+/**
+ * Bottles in pouring order with their scores and factor shares. Once the
+ * order came out, as frozen then (freezePouringOrder): a later change of
+ * weights, groups, normalization or tie-breakers changes neither the order
+ * nor the score chart of a tasting that was poured already. Computed with the
+ * current algorithm only before that.
+ */
+function inPouringOrder<T extends TastingBottle & { frozen: FrozenPour | null }>(
+	bottles: T[]
+): Array<T & Pour> {
+	if (!bottles.every((b): b is T & { frozen: FrozenPour } => b.frozen !== null)) {
+		return sortForPouring(bottles).map((b) => ({ ...b, shares: normalizeScoreFactors(b) }));
+	}
+	return bottles
+		.map((b) => ({ ...b, score: b.frozen.score, shares: b.frozen.shares }))
+		.sort((a, b) => a.frozen.position - b.frozen.position);
+}
+
+/**
+ * Freezes a tasting's pouring order as the algorithm computes it now:
+ * position, score and factor shares stored with each bottle, the rules the
+ * explainer tile shows (SCORE_RULES) with the tasting – pouredBottles reads
+ * them from then on. Runs once the order comes out (see freezeDueOrders), the
+ * bottles can't change any more by then. Idempotent; a tasting with an
+ * archived bottle has no order and stays as it is. Returns whether it froze
+ * anything.
+ */
+function freezePouringOrder(db: Executor, tastingId: string): boolean {
+	const rulesFrozen =
+		db
+			.select({ id: tasting.id })
+			.from(tasting)
+			.where(and(eq(tasting.id, tastingId), isNotNull(tasting.pourRules)))
+			.get() !== undefined;
+	const rows = db
+		.select({ bottle: tastingBottle })
+		.from(tastingBottle)
+		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+		.where(eq(tastingParticipant.tastingId, tastingId))
+		// The same input order as pouredBottles.
+		.orderBy(asc(tastingBottle.id))
+		.all()
+		.map((row) => row.bottle);
+	if (rulesFrozen && rows.every((row) => frozenPour(row) !== null)) return false;
+	const active = rows.filter(isActiveBottle);
+	if (active.length !== rows.length) return false;
+
+	sortForPouring(active.map((row) => ({ id: row.id, ...toDomain(row) }))).forEach((b, i) => {
+		const shares = normalizeScoreFactors(b);
+		db.update(tastingBottle)
+			.set({
+				pourPosition: i + 1,
+				pourScore: b.score,
+				pourSmokeShare: shares.smoke,
+				pourCaskShare: shares.cask,
+				pourAbvShare: shares.abv,
+				pourValueShare: shares.value
+			})
+			.where(eq(tastingBottle.id, b.id))
+			.run();
+	});
+	db.update(tasting)
+		.set({ pourRules: JSON.stringify(SCORE_RULES) })
+		.where(eq(tasting.id, tastingId))
+		.run();
+	return true;
+}
+
+/**
+ * Freezes the pouring order of every tasting whose order is out – by the
+ * clock or by the admin's buttons, which freeze theirs at once. Runs at
+ * startup and daily at TASTING_ORDER_HOUR, so an order is frozen with the
+ * algorithm of the code that showed it, before a deployment can change it.
+ * Returns how many tastings it froze.
+ */
+export function freezeDueOrders(db: Db, now: Date = new Date()): number {
+	return db.transaction(
+		(tx) =>
+			tx
+				.select({ id: tasting.id, ...phaseColumns })
+				.from(tasting)
+				.all()
+				.filter((t) => getTastingPhase(t.tastingDate, now, t) !== 'entry')
+				.filter((t) => freezePouringOrder(tx, t.id)).length
+	);
 }
 
 function presentationRef(bottle: BottleRow): PresentationRef | null {
@@ -310,6 +465,8 @@ export type NewTasting = {
 	name: string;
 	/** Optional, `null` (or missing) means no motto. */
 	motto?: string | null;
+	/** Optional explanation of the motto, only with a motto (validateTastingMotto). */
+	mottoDescription?: string | null;
 	tastingDate: string;
 	/** Users taking part, in the order they are listed. */
 	participantUserIds: string[];
@@ -388,6 +545,7 @@ export function createTasting(
 				slug,
 				name: input.name,
 				motto: input.motto ?? null,
+				mottoDescription: input.mottoDescription ?? null,
 				tastingDate: input.tastingDate,
 				createdAt: now
 			})
@@ -418,13 +576,15 @@ export function listSelectableUsers(db: Db): SelectableUser[] {
 export type TastingListItem = {
 	id: string;
 	name: string;
+	/** The motto heading only, never its description. */
+	motto: string | null;
 	tastingDate: string;
 	phase: TastingPhase;
 	progress: Progress;
 };
 
 /**
- * Management data only: name, date, phase and entry progress. The progress
+ * Management data only: name, motto heading, date, phase and entry progress. The progress
  * adds up the participants' own targets, so a participant's third bottle
  * doesn't raise the target of the others.
  */
@@ -453,21 +613,22 @@ export function listTastings(db: Db, now: Date = new Date()): TastingListItem[] 
 		.map((t) => ({
 			id: t.id,
 			name: t.name,
+			motto: t.motto,
 			tastingDate: t.tastingDate,
 			phase: getTastingPhase(t.tastingDate, now, t),
 			progress: progress.get(t.id) ?? { entered: 0, total: 0 }
 		}));
 }
 
-export type StartPageSummary = {
+export type TastingSummary = {
 	upcomingCount: number;
 	preview: Array<TastingListItem & { isToday: boolean }>;
 };
 
-const START_PAGE_PREVIEW_SIZE = 3;
+const TASTING_PREVIEW_SIZE = 3;
 
-/** Not yet revealed tastings for the admin's start page card, soonest first. */
-export function getStartPageSummary(db: Db, now: Date = new Date()): StartPageSummary {
+/** Not yet revealed tastings for the admin page's card, soonest first. */
+export function getTastingSummary(db: Db, now: Date = new Date()): TastingSummary {
 	const today = getBerlinToday(now);
 	const upcoming = listTastings(db, now)
 		.filter((t) => t.phase !== 'revealed')
@@ -475,7 +636,7 @@ export function getStartPageSummary(db: Db, now: Date = new Date()): StartPageSu
 	return {
 		upcomingCount: upcoming.length,
 		preview: upcoming
-			.slice(0, START_PAGE_PREVIEW_SIZE)
+			.slice(0, TASTING_PREVIEW_SIZE)
 			.map((t) => ({ ...t, isToday: t.tastingDate === today }))
 	};
 }
@@ -547,7 +708,7 @@ export function getDashboardTasting(
  */
 function revealedBottles(db: Db, userId: string, now: Date) {
 	const tastings = db
-		.select({ id: tasting.id, slug: tasting.slug, ...phaseColumns })
+		.select({ id: tasting.id, slug: tasting.slug, motto: tasting.motto, ...phaseColumns })
 		.from(tasting)
 		// created_at only has second precision: see getDashboardTasting.
 		.orderBy(asc(tasting.tastingDate), asc(tasting.createdAt), sql`${tasting}.rowid`)
@@ -780,6 +941,7 @@ export function getHistory(db: Db, userId: string, now: Date = new Date()): Hist
 			return {
 				number: b.number,
 				tastingDate: t.tastingDate,
+				motto: t.motto,
 				slug: isOwn ? t.slug : null,
 				alias: b.alias,
 				distillery: b.distillery,
@@ -799,6 +961,94 @@ export function getHistory(db: Db, userId: string, now: Date = new Date()): Hist
 		});
 }
 
+/**
+ * The tasting history (/tastings): all revealed tastings for every user,
+ * newest first – the same extended visibility as revealedBottles, with the
+ * phase computed per tasting, so a tasting revealed early counts at once.
+ * Management data plus the number of bottles, no slug (see
+ * getTastingHistoryDetail).
+ */
+export function listTastingHistory(db: Db, now: Date = new Date()): TastingHistoryItem[] {
+	const revealed = db
+		.select({ id: tasting.id, name: tasting.name, motto: tasting.motto, ...phaseColumns })
+		.from(tasting)
+		// created_at only has second precision: see getDashboardTasting.
+		.orderBy(desc(tasting.tastingDate), desc(tasting.createdAt), desc(sql`${tasting}.rowid`))
+		.all()
+		.filter((t) => getTastingPhase(t.tastingDate, now, t) === 'revealed');
+	if (revealed.length === 0) return [];
+
+	const ids = revealed.map((t) => t.id);
+	const bottleCounts = new Map(
+		db
+			.select({ tastingId: tastingParticipant.tastingId, bottles: count(tastingBottle.id) })
+			.from(tastingBottle)
+			.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+			.where(inArray(tastingParticipant.tastingId, ids))
+			.groupBy(tastingParticipant.tastingId)
+			.all()
+			.map((row) => [row.tastingId, row.bottles])
+	);
+	return revealed.map((t) => ({
+		id: t.id,
+		name: t.name,
+		motto: t.motto,
+		tastingDate: t.tastingDate,
+		bottleCount: bottleCounts.get(t.id) ?? 0
+	}));
+}
+
+/**
+ * A revealed tasting's page in the tasting history (/tastings/[id]), for
+ * every user: the reveal like on the participant page. The slug and the
+ * presentations only with an own participation, like in getHistory. `null`
+ * for an unknown tasting and for one that isn't revealed yet – the bottles of
+ * those aren't even queried.
+ */
+export function getTastingHistoryDetail(
+	db: Db,
+	id: string,
+	userId: string,
+	now: Date = new Date()
+): TastingHistoryDetail | null {
+	const t = db
+		.select({
+			slug: tasting.slug,
+			name: tasting.name,
+			motto: tasting.motto,
+			mottoDescription: tasting.mottoDescription,
+			...phaseColumns
+		})
+		.from(tasting)
+		.where(eq(tasting.id, id))
+		.get();
+	if (!t || getTastingPhase(t.tastingDate, now, t) !== 'revealed') return null;
+
+	const own =
+		db
+			.select({ id: tastingParticipant.id })
+			.from(tastingParticipant)
+			.where(and(eq(tastingParticipant.tastingId, id), eq(tastingParticipant.userId, userId)))
+			.get() !== undefined;
+	const head = {
+		name: t.name,
+		tastingDate: t.tastingDate,
+		motto: t.motto,
+		mottoDescription: t.mottoDescription
+	};
+	const slug = own ? t.slug : null;
+	const poured = pouredBottles(db, id, own);
+	return poured.archived
+		? { tasting: head, slug, archived: true, bottles: poured.bottles }
+		: {
+				tasting: head,
+				slug,
+				archived: false,
+				bottles: toReveal(poured.bottles),
+				rules: poured.rules
+			};
+}
+
 /** `name` is the display label: the username, marked if deactivated. */
 export type AdminParticipant = { id: string; name: string; progress: Progress };
 
@@ -807,6 +1057,7 @@ export type AdminTastingDetail = {
 		id: string;
 		name: string;
 		motto: string | null;
+		mottoDescription: string | null;
 		tastingDate: string;
 	};
 	phase: TastingPhase;
@@ -848,7 +1099,13 @@ export function getAdminTastingDetail(
 		}));
 
 	return {
-		tasting: { id: t.id, name: t.name, motto: t.motto, tastingDate: t.tastingDate },
+		tasting: {
+			id: t.id,
+			name: t.name,
+			motto: t.motto,
+			mottoDescription: t.mottoDescription,
+			tastingDate: t.tastingDate
+		},
 		phase: getTastingPhase(t.tastingDate, now, t),
 		participants,
 		manual: { orderOpenedAt: t.orderOpenedAt, revealedAt: t.revealedAt }
@@ -918,12 +1175,19 @@ export function updateTastingDate(
 }
 
 /**
- * Sets or clears (`null`) the motto – in every phase: like name and date it is
- * management data the admin sets blind. Returns false if the tasting doesn't
- * exist.
+ * Sets or clears (`null`) heading and description of the motto together – in
+ * every phase, archived tastings included: like name and date it is
+ * management data the admin sets blind. Expects validateTastingMotto's
+ * output. Returns false if the tasting doesn't exist.
  */
-export function updateTastingMotto(db: Db, id: string, motto: string | null): boolean {
-	return db.update(tasting).set({ motto }).where(eq(tasting.id, id)).run().changes > 0;
+export function updateTastingMotto(
+	db: Db,
+	id: string,
+	{ motto, mottoDescription }: TastingMotto
+): boolean {
+	return (
+		db.update(tasting).set({ motto, mottoDescription }).where(eq(tasting.id, id)).run().changes > 0
+	);
 }
 
 /**
@@ -932,16 +1196,20 @@ export function updateTastingMotto(db: Db, id: string, motto: string | null): bo
  * open. Returns false if the tasting doesn't exist.
  */
 export function openOrderEarly(db: Db, id: string, now: Date = new Date()): boolean {
-	const phase = currentPhase(db, id, now);
-	if (!phase) return false;
-	if (phase !== 'entry') {
-		throw new TastingValidationError(
-			`open order rejected: tasting ${id} is already in phase ${phase}`,
-			'Die Reihenfolge ist bereits freigegeben.'
-		);
-	}
-	db.update(tasting).set({ orderOpenedAt: now }).where(eq(tasting.id, id)).run();
-	return true;
+	return db.transaction((tx) => {
+		const phase = currentPhase(tx, id, now);
+		if (!phase) return false;
+		if (phase !== 'entry') {
+			throw new TastingValidationError(
+				`open order rejected: tasting ${id} is already in phase ${phase}`,
+				'Die Reihenfolge ist bereits freigegeben.'
+			);
+		}
+		tx.update(tasting).set({ orderOpenedAt: now }).where(eq(tasting.id, id)).run();
+		// The order is out: frozen right away, not only by the next freezeDueOrders.
+		freezePouringOrder(tx, id);
+		return true;
+	});
 }
 
 /**
@@ -951,22 +1219,26 @@ export function openOrderEarly(db: Db, id: string, now: Date = new Date()): bool
  * doesn't exist.
  */
 export function revealEarly(db: Db, id: string, now: Date = new Date()): boolean {
-	const phase = currentPhase(db, id, now);
-	if (!phase) return false;
-	if (phase === 'entry') {
-		throw new TastingValidationError(
-			`reveal rejected: tasting ${id} is still in the entry phase`,
-			'Gib zuerst die Reihenfolge frei.'
-		);
-	}
-	if (phase === 'revealed') {
-		throw new TastingValidationError(
-			`reveal rejected: tasting ${id} is already revealed`,
-			'Das Tasting ist bereits aufgelöst.'
-		);
-	}
-	db.update(tasting).set({ revealedAt: now }).where(eq(tasting.id, id)).run();
-	return true;
+	return db.transaction((tx) => {
+		const phase = currentPhase(tx, id, now);
+		if (!phase) return false;
+		if (phase === 'entry') {
+			throw new TastingValidationError(
+				`reveal rejected: tasting ${id} is still in the entry phase`,
+				'Gib zuerst die Reihenfolge frei.'
+			);
+		}
+		if (phase === 'revealed') {
+			throw new TastingValidationError(
+				`reveal rejected: tasting ${id} is already revealed`,
+				'Das Tasting ist bereits aufgelöst.'
+			);
+		}
+		tx.update(tasting).set({ revealedAt: now }).where(eq(tasting.id, id)).run();
+		// Normally frozen with the order already; this catches a failed daily run.
+		freezePouringOrder(tx, id);
+		return true;
+	});
 }
 
 /** Deletes the tasting; participants, bottles and throttle rows cascade. */
@@ -1034,6 +1306,8 @@ export type Participant = ManualPhaseChanges & {
 	tastingId: string;
 	tastingName: string;
 	tastingDate: string;
+	tastingMotto: string | null;
+	tastingMottoDescription: string | null;
 };
 
 /**
@@ -1050,6 +1324,8 @@ export function findParticipant(db: Db, slug: string, userId: string): Participa
 				tastingId: tasting.id,
 				tastingName: tasting.name,
 				tastingDate: tasting.tastingDate,
+				tastingMotto: tasting.motto,
+				tastingMottoDescription: tasting.mottoDescription,
 				orderOpenedAt: tasting.orderOpenedAt,
 				revealedAt: tasting.revealedAt
 			})
@@ -1064,10 +1340,21 @@ export function findParticipant(db: Db, slug: string, userId: string): Participa
 /** The participant's own bottle during entry, incl. the name of an uploaded presentation. */
 export type OwnBottle = TastingBottle & { slot: number; presentationName: string | null };
 
+/**
+ * The page head in every phase. The motto is management data the admin sets
+ * blind, no whisky content, so it shows before the reveal too.
+ */
+export type ParticipantTasting = {
+	name: string;
+	tastingDate: string;
+	motto: string | null;
+	mottoDescription: string | null;
+};
+
 export type ParticipantView =
 	| {
 			phase: 'entry';
-			tasting: { name: string; tastingDate: string };
+			tasting: ParticipantTasting;
 			participant: { username: string };
 			bottles: OwnBottle[];
 			/**
@@ -1079,13 +1366,15 @@ export type ParticipantView =
 	  }
 	| {
 			phase: 'order';
-			tasting: { name: string; tastingDate: string };
+			tasting: ParticipantTasting;
 			manual: ManualPhaseChanges;
 			order: OrderEntry[];
+			/** The rules the explainer tile shows, frozen with the order. */
+			rules: ScoreRules;
 	  }
 	| ({
 			phase: 'revealed';
-			tasting: { name: string; tastingDate: string };
+			tasting: ParticipantTasting;
 			manual: ManualPhaseChanges;
 	  } & Reveal);
 
@@ -1110,7 +1399,12 @@ export function getParticipantView(
 	holder: Participant,
 	now: Date = new Date()
 ): ParticipantView {
-	const tastingInfo = { name: holder.tastingName, tastingDate: holder.tastingDate };
+	const tastingInfo: ParticipantTasting = {
+		name: holder.tastingName,
+		tastingDate: holder.tastingDate,
+		motto: holder.tastingMotto,
+		mottoDescription: holder.tastingMottoDescription
+	};
 	// When the admin pressed the 18:00 / 9:00 button – every participant sees it.
 	const manual = { orderOpenedAt: holder.orderOpenedAt, revealedAt: holder.revealedAt };
 	const phase = getTastingPhase(holder.tastingDate, now, manual);
@@ -1145,7 +1439,13 @@ export function getParticipantView(
 		case 'order': {
 			const poured = pouredBottles(db, holder.tastingId);
 			if (poured.archived) throw archivedBeforeReveal(holder.tastingId, phase);
-			return { phase, tasting: tastingInfo, manual, order: toOrder(poured.bottles) };
+			return {
+				phase,
+				tasting: tastingInfo,
+				manual,
+				order: toOrder(poured.bottles),
+				rules: poured.rules
+			};
 		}
 		case 'revealed': {
 			const poured = pouredBottles(db, holder.tastingId);
@@ -1156,7 +1456,8 @@ export function getParticipantView(
 						tasting: tastingInfo,
 						manual,
 						archived: false,
-						bottles: toReveal(poured.bottles)
+						bottles: toReveal(poured.bottles),
+						rules: poured.rules
 					};
 		}
 	}

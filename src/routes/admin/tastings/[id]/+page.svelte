@@ -7,7 +7,7 @@
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import { formatTastingDate, TASTING_PHASE_LABEL } from '$lib/tasting';
-	import { TASTING_MOTTO_LENGTH } from '$lib/validation';
+	import { TASTING_MOTTO_DESCRIPTION_LENGTH, TASTING_MOTTO_LENGTH } from '$lib/validation';
 
 	let { data, form } = $props();
 
@@ -48,9 +48,29 @@
 		return code ? (errorText[code] ?? 'Ungültig') : null;
 	});
 
-	// The motto is optional, so the only error is the length.
-	const mottoError = $derived(
-		fieldErrors && 'motto' in fieldErrors ? `Höchstens ${TASTING_MOTTO_LENGTH.max} Zeichen` : null
+	// The motto is optional. `required` (a description without a heading) only
+	// comes from a request sent without this form: its description field stays
+	// disabled without a heading.
+	const mottoErrorText = {
+		invalid: `Höchstens ${TASTING_MOTTO_LENGTH.max} Zeichen`,
+		required: 'Pflichtfeld'
+	} as const;
+
+	// A description only goes with a heading: its field stays disabled until one
+	// is typed, and a disabled field isn't sent – clearing the heading clears the
+	// whole motto. The server checks it anyway.
+	let motto = $derived(form?.motto ?? detail.tasting.motto ?? '');
+
+	const mottoError = $derived.by(() => {
+		const code = fieldErrors && 'motto' in fieldErrors ? fieldErrors.motto : undefined;
+		return code ? mottoErrorText[code] : null;
+	});
+
+	// Optional as well, so the only error is the length.
+	const mottoDescriptionError = $derived(
+		fieldErrors && 'mottoDescription' in fieldErrors && fieldErrors.mottoDescription
+			? `Höchstens ${TASTING_MOTTO_DESCRIPTION_LENGTH.max} Zeichen`
+			: null
 	);
 
 	const secondaryButton =
@@ -92,23 +112,40 @@
 			use:enhance={() => {
 				return async ({ update }) => update({ reset: false });
 			}}
-			class="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4"
+			class="space-y-4 rounded-xl border border-slate-200 bg-white p-4"
 		>
-			<div class="min-w-0 flex-1 basis-60 space-y-1">
-				<label for="m-motto" class="block text-sm font-medium text-slate-700">Motto</label>
+			<div class="space-y-1">
+				<label for="m-motto" class="block text-sm font-medium text-slate-700">Überschrift</label>
 				<input
 					id="m-motto"
 					name="motto"
 					maxlength={TASTING_MOTTO_LENGTH.max}
 					placeholder="leer lassen für kein Motto"
-					value={form?.motto ?? detail.tasting.motto ?? ''}
+					bind:value={motto}
 					class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 placeholder:text-slate-400"
 				/>
+				{#if mottoError}
+					<p class="text-xs text-red-600">{mottoError}</p>
+				{/if}
 			</div>
-			<button type="submit" class={secondaryButton}>Motto speichern</button>
-			{#if mottoError}
-				<p class="w-full text-xs text-red-600">{mottoError}</p>
-			{/if}
+			<div class="space-y-1">
+				<label for="m-motto-description" class="block text-sm font-medium text-slate-700">
+					Erklärung
+				</label>
+				<textarea
+					id="m-motto-description"
+					name="mottoDescription"
+					rows="4"
+					maxlength={TASTING_MOTTO_DESCRIPTION_LENGTH.max}
+					disabled={!motto.trim()}
+					value={form?.mottoDescription ?? detail.tasting.mottoDescription ?? ''}
+					class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+				></textarea>
+				{#if mottoDescriptionError}
+					<p class="text-xs text-red-600">{mottoDescriptionError}</p>
+				{/if}
+			</div>
+			<button type="submit" class={secondaryButton}>Speichern</button>
 		</form>
 	</section>
 

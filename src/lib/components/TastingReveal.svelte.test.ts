@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import type { ResolvedPathname } from '$app/types';
-import type { ArchivedRevealedBottle, RevealedBottle } from '$lib/tasting';
+import { SCORE_RULES, type ArchivedRevealedBottle, type RevealedBottle } from '$lib/tasting';
 import TastingReveal from './TastingReveal.svelte';
 
 const presentationHref = (bottleId: string) =>
@@ -24,6 +24,7 @@ const nas = {
 	value: 2,
 	broughtBy: 'Ben',
 	score: 12,
+	shares: { smoke: 0, cask: 0.2, abv: 0.075, value: 0.4 },
 	presentation: null
 };
 
@@ -46,7 +47,7 @@ function renderPoured(bottles: RevealedBottle[]) {
 	return render(TastingReveal, {
 		presentationHref,
 		viewHref,
-		reveal: { archived: false, bottles }
+		reveal: { archived: false, bottles, rules: SCORE_RULES }
 	});
 }
 

@@ -126,8 +126,12 @@ export function filterBottles(bottles: HistoryBottle[], query: TableQuery): Hist
 			(query.by === null || bottle.broughtBy === query.by) &&
 			(query.year === null || bottle.tastingDate.startsWith(query.year)) &&
 			(needle.length < SEARCH_MIN_LENGTH ||
-				// One line per column, so a match can't span two of them.
-				Object.values(bottleCells(bottle)).join('\n').toLocaleLowerCase('de-DE').includes(needle))
+				// One line per column and one for the tasting's motto heading, so a
+				// match can't span two of them.
+				[...Object.values(bottleCells(bottle)), bottle.motto ?? '']
+					.join('\n')
+					.toLocaleLowerCase('de-DE')
+					.includes(needle))
 	);
 }
 

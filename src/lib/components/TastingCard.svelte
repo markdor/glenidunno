@@ -6,6 +6,8 @@
 	type PreviewItem = {
 		id: string;
 		name: string;
+		/** The motto heading, never its description. */
+		motto: string | null;
 		tastingDate: string;
 		phase: TastingPhase;
 		progress: Progress;
@@ -38,15 +40,20 @@
 	{:else}
 		<ul class="mt-3 space-y-2">
 			{#each summary.preview as t (t.id)}
-				<li class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
-					<span class="flex min-w-0 items-center gap-2">
-						<span class="truncate font-medium">{t.name}</span>
-						{#if t.isToday}
-							<span
-								class="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-900"
-							>
-								heute
-							</span>
+				<li class="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 text-sm">
+					<span class="min-w-0">
+						<span class="flex min-w-0 items-center gap-2">
+							<span class="truncate font-medium">{t.name}</span>
+							{#if t.isToday}
+								<span
+									class="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-900"
+								>
+									heute
+								</span>
+							{/if}
+						</span>
+						{#if t.motto}
+							<span class="block truncate text-slate-700">{t.motto}</span>
 						{/if}
 					</span>
 					<span class="shrink-0 text-slate-500">

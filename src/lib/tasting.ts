@@ -147,11 +147,16 @@ export type OrderEntry = {
  */
 export type PresentationRef = PresentationLink & { name: string };
 
-/** A bottle after the reveal: all fields plus bringer, score and presentation. */
+/**
+ * A bottle after the reveal: all fields plus bringer, score, the factor
+ * shares the score-development chart plots and presentation. Position, score
+ * and shares as frozen with the order.
+ */
 export type RevealedBottle = TastingBottle & {
 	position: number;
 	broughtBy: string;
 	score: number;
+	shares: NormalizedScoreFactors;
 	presentation: PresentationRef | null;
 };
 
@@ -168,12 +173,42 @@ export type ArchivedRevealedBottle = Omit<TastingBottle, 'smoke' | 'cask' | 'val
 };
 
 /**
- * The reveal: the bottles in pouring order – or, once a tasting has an
- * archived bottle, all of them without factors, by bringer and slot.
+ * The reveal: the bottles in pouring order with the rules they were poured
+ * by – or, once a tasting has an archived bottle, all of them without
+ * factors, by bringer and slot.
  */
 export type Reveal =
-	| { archived: false; bottles: RevealedBottle[] }
+	| { archived: false; bottles: RevealedBottle[]; rules: ScoreRules }
 	| { archived: true; bottles: ArchivedRevealedBottle[] };
+
+/**
+ * A revealed tasting in the list of the tasting history (/tastings), for
+ * every user: management data (the motto heading only) plus the number of
+ * bottles.
+ */
+export type TastingHistoryItem = {
+	id: string;
+	name: string;
+	motto: string | null;
+	tastingDate: string;
+	bottleCount: number;
+};
+
+/**
+ * A revealed tasting's page in the tasting history (/tastings/[id]), for
+ * every user: the reveal as the participants see it. The slug, and with it
+ * the presentations (which run through the participant's link), only for an
+ * own participation.
+ */
+export type TastingHistoryDetail = {
+	tasting: {
+		name: string;
+		tastingDate: string;
+		motto: string | null;
+		mottoDescription: string | null;
+	};
+	slug: string | null;
+} & Reveal;
 
 /** Points each factor contributes to the score (they add up to it). */
 export type ScoreBreakdown = { smoke: number; cask: number; abv: number; value: number };
@@ -181,8 +216,8 @@ export type ScoreBreakdown = { smoke: number; cask: number; abv: number; value: 
 // ── Scoring ──────────────────────────────────────────────────────────────
 // Starting values, to be revisited after the first tasting with real bottles.
 // Shared source of truth for the actual computation (tastingScore.ts, server-only)
-// and the TastingScoreExplainer tile, which renders these same numbers for
-// participants – so it can't import from $lib/server.
+// and SCORE_RULES, which the TastingScoreExplainer tile renders for
+// participants – frozen with each order, see freezePouringOrder.
 
 /**
  * Weights of the normalized factors. They sum to 1, so the score spans 0–100.
@@ -278,9 +313,9 @@ function normalizeAbv(abv: number): number {
 
 /**
  * Normalizes each scoring factor to 0–1: smoke/cask/value as a fraction of the
- * 0–{@link TASTING_SCALE.max} scale, ABV via {@link normalizeAbv}. Shared by
- * the score computation (tastingScore.ts) and the score-development chart,
- * which plots these same fractions per bottle on one common axis.
+ * 0–{@link TASTING_SCALE.max} scale, ABV via {@link normalizeAbv}. Feeds the
+ * score computation (tastingScore.ts) and the shares the score-development
+ * chart plots per bottle on one common axis (frozen with the order).
  */
 export function normalizeScoreFactors(bottle: ScoreInput): NormalizedScoreFactors {
 	return {
@@ -290,6 +325,55 @@ export function normalizeScoreFactors(bottle: ScoreInput): NormalizedScoreFactor
 		value: bottle.value / TASTING_SCALE.max
 	};
 }
+
+/**
+ * The rules of the pouring order as the TastingScoreExplainer tile explains
+ * them. Frozen with a tasting's order (tasting.pour_rules), so the tile keeps
+ * explaining the order a tasting was poured in after the algorithm changed.
+ * A change to their structure – not just their numbers – needs a new
+ * `version` the tile can tell apart from the frozen ones. The tile assumes
+ * the ABV share climbs faster above the kink than below it.
+ */
+export type ScoreRules = {
+	version: 1;
+	/**
+	 * Poured in this order, each with the smoke values it covers ("0", "1–3").
+	 * Empty if the order was poured without them (SMOKE_GROUPS_ENABLED off):
+	 * then only the score and the tie-breakers decide.
+	 */
+	smokeGroups: Array<{ label: string; range: string }>;
+	/** Heaviest weight first – also the order of the tie-breakers. */
+	factors: Array<{ key: ScoreFactor; weight: number }>;
+	/** Smoke, cask and value count as the own value ÷ scaleMax. */
+	scaleMax: number;
+	/** The ABV in two segments meeting at the kink, see normalizeAbv(). */
+	abv: {
+		floor: number;
+		kink: number;
+		ceiling: number;
+		lowDivisor: number;
+		highDivisor: number;
+		kinkShare: number;
+	};
+};
+
+/** The rules as the code computes the order now. */
+export const SCORE_RULES: ScoreRules = {
+	version: 1,
+	smokeGroups: SMOKE_GROUPS_ENABLED
+		? SMOKE_GROUPS.map((group, i) => ({ label: group.label, range: formatSmokeGroupRange(i + 1) }))
+		: [],
+	factors: SCORE_FACTORS_BY_WEIGHT.map((key) => ({ key, weight: SCORE_WEIGHTS[key] })),
+	scaleMax: TASTING_SCALE.max,
+	abv: {
+		floor: ABV_FLOOR,
+		kink: ABV_KINK,
+		ceiling: ABV_FLOOR + ABV_SPAN,
+		lowDivisor: ABV_LOW_DIVISOR,
+		highDivisor: ABV_HIGH_DIVISOR,
+		kinkShare: ABV_KINK_FRACTION
+	}
+};
 
 /** Display name from the name fields, e.g. "Caol Ila 12 Jahre Distillers Edition (Signatory)". */
 export function formatBottleName(
@@ -556,6 +640,8 @@ export type HistoryBottle = {
 	 */
 	number: number;
 	tastingDate: string;
+	/** The tasting's motto heading (never its description), searchable. */
+	motto: string | null;
 	/** Link to the participant page: only for the viewer's own tastings. */
 	slug: string | null;
 	alias: string;

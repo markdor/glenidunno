@@ -11,9 +11,9 @@ import {
 } from '$lib/tasting';
 
 // The tunables (weights, ABV range, smoke groups), the normalization and the
-// smoke grouping live in $lib/tasting.ts, not here: the TastingScoreExplainer
-// tile, the TastingScoreChart and the bottle form render the same numbers for
-// participants and can't import a $lib/server module.
+// smoke grouping live in $lib/tasting.ts, not here: the bottle form shows the
+// smoke groups and can't import a $lib/server module, and SCORE_RULES – what
+// the explainer tile shows, frozen with each order – is built from them.
 
 export type BottleScore = { score: number; breakdown: ScoreBreakdown };
 
