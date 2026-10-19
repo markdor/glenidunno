@@ -127,4 +127,48 @@ describe('TastingScoreExplainer', () => {
 			].join('\n')
 		);
 	});
+
+	test('explains an order poured without smoke groups by the score alone', async () => {
+		render(TastingScoreExplainer, { rules: { ...SCORE_RULES, smokeGroups: [] } });
+
+		await expect
+			.element(
+				page.getByText(
+					'Die Flaschen werden aufsteigend nach einem Score aus Rauch, Fass, Kaliber und Alkohol sortiert.'
+				)
+			)
+			.toBeVisible();
+		await expect.element(page.getByText(/Rauchintensität/)).not.toBeInTheDocument();
+		await page.getByText('Genauer erklärt').click();
+		await expect.element(page.getByText('Rauchgruppen')).not.toBeInTheDocument();
+		// The other sections move up.
+		await expect.element(page.getByText('1. Score', { exact: true })).toBeVisible();
+		await expect.element(page.getByText('2. Gleichstand')).toBeVisible();
+	});
+
+	test('numbers the sections from the smoke groups on', async () => {
+		render(TastingScoreExplainer, { rules: SCORE_RULES });
+		await page.getByText('Genauer erklärt').click();
+		await expect.element(page.getByText('1. Rauchgruppen')).toBeVisible();
+		await expect.element(page.getByText('2. Score innerhalb der Gruppe')).toBeVisible();
+		await expect.element(page.getByText('3. Gleichstand')).toBeVisible();
+	});
+
+	test.each([
+		{ lowDivisor: 60, highDivisor: 20, faster: '3-mal so schnell', counts: '3-fach' },
+		{ lowDivisor: 45, highDivisor: 30, faster: '1,5-mal so schnell', counts: '1,5-fach' }
+	])(
+		'derives how much faster the ABV share climbs from the divisors ($faster)',
+		async ({ lowDivisor, highDivisor, faster, counts }) => {
+			render(TastingScoreExplainer, {
+				rules: { ...SCORE_RULES, abv: { ...SCORE_RULES.abv, lowDivisor, highDivisor } }
+			});
+			await page.getByText('Genauer erklärt').click();
+
+			const abv = page.getByRole('listitem').filter({ hasText: /^\s*Alkohol/ });
+			await expect.element(abv).toHaveTextContent(`ab 50 % vol. ${faster}, bis er bei 65 % vol.`);
+			await expect.element(abv).toHaveTextContent(`über 50 % vol. zählt also ${counts}.`);
+			await expect.element(abv).not.toHaveTextContent('doppelt');
+		}
+	);
 });

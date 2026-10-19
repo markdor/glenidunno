@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { ChartLine } from '@lucide/svelte';
-	import { SMOKE_GROUPS_ENABLED, type OrderEntry } from '$lib/tasting';
+	import type { OrderEntry } from '$lib/tasting';
 	import TastingLineChart from './TastingLineChart.svelte';
 
-	let { order }: { order: OrderEntry[] } = $props();
+	// `smokeGroups`: whether the order was poured in smoke groups – from the
+	// rules frozen with it, not from the current SMOKE_GROUPS_ENABLED.
+	let { order, smokeGroups }: { order: OrderEntry[]; smokeGroups: boolean } = $props();
 
 	// One line in the logo's amber (--color-brand). Its chroma sits just under
 	// the dataviz skill's categorical floor, which only matters when several
@@ -29,7 +31,7 @@
 		</h2>
 		<p class="text-sm text-slate-500">
 			Der Score jeder Flasche (0–100) in Ausschankreihenfolge.
-			{#if SMOKE_GROUPS_ENABLED}
+			{#if smokeGroups}
 				Innerhalb einer Rauchgruppe steigt er, mit der nächsten Gruppe kann er wieder fallen.
 			{/if}
 		</p>

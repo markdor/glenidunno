@@ -18,6 +18,16 @@
 
 	const abv = $derived(rules.abv);
 
+	// How much faster the ABV share climbs above the kink, derived from the two
+	// divisors instead of written into the text: frozen rules with another
+	// ratio still read right. Rounded, so float noise doesn't miss "doppelt".
+	const steepness = $derived(Math.round((abv.lowDivisor / abv.highDivisor) * 100) / 100);
+	const steepnessText = $derived(steepness.toLocaleString('de-DE'));
+	const faster = $derived(
+		steepness === 2 ? 'doppelt so schnell' : `${steepnessText}-mal so schnell`
+	);
+	const countsAs = $derived(steepness === 2 ? 'doppelt' : `${steepnessText}-fach`);
+
 	// The ABV normalization as a small table: % vol range → share, columns aligned.
 	const abvFormula = $derived.by(() => {
 		const rows = [
@@ -44,6 +54,10 @@
 	const smokeGroups = $derived(rules.smokeGroups.map((g, i) => ({ ...g, group: i + 1 })));
 	const smokeGroupCount = $derived(COUNT_WORD[smokeGroups.length] ?? String(smokeGroups.length));
 	const smokeGroupOrder = $derived(smokeGroups.map((g) => g.label).join(' → '));
+	// Poured without smoke groups, only the score and the tie-breakers decide:
+	// no section for the groups, the others move up.
+	const hasSmokeGroups = $derived(smokeGroups.length > 0);
+	const firstSection = $derived(hasSmokeGroups ? 2 : 1);
 </script>
 
 <div class="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
@@ -52,29 +66,37 @@
 		Wie kommt die Reihenfolge zustande?
 	</h2>
 	<p class="text-sm text-slate-700">
-		Die Flaschen werden zuerst nach Rauchintensität in {smokeGroupCount} Gruppen sortiert ({smokeGroupOrder}),
-		innerhalb einer Gruppe entscheidet ein Score aus {factorList}.
+		{#if hasSmokeGroups}
+			Die Flaschen werden zuerst nach Rauchintensität in {smokeGroupCount} Gruppen sortiert ({smokeGroupOrder}),
+			innerhalb einer Gruppe entscheidet ein Score aus {factorList}.
+		{:else}
+			Die Flaschen werden aufsteigend nach einem Score aus {factorList} sortiert.
+		{/if}
 	</p>
 
 	<details class="text-sm">
 		<summary class="cursor-pointer py-1 font-medium text-slate-700">Genauer erklärt</summary>
 		<div class="mt-2 space-y-3">
-			<div>
-				<p class="font-medium text-slate-700">1. Rauchgruppen</p>
-				<p class="mt-1 text-slate-600">
-					Ausgeschenkt wird gruppenweise aufsteigend, jede Gruppe deckt einen Bereich der
-					Rauch-Skala (0–{rules.scaleMax}) ab:
-				</p>
-				<dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-slate-600">
-					{#each smokeGroups as g (g.group)}
-						<dt>Gruppe {g.group}</dt>
-						<dd>{g.label} (Rauch {g.range})</dd>
-					{/each}
-				</dl>
-			</div>
+			{#if hasSmokeGroups}
+				<div>
+					<p class="font-medium text-slate-700">1. Rauchgruppen</p>
+					<p class="mt-1 text-slate-600">
+						Ausgeschenkt wird gruppenweise aufsteigend, jede Gruppe deckt einen Bereich der
+						Rauch-Skala (0–{rules.scaleMax}) ab:
+					</p>
+					<dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-slate-600">
+						{#each smokeGroups as g (g.group)}
+							<dt>Gruppe {g.group}</dt>
+							<dd>{g.label} (Rauch {g.range})</dd>
+						{/each}
+					</dl>
+				</div>
+			{/if}
 
 			<div>
-				<p class="font-medium text-slate-700">2. Score innerhalb der Gruppe</p>
+				<p class="font-medium text-slate-700">
+					{firstSection}. {hasSmokeGroups ? 'Score innerhalb der Gruppe' : 'Score'}
+				</p>
 				<ul class="mt-1 space-y-2">
 					{#each factors as f (f.key)}
 						<li>
@@ -87,9 +109,9 @@
 							{#if f.key === 'abv'}
 								<p class="mt-0.5 text-slate-600">
 									Auf einen Anteil zwischen 0 und 1 umgerechnet, aber in zwei Abschnitten: Von {abv.floor}
-									bis {abv.kink} % vol. steigt der Anteil gemächlich, ab {abv.kink} % vol. doppelt so
-									schnell, bis er bei {abv.ceiling} % vol. 1 erreicht – jedes Prozent über
-									{abv.kink} % vol. zählt also doppelt. Unter {abv.floor} % vol. bleibt er bei 0, über
+									bis {abv.kink} % vol. steigt der Anteil gemächlich, ab {abv.kink} % vol. {faster},
+									bis er bei {abv.ceiling} % vol. 1 erreicht – jedes Prozent über
+									{abv.kink} % vol. zählt also {countsAs}. Unter {abv.floor} % vol. bleibt er bei 0, über
 									{abv.ceiling} % vol. bei 1. Mit Wert = eigener Alkoholgehalt in % vol.:
 								</p>
 								<pre
@@ -113,7 +135,7 @@
 			</div>
 
 			<div>
-				<p class="font-medium text-slate-700">3. Gleichstand</p>
+				<p class="font-medium text-slate-700">{firstSection + 1}. Gleichstand</p>
 				<p class="mt-1 text-slate-600">
 					Bei identischem Score entscheiden der Reihe nach {labels.join(', ')} und zuletzt der Flaschenname.
 				</p>

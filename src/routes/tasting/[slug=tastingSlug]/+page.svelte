@@ -131,7 +131,7 @@
 			</p>
 			<TastingOrderList order={view.order} {presentationHref} {viewHref} />
 		</section>
-		<TastingOrderChart order={view.order} />
+		<TastingOrderChart order={view.order} smokeGroups={view.rules.smokeGroups.length > 0} />
 		<TastingScoreExplainer rules={view.rules} />
 	{:else}
 		<TastingManualNotice manual={view.manual} />

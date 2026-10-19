@@ -12,12 +12,25 @@ const order = [
 
 describe('TastingOrderChart', () => {
 	test('says so when nobody entered a bottle', async () => {
-		render(TastingOrderChart, { order: [] });
+		render(TastingOrderChart, { order: [], smokeGroups: true });
 		await expect.element(page.getByText('Es wurden keine Flaschen eingetragen.')).toBeVisible();
 	});
 
+	test('mentions the smoke groups only if the order was poured in them', async () => {
+		const groupDrop = /mit der nächsten Gruppe kann er wieder fallen/;
+		const { unmount } = render(TastingOrderChart, { order, smokeGroups: true });
+		await expect.element(page.getByText(groupDrop)).toBeVisible();
+		unmount();
+
+		render(TastingOrderChart, { order, smokeGroups: false });
+		await expect
+			.element(page.getByText('Der Score jeder Flasche (0–100) in Ausschankreihenfolge.'))
+			.toBeVisible();
+		await expect.element(page.getByText(groupDrop)).not.toBeInTheDocument();
+	});
+
 	test('draws exactly one brown score line and nothing per bottle', async () => {
-		render(TastingOrderChart, { order });
+		render(TastingOrderChart, { order, smokeGroups: true });
 
 		await expect.element(page.getByRole('img', { name: /Gesamtscore/ })).toBeVisible();
 		const lines = document.querySelectorAll('path[fill="none"]');
@@ -33,7 +46,7 @@ describe('TastingOrderChart', () => {
 	});
 
 	test('labels only the y-axis: score points without a unit, no aliases', async () => {
-		render(TastingOrderChart, { order });
+		render(TastingOrderChart, { order, smokeGroups: true });
 
 		const texts = Array.from(document.querySelectorAll('svg text')).map((t) =>
 			t.textContent?.trim()
@@ -46,7 +59,8 @@ describe('TastingOrderChart', () => {
 			order: [
 				{ position: 1, alias: 'Blume', score: 0, presentation: null },
 				{ position: 2, alias: 'Nebel', score: 100, presentation: null }
-			]
+			],
+			smokeGroups: true
 		});
 
 		const d = document.querySelector('path[fill="none"]')!.getAttribute('d')!;
@@ -61,7 +75,7 @@ describe('TastingOrderChart', () => {
 	});
 
 	test('reveals no single bottle on hover, tap or focus', async () => {
-		const { container } = render(TastingOrderChart, { order });
+		const { container } = render(TastingOrderChart, { order, smokeGroups: true });
 		const chart = page.getByRole('img', { name: /Gesamtscore/ });
 		await expect.element(chart).toBeVisible();
 

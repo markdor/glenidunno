@@ -331,11 +331,16 @@ export function normalizeScoreFactors(bottle: ScoreInput): NormalizedScoreFactor
  * them. Frozen with a tasting's order (tasting.pour_rules), so the tile keeps
  * explaining the order a tasting was poured in after the algorithm changed.
  * A change to their structure – not just their numbers – needs a new
- * `version` the tile can tell apart from the frozen ones.
+ * `version` the tile can tell apart from the frozen ones. The tile assumes
+ * the ABV share climbs faster above the kink than below it.
  */
 export type ScoreRules = {
 	version: 1;
-	/** Poured in this order, each with the smoke values it covers ("0", "1–3"). */
+	/**
+	 * Poured in this order, each with the smoke values it covers ("0", "1–3").
+	 * Empty if the order was poured without them (SMOKE_GROUPS_ENABLED off):
+	 * then only the score and the tie-breakers decide.
+	 */
 	smokeGroups: Array<{ label: string; range: string }>;
 	/** Heaviest weight first – also the order of the tie-breakers. */
 	factors: Array<{ key: ScoreFactor; weight: number }>;
@@ -355,10 +360,9 @@ export type ScoreRules = {
 /** The rules as the code computes the order now. */
 export const SCORE_RULES: ScoreRules = {
 	version: 1,
-	smokeGroups: SMOKE_GROUPS.map((group, i) => ({
-		label: group.label,
-		range: formatSmokeGroupRange(i + 1)
-	})),
+	smokeGroups: SMOKE_GROUPS_ENABLED
+		? SMOKE_GROUPS.map((group, i) => ({ label: group.label, range: formatSmokeGroupRange(i + 1) }))
+		: [],
 	factors: SCORE_FACTORS_BY_WEIGHT.map((key) => ({ key, weight: SCORE_WEIGHTS[key] })),
 	scaleMax: TASTING_SCALE.max,
 	abv: {
