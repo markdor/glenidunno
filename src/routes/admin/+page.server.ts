@@ -34,6 +34,7 @@ import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
 import { logger } from '$lib/server/logger';
 import { STARTUP_JOBS } from '$lib/server/startupJobList';
 import { getStartupJobOverview, isStartupJobRunning, runStartupJob } from '$lib/server/startupJobs';
+import { getTastingSummary } from '$lib/server/tastings';
 import { STARTUP_JOBS_DEPENDENCY } from '$lib/startupJobs';
 
 export const load: ServerLoad = ({ locals, depends }) => {
@@ -66,6 +67,8 @@ export const load: ServerLoad = ({ locals, depends }) => {
 			hasParticipation: participants.has(u.id)
 		}));
 	return {
+		// Management data only, the admin tastes blind like everybody else.
+		tastingSummary: getTastingSummary(db),
 		users,
 		startupJobs: getStartupJobOverview(db, STARTUP_JOBS),
 		// Only distilleries of revealed tastings; the total includes all calls.

@@ -12,7 +12,7 @@
 </svelte:head>
 
 <div class="mx-auto max-w-3xl space-y-6 px-4 py-8">
-	<SubHeader backHref={resolve('/')} backLabel="Startseite" title="Whisky-Tastings">
+	<SubHeader backHref={resolve('/admin')} backLabel="Admin" title="Whisky-Tastings">
 		{#snippet action()}
 			<a
 				href={resolve('/admin/tastings/new')}

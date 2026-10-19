@@ -48,6 +48,7 @@ const kidUser = {
 function makeData(over: Partial<Record<string, unknown>> = {}) {
 	return {
 		user: currentUser,
+		tastingSummary: { upcomingCount: 0, preview: [] },
 		users: [adminUser, kidUser],
 		startupJobs: [] as StartupJobOverview[],
 		distilleries: [] as AdminDistillery[],
@@ -66,6 +67,38 @@ describe('Admin page', () => {
 		await expect.element(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
 		await expect.element(page.getByText('Benutzer (2)')).toBeVisible();
 		await expect.element(page.getByText('kid@glenidunno.de')).toBeVisible();
+	});
+
+	test('leads into the tasting management first, with the upcoming tastings', async () => {
+		render(Page, {
+			data: makeData({
+				tastingSummary: {
+					upcomingCount: 1,
+					preview: [
+						{
+							id: 't1',
+							name: 'Herbst-Tasting',
+							motto: 'Islay gegen den Rest',
+							tastingDate: '2026-10-24',
+							phase: 'entry',
+							progress: { entered: 1, total: 4 },
+							isToday: false
+						}
+					]
+				}
+			}),
+			form: null
+		});
+
+		const card = page.getByRole('link', { name: /Tasting-Verwaltung/ });
+		await expect.element(card).toHaveAttribute('href', '/admin/tastings');
+		await expect.element(card).toHaveTextContent(/1 anstehend/);
+		await expect.element(card).toHaveTextContent(/Herbst-Tasting/);
+		// Right below the page heading, before the user management.
+		const position = card
+			.element()
+			.compareDocumentPosition(page.getByRole('heading', { name: 'Benutzer anlegen' }).element());
+		expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 	});
 
 	test('hides the delete button for the current admin (self)', async () => {

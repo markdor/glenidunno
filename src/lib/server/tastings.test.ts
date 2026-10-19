@@ -21,8 +21,8 @@ import {
 	getHistory,
 	getParticipantView,
 	getPresentationForParticipant,
-	getStartPageSummary,
 	getStatistics,
+	getTastingSummary,
 	getWorldMap,
 	listPresentationFiles,
 	listSelectableUsers,
@@ -774,7 +774,7 @@ describe('getAdminTastingDetail', () => {
 	});
 });
 
-describe('listTastings and getStartPageSummary', () => {
+describe('listTastings and getTastingSummary', () => {
 	it('lists management data with phase and progress, newest date first', () => {
 		const later = setup('2026-11-14');
 		const earlier = setup(TASTING_DATE);
@@ -788,7 +788,7 @@ describe('listTastings and getStartPageSummary', () => {
 		expect(JSON.stringify(list)).not.toContain('Nebel');
 	});
 
-	it('lists the motto heading, never its description, also in the start page preview', () => {
+	it('lists the motto heading, never its description, also in the admin page preview', () => {
 		const ctx = setup();
 		updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: 'Nur Inseln.' });
 		const plain = setup('2026-11-14');
@@ -798,7 +798,7 @@ describe('listTastings and getStartPageSummary', () => {
 			[plain.id, null],
 			[ctx.id, 'Inselhüpfen']
 		]);
-		const preview = getStartPageSummary(db, ENTRY).preview;
+		const preview = getTastingSummary(db, ENTRY).preview;
 		expect(preview.map((t) => [t.id, t.motto])).toEqual([
 			[ctx.id, 'Inselhüpfen'],
 			[plain.id, null]
@@ -838,7 +838,7 @@ describe('listTastings and getStartPageSummary', () => {
 		const today = setup('2026-10-25');
 		const next = setup('2026-11-01');
 
-		const summary = getStartPageSummary(db, REVEALED);
+		const summary = getTastingSummary(db, REVEALED);
 		expect(summary.upcomingCount).toBe(2);
 		expect(summary.preview.map((t) => [t.id, t.isToday])).toEqual([
 			[today.id, true],
@@ -848,7 +848,7 @@ describe('listTastings and getStartPageSummary', () => {
 
 	it('previews at most three tastings', () => {
 		for (const day of ['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04']) setup(day);
-		const summary = getStartPageSummary(db, ENTRY);
+		const summary = getTastingSummary(db, ENTRY);
 		expect(summary.upcomingCount).toBe(4);
 		expect(summary.preview).toHaveLength(3);
 	});
@@ -1206,7 +1206,7 @@ describe('openOrderEarly and revealEarly (admin buttons)', () => {
 			bottles: [{ alias: 'Nebel', distillery: 'Ardbeg', broughtBy: 'Anna' }]
 		});
 		// Revealed tastings no longer count as upcoming.
-		expect(getStartPageSummary(db, REVEAL_PRESSED).upcomingCount).toBe(0);
+		expect(getTastingSummary(db, REVEAL_PRESSED).upcomingCount).toBe(0);
 		expect(listTastings(db, REVEAL_PRESSED)[0].phase).toBe('revealed');
 	});
 

@@ -55,15 +55,15 @@ describe('Tasting list page', () => {
 		expect(page.getByText('Islay gegen den Rest').element().classList).toContain('truncate');
 	});
 
-	test('offers a new tasting and a way back to the start page', async () => {
+	test('offers a new tasting and a way back to the admin page', async () => {
 		render(Page, { data: { user, tastings: [] } });
 
 		await expect
 			.element(page.getByRole('link', { name: 'Neues Tasting' }))
 			.toHaveAttribute('href', '/admin/tastings/new');
 		await expect
-			.element(page.getByRole('link', { name: 'Startseite' }))
-			.toHaveAttribute('href', '/');
+			.element(page.getByRole('link', { name: 'Admin' }))
+			.toHaveAttribute('href', '/admin');
 		await expect.element(page.getByText('Noch keine Tastings angelegt.')).toBeVisible();
 	});
 });

@@ -74,26 +74,11 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
-const summary = {
-	upcomingCount: 1,
-	preview: [
-		{
-			id: expect.any(String),
-			name: 'Herbst-Tasting',
-			motto: 'Islay gegen den Rest',
-			tastingDate: '2026-10-24',
-			phase: 'entry',
-			progress: { entered: 1, total: 6 },
-			isToday: true
-		}
-	]
-};
-
 function expectNoContent(result: unknown) {
 	const serialized = JSON.stringify(result);
 	expect(serialized).not.toContain('Nebel');
 	expect(serialized).not.toContain('Ardbeg');
-	// Cards and summary show the motto heading only.
+	// The cards show the motto heading only.
 	expect(serialized).not.toContain('Eine Flasche von Islay.');
 }
 
@@ -103,7 +88,6 @@ describe('start page load', () => {
 		expect(result).toEqual({
 			nextTasting: null,
 			lastTasting: null,
-			tastingSummary: null,
 			notice: null
 		});
 		expect(JSON.stringify(result)).not.toContain('Herbst');
@@ -123,7 +107,6 @@ describe('start page load', () => {
 				progress: { entered: 1, total: 2 }
 			},
 			lastTasting: null,
-			tastingSummary: null,
 			notice: null
 		});
 		expectNoContent(result);
@@ -141,32 +124,24 @@ describe('start page load', () => {
 				motto: 'Islay gegen den Rest',
 				tastingDate: '2026-10-24'
 			},
-			tastingSummary: null,
 			notice: null
 		});
 		expectNoContent(result);
 	});
 
-	it('gives the admin a summary without any bottle content, but no cards without a participation', () => {
+	it('gives the admin no summary of all tastings and no cards without a participation', () => {
 		const result = loadAs({ id: 'a', username: 'admin', isAdmin: true });
-		// The summary carries the motto heading like the list of all tastings.
-		expect(result).toEqual({
-			nextTasting: null,
-			lastTasting: null,
-			tastingSummary: summary,
-			notice: null
-		});
-		// The slug isn't derived from the list of all tastings.
+		// That summary is on /admin.
+		expect(result).toEqual({ nextTasting: null, lastTasting: null, notice: null });
+		expect(JSON.stringify(result)).not.toContain('Herbst');
 		expect(JSON.stringify(result)).not.toContain(slug);
-		expectNoContent(result);
 	});
 
-	it('gives a participating admin both the cards and the summary', () => {
+	it('gives a participating admin the cards like any participant', () => {
 		const result = loadAs({ id: 'u-Ben', username: 'Ben', isAdmin: true });
 		expect(result).toEqual({
 			nextTasting: expect.objectContaining({ slug, progress: { entered: 0, total: 2 } }),
 			lastTasting: null,
-			tastingSummary: summary,
 			notice: null
 		});
 		expectNoContent(result);

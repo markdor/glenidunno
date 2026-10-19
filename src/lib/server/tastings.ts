@@ -482,15 +482,15 @@ export function listTastings(db: Db, now: Date = new Date()): TastingListItem[] 
 		}));
 }
 
-export type StartPageSummary = {
+export type TastingSummary = {
 	upcomingCount: number;
 	preview: Array<TastingListItem & { isToday: boolean }>;
 };
 
-const START_PAGE_PREVIEW_SIZE = 3;
+const TASTING_PREVIEW_SIZE = 3;
 
-/** Not yet revealed tastings for the admin's start page card, soonest first. */
-export function getStartPageSummary(db: Db, now: Date = new Date()): StartPageSummary {
+/** Not yet revealed tastings for the admin page's card, soonest first. */
+export function getTastingSummary(db: Db, now: Date = new Date()): TastingSummary {
 	const today = getBerlinToday(now);
 	const upcoming = listTastings(db, now)
 		.filter((t) => t.phase !== 'revealed')
@@ -498,7 +498,7 @@ export function getStartPageSummary(db: Db, now: Date = new Date()): StartPageSu
 	return {
 		upcomingCount: upcoming.length,
 		preview: upcoming
-			.slice(0, START_PAGE_PREVIEW_SIZE)
+			.slice(0, TASTING_PREVIEW_SIZE)
 			.map((t) => ({ ...t, isToday: t.tastingDate === today }))
 	};
 }

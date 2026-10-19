@@ -6,7 +6,6 @@
 	import DashboardLastTastingCard from '$lib/components/DashboardLastTastingCard.svelte';
 	import DashboardTastingCard from '$lib/components/DashboardTastingCard.svelte';
 	import DashboardTile from '$lib/components/DashboardTile.svelte';
-	import TastingCard from '$lib/components/TastingCard.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import { NOTICES } from '$lib/notices';
 
@@ -44,10 +43,6 @@
 			<DashboardTastingCard tasting={data.nextTasting} />
 			<DashboardLastTastingCard tasting={data.lastTasting} />
 		</div>
-
-		{#if data.tastingSummary}
-			<TastingCard summary={data.tastingSummary} />
-		{/if}
 
 		<!-- A tile without a link would be a section still to come (none at the
 		     moment). With an odd number of tiles the last one spans both columns

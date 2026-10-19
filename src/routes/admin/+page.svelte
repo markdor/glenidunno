@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import { invalidate } from '$app/navigation';
 	import AdminDistilleryTable from '$lib/components/AdminDistilleryTable.svelte';
+	import TastingCard from '$lib/components/TastingCard.svelte';
 	import { confirmDialog } from '$lib/components/confirmDialogStore.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import { BOTTLING_TOO_LONG } from '$lib/distilleryTable';
@@ -78,6 +79,9 @@
 
 <main class="mx-auto max-w-3xl space-y-10 px-4 py-8">
 	<h1 class="text-2xl font-semibold tracking-tight">Admin</h1>
+
+	<!-- The only way into the tasting management. -->
+	<TastingCard summary={data.tastingSummary} />
 
 	<!-- ── Create user ───────────────────────────────────────────── -->
 	<section class="space-y-4">
