@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
+import { SCORE_RULES } from '$lib/tasting';
 import Page from './+page.svelte';
 
 const user = { id: 'u1', username: 'maxi', isAdmin: false };
@@ -26,11 +27,14 @@ const nebel = {
 	value: 3,
 	broughtBy: 'Anna',
 	score: 67,
+	shares: { smoke: 1, cask: 0.4, abv: 0.15, value: 0.6 },
 	presentation: null
 };
 
 function renderDetail(detail: Record<string, unknown>) {
-	return render(Page, { data: { user, detail: { tasting, slug: null, ...detail } } } as never);
+	return render(Page, {
+		data: { user, detail: { tasting, slug: null, rules: SCORE_RULES, ...detail } }
+	} as never);
 }
 
 describe('Tasting history detail page', () => {

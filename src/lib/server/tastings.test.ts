@@ -2,7 +2,14 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq, ne } from 'drizzle-orm';
-import type { TastingBottle } from '$lib/tasting';
+import {
+	normalizeScoreFactors,
+	SCORE_RULES,
+	type OrderEntry,
+	type RevealedBottle,
+	type ScoreRules,
+	type TastingBottle
+} from '$lib/tasting';
 import {
 	TASTING_MOTTO_DESCRIPTION_LENGTH,
 	TASTING_MOTTO_LENGTH,
@@ -16,6 +23,7 @@ import {
 	createTasting,
 	deleteTasting,
 	findParticipant,
+	freezeDueOrders,
 	getAdminTastingDetail,
 	getDashboardTasting,
 	getHistory,
@@ -560,7 +568,9 @@ describe('getParticipantView', () => {
 			order: [
 				{ position: 1, alias: 'Blume', score: 22.8, presentation: null },
 				{ position: 2, alias: 'Nebel', score: 78.6, presentation: null }
-			]
+			],
+			// The explainer tile's rules – no bottle content.
+			rules: SCORE_RULES
 		});
 	});
 
@@ -2081,5 +2091,173 @@ describe('getTastingHistoryDetail', () => {
 			null,
 			{ bottleId: 'b-Ahorn', viewable: true, name: 'Ahorn.pdf' }
 		]);
+	});
+});
+
+describe('frozen pouring order', () => {
+	/** Alias, frozen position, score and shares of the tasting's bottles, as stored. */
+	function pours(tastingId: string) {
+		return db
+			.select({
+				alias: schema.tastingBottle.alias,
+				position: schema.tastingBottle.pourPosition,
+				score: schema.tastingBottle.pourScore,
+				smoke: schema.tastingBottle.pourSmokeShare,
+				cask: schema.tastingBottle.pourCaskShare,
+				abv: schema.tastingBottle.pourAbvShare,
+				value: schema.tastingBottle.pourValueShare
+			})
+			.from(schema.tastingBottle)
+			.innerJoin(
+				schema.tastingParticipant,
+				eq(schema.tastingParticipant.id, schema.tastingBottle.participantId)
+			)
+			.where(eq(schema.tastingParticipant.tastingId, tastingId))
+			.orderBy(schema.tastingBottle.alias)
+			.all();
+	}
+
+	function frozenRules(tastingId: string) {
+		const t = db.select().from(schema.tasting).where(eq(schema.tasting.id, tastingId)).get()!;
+		return t.pourRules === null ? null : JSON.parse(t.pourRules);
+	}
+
+	// Rules of an older algorithm: other groups and weights.
+	const OLD_RULES: ScoreRules = {
+		...SCORE_RULES,
+		smokeGroups: [
+			{ label: 'mild', range: '0–1' },
+			{ label: 'rauchig', range: '2–5' }
+		],
+		factors: [
+			{ key: 'cask', weight: 0.5 },
+			{ key: 'smoke', weight: 0.3 },
+			{ key: 'value', weight: 0.1 },
+			{ key: 'abv', weight: 0.1 }
+		]
+	};
+
+	/** Pretends an older algorithm had poured Torf before Nebel. */
+	function freezeOtherwise(tastingId: string) {
+		for (const [alias, pourPosition, pourScore, share] of [
+			['Torf 2026-10-24', 1, 11.1, 0.1],
+			['Nebel 2026-10-24', 2, 99.9, 0.9]
+		] as const) {
+			db.update(schema.tastingBottle)
+				.set({
+					pourPosition,
+					pourScore,
+					pourSmokeShare: share,
+					pourCaskShare: share,
+					pourAbvShare: share,
+					pourValueShare: share
+				})
+				.where(eq(schema.tastingBottle.alias, alias))
+				.run();
+		}
+		db.update(schema.tasting)
+			.set({ pourRules: JSON.stringify(OLD_RULES) })
+			.where(eq(schema.tasting.id, tastingId))
+			.run();
+		expect(pours(tastingId).map((p) => p.position)).toEqual([2, 1]);
+	}
+
+	it('freezes the order of every tasting whose order is out, as computed then', () => {
+		const ctx = setupWithBottles();
+		const later = setupWithBottles('2026-10-31');
+		const computed = getParticipantView(db, ctx.ben, REVEALED) as { bottles: RevealedBottle[] };
+
+		expect(freezeDueOrders(db, ENTRY)).toBe(0);
+		expect(pours(ctx.id).map((p) => p.position)).toEqual([null, null]);
+		expect(frozenRules(ctx.id)).toBeNull();
+
+		expect(freezeDueOrders(db, ORDER)).toBe(1);
+		expect(pours(ctx.id)).toEqual(
+			computed.bottles
+				.map((b) => ({ alias: b.alias, position: b.position, score: b.score, ...b.shares }))
+				.sort((a, b) => a.alias.localeCompare(b.alias))
+		);
+		expect(frozenRules(ctx.id)).toEqual(SCORE_RULES);
+		// Still in entry: its bottles may change, nothing is frozen.
+		expect(pours(later.id).map((p) => p.position)).toEqual([null, null]);
+		expect(frozenRules(later.id)).toBeNull();
+		// Idempotent, also after the reveal.
+		expect(freezeDueOrders(db, REVEALED)).toBe(0);
+	});
+
+	it('computes the current order, shares and rules while nothing is frozen', () => {
+		const ctx = setupWithBottles();
+		const revealed = getParticipantView(db, ctx.ben, REVEALED) as {
+			bottles: RevealedBottle[];
+			rules: ScoreRules;
+		};
+		expect(revealed.bottles.map((b) => b.alias)).toEqual(['Nebel 2026-10-24', 'Torf 2026-10-24']);
+		expect(revealed.bottles[0].shares).toEqual(
+			normalizeScoreFactors(bottle({ alias: 'Nebel 2026-10-24', abv: 40 }))
+		);
+		expect(revealed.rules).toEqual(SCORE_RULES);
+	});
+
+	it('keeps order, scores, chart and explanation when the algorithm would differ now', () => {
+		const ctx = setupWithBottles();
+		freezeDueOrders(db, ORDER);
+		freezeOtherwise(ctx.id);
+
+		const order = getParticipantView(db, ctx.ben, ORDER) as {
+			order: OrderEntry[];
+			rules: ScoreRules;
+		};
+		expect(order.order.map((o) => [o.position, o.alias, o.score])).toEqual([
+			[1, 'Torf 2026-10-24', 11.1],
+			[2, 'Nebel 2026-10-24', 99.9]
+		]);
+		expect(order.rules).toEqual(OLD_RULES);
+
+		const revealed = getParticipantView(db, ctx.ben, REVEALED) as {
+			bottles: RevealedBottle[];
+			rules: ScoreRules;
+		};
+		expect(revealed.bottles.map((b) => [b.position, b.alias, b.score, b.shares.smoke])).toEqual([
+			[1, 'Torf 2026-10-24', 11.1, 0.1],
+			[2, 'Nebel 2026-10-24', 99.9, 0.9]
+		]);
+		expect(revealed.rules).toEqual(OLD_RULES);
+
+		const detail = getTastingHistoryDetail(db, ctx.id, 'u-admin', REVEALED)!;
+		expect(detail.bottles.map((b) => b.alias)).toEqual(['Torf 2026-10-24', 'Nebel 2026-10-24']);
+		expect(detail).toMatchObject({ archived: false, rules: OLD_RULES });
+
+		// Never refrozen with the current algorithm.
+		expect(freezeDueOrders(db, REVEALED)).toBe(0);
+		expect(pours(ctx.id).map((p) => p.position)).toEqual([2, 1]);
+		expect(frozenRules(ctx.id)).toEqual(OLD_RULES);
+	});
+
+	it('freezes at once when the admin opens the order early', () => {
+		const ctx = setupWithBottles();
+		openOrderEarly(db, ctx.id, ENTRY);
+		expect(pours(ctx.id).map((p) => p.position)).toEqual([1, 2]);
+		expect(frozenRules(ctx.id)).toEqual(SCORE_RULES);
+	});
+
+	it('freezes with the early reveal should the order not be frozen yet', () => {
+		const ctx = setupWithBottles();
+		revealEarly(db, ctx.id, ORDER);
+		expect(pours(ctx.id).map((p) => p.position)).toEqual([1, 2]);
+		expect(frozenRules(ctx.id)).toEqual(SCORE_RULES);
+	});
+
+	it('leaves archived tastings as they are, a tasting without bottles keeps its rules', () => {
+		// A mixed tasting: saving is locked once an archived bottle is in.
+		const archived = setup();
+		saveBottle(db, archived.anna, 1, bottle(), ENTRY);
+		insertArchivedBottle(archived.ben.id, 1, 'Ahorn');
+		const empty = setup();
+
+		expect(freezeDueOrders(db, REVEALED)).toBe(1);
+		expect(pours(archived.id).map((p) => p.position)).toEqual([null, null]);
+		expect(frozenRules(archived.id)).toBeNull();
+		// Its explainer tile shows in the order phase, too.
+		expect(frozenRules(empty.id)).toEqual(SCORE_RULES);
 	});
 });

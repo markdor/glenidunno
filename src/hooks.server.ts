@@ -4,23 +4,43 @@ import { svelteKitHandler } from 'better-auth/svelte-kit';
 import { auth } from '$lib/server/auth';
 import { exceedsBodyLimit } from '$lib/server/bodyLimit';
 import { db } from '$lib/server/db';
+import { startDailyTimer } from '$lib/server/dailyTimer';
 import { researchDistilleriesInBackground } from '$lib/server/distilleryResearchJob';
-import { startDistilleryResearchTimer } from '$lib/server/distilleryResearchTimer';
 import { evaluateGuard } from '$lib/server/guard';
 import { logger } from '$lib/server/logger';
 import { getSecurityHeaders } from '$lib/server/securityHeaders';
 import { STARTUP_JOBS } from '$lib/server/startupJobList';
 import { runPendingStartupJobs } from '$lib/server/startupJobs';
+import { freezeDueOrders } from '$lib/server/tastings';
+import { TASTING_ORDER_HOUR, TASTING_RELEASE_HOUR } from '$lib/tasting';
 
-// After migrations and the admin bootstrap (db/index.ts): the startup jobs
-// that haven't succeeded yet and aren't manual, in the background – not
-// awaited, the app serves meanwhile (see startupJobs.ts). Plus the daily
-// distillery research at 21:00 Berlin time (a no-op without ANTHROPIC_API_KEY).
+// Freezes every pouring order that is out (see freezeDueOrders). Never throws:
+// the timer would stop re-arming.
+function freezeOrders() {
+	try {
+		const frozen = freezeDueOrders(db);
+		if (frozen > 0) logger.info({ tastings: frozen }, 'pouring orders frozen');
+	} catch (err: unknown) {
+		logger.error({ err }, 'freezing the pouring orders failed');
+	}
+}
+
+// After migrations and the admin bootstrap (db/index.ts): the pouring orders
+// that came out while the app was down are frozen before the first request;
+// then the startup jobs that haven't succeeded yet and aren't manual, in the
+// background – not awaited, the app serves meanwhile (see startupJobs.ts).
+// Daily at Berlin time: freezing the orders at 18:00 and the distillery
+// research at 21:00 (a no-op without ANTHROPIC_API_KEY).
 export const init: ServerInit = () => {
+	freezeOrders();
 	runPendingStartupJobs(db, STARTUP_JOBS).catch((err: unknown) => {
 		logger.error({ err }, 'startup jobs failed');
 	});
-	startDistilleryResearchTimer({ run: () => researchDistilleriesInBackground(db) });
+	startDailyTimer({ hour: TASTING_ORDER_HOUR, run: freezeOrders });
+	startDailyTimer({
+		hour: TASTING_RELEASE_HOUR,
+		run: () => researchDistilleriesInBackground(db)
+	});
 };
 
 // BODY_SIZE_LIMIT is raised for the presentation upload (Dockerfile) and would

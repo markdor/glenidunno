@@ -31,6 +31,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { SCORE_RULES } from '$lib/tasting';
 import { TASTING_BOTTLING_LENGTH, TASTING_PRESENTATION_MAX_BYTES } from '$lib/validation';
 import { db } from '$lib/server/db';
 import { tasting, tastingBottle, tastingWriteThrottle, user } from '$lib/server/db/schema';
@@ -249,7 +250,9 @@ describe('participant page load', () => {
 			order: [
 				{ position: 1, alias: 'Blume', score: 38.6, presentation: null },
 				{ position: 2, alias: 'Nebel', score: 78.6, presentation: null }
-			]
+			],
+			// The explainer tile's rules name the factors, but carry no bottle's values.
+			rules: SCORE_RULES
 		});
 		const serialized = JSON.stringify(result);
 		for (const hidden of [
@@ -259,7 +262,7 @@ describe('participant page load', () => {
 			'Anna',
 			'Ben',
 			'breakdown',
-			'smoke'
+			'"smoke":'
 		]) {
 			expect(serialized).not.toContain(hidden);
 		}

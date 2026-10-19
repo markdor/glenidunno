@@ -483,7 +483,7 @@ describe('openOrder and reveal (18-Uhr and 9-Uhr buttons)', () => {
 		vi.setSystemTime(ORDER);
 		research.inBackground.mockClear();
 		const err = new Error('disk full');
-		const spy = vi.spyOn(db, 'update').mockImplementationOnce(() => {
+		const spy = vi.spyOn(db, 'transaction').mockImplementationOnce(() => {
 			throw err;
 		});
 		expect(await act('reveal')).toMatchObject({

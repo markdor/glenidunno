@@ -35,9 +35,21 @@ function realMigrationsUpTo(lastTag: string): string {
 	return dir;
 }
 
-/** Bottle rows from before migration 0009, which adds the archive flag – off for all of them. */
+/**
+ * Bottle rows from before migration 0009, as they read after all migrations:
+ * the archive flag (0009) off for all of them, no frozen pouring order (0015).
+ */
 function notArchived(bottles: unknown[]): unknown[] {
-	return bottles.map((bottle) => ({ ...(bottle as object), archived: 0 }));
+	return bottles.map((bottle) => ({
+		...(bottle as object),
+		archived: 0,
+		pour_position: null,
+		pour_score: null,
+		pour_smoke_share: null,
+		pour_cask_share: null,
+		pour_abv_share: null,
+		pour_value_share: null
+	}));
 }
 
 /** A throwaway migrations folder in drizzle-kit's layout (SQL files + journal). */

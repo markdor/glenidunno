@@ -8,6 +8,7 @@ vi.mock('$app/state', () => ({ page: { params: { slug: 'fluffy-otter' } } }));
 
 import Page from './+page.svelte';
 import { toast } from '$lib/components/toastStore.svelte';
+import { SCORE_RULES } from '$lib/tasting';
 
 const tasting = {
 	name: 'Herbst-Tasting',
@@ -45,7 +46,10 @@ const savedBottle = {
 const noManual = { orderOpenedAt: null, revealedAt: null };
 
 function renderView(view: Record<string, unknown>, form: unknown = null) {
-	return render(Page, { data: { user: null, view: { manual: noManual, ...view } }, form } as never);
+	return render(Page, {
+		data: { user: null, view: { manual: noManual, rules: SCORE_RULES, ...view } },
+		form
+	} as never);
 }
 
 beforeEach(() => {
@@ -318,7 +322,8 @@ describe('Tasting participant page', () => {
 					abv: 46,
 					value: 3,
 					broughtBy: 'Anna',
-					score: 67
+					score: 67,
+					shares: { smoke: 1, cask: 0.4, abv: 0.15, value: 0.6 }
 				}
 			]
 		});
@@ -424,6 +429,7 @@ describe('Tasting participant page', () => {
 					value: 3,
 					broughtBy: 'Anna',
 					score: 67,
+					shares: { smoke: 1, cask: 0.4, abv: 0.15, value: 0.6 },
 					presentation: { bottleId: 'b1', viewable: true, name: 'Ardbeg.pptx' }
 				}
 			]

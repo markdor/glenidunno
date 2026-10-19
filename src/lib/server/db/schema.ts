@@ -156,7 +156,11 @@ export const tasting = sqliteTable(
 		motto: text('motto'),
 		// Optional multi-line explanation of the motto, only with a motto.
 		// Plain text, line breaks stored as \n. No CHECK, same reason.
-		mottoDescription: text('motto_description')
+		mottoDescription: text('motto_description'),
+		// The rules of the pouring order (ScoreRules as JSON) as frozen with the
+		// order, see freezePouringOrder in tastings.ts: the explainer tile keeps
+		// explaining them after the algorithm changed. NULL before that.
+		pourRules: text('pour_rules')
 	},
 	(t) => [check('tasting_name_length', lengthUpTo(t.name, TASTING_NAME_LENGTH.max))]
 );
@@ -219,7 +223,17 @@ export const tastingBottle = sqliteTable(
 		// client's file name); the original name is kept for display and as
 		// download name.
 		presentationFile: text('presentation_file'),
-		presentationName: text('presentation_name')
+		presentationName: text('presentation_name'),
+		// The pouring order as frozen once it came out (freezePouringOrder in
+		// tastings.ts): position, score and the factor shares (0–1) the score
+		// chart plots, so a later change of the algorithm changes none of them.
+		// NULL before that and for archived bottles, which have no order.
+		pourPosition: integer('pour_position'),
+		pourScore: real('pour_score'),
+		pourSmokeShare: real('pour_smoke_share'),
+		pourCaskShare: real('pour_cask_share'),
+		pourAbvShare: real('pour_abv_share'),
+		pourValueShare: real('pour_value_share')
 	},
 	(t) => [
 		uniqueIndex('tasting_bottle_participant_slot_unique').on(t.participantId, t.slot),
@@ -245,9 +259,10 @@ export const tastingBottle = sqliteTable(
 			factorsMatchArchived(t.archived, [t.smoke, t.cask, t.value])
 		)
 		// Deliberately no CHECK on presentation_name (length is validated in the
-		// save action): adding a CHECK to an existing table makes drizzle-kit
-		// rebuild the table, and its generated INSERT … SELECT reads the new
-		// columns from the old table, which breaks the migration.
+		// save action) nor on the pour columns: adding a CHECK to an existing
+		// table makes drizzle-kit rebuild the table, and its generated
+		// INSERT … SELECT reads the new columns from the old table, which breaks
+		// the migration.
 	]
 );
 

@@ -850,6 +850,8 @@ function writeTastings(
 		`INSERT INTO tasting_participant (id, tasting_id, user_id, created_at)
 		 VALUES (@id, @tastingId, @userId, @now)`
 	);
+	// No frozen pouring order (pour_position, pour_score stay NULL): archived
+	// bottles have none.
 	const insertBottle = sqlite.prepare(
 		`INSERT INTO tasting_bottle
 		   (id, participant_id, slot, alias, distillery, bottler, bottling, age, whiskybase_url,

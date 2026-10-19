@@ -147,11 +147,16 @@ export type OrderEntry = {
  */
 export type PresentationRef = PresentationLink & { name: string };
 
-/** A bottle after the reveal: all fields plus bringer, score and presentation. */
+/**
+ * A bottle after the reveal: all fields plus bringer, score, the factor
+ * shares the score-development chart plots and presentation. Position, score
+ * and shares as frozen with the order.
+ */
 export type RevealedBottle = TastingBottle & {
 	position: number;
 	broughtBy: string;
 	score: number;
+	shares: NormalizedScoreFactors;
 	presentation: PresentationRef | null;
 };
 
@@ -168,11 +173,12 @@ export type ArchivedRevealedBottle = Omit<TastingBottle, 'smoke' | 'cask' | 'val
 };
 
 /**
- * The reveal: the bottles in pouring order – or, once a tasting has an
- * archived bottle, all of them without factors, by bringer and slot.
+ * The reveal: the bottles in pouring order with the rules they were poured
+ * by – or, once a tasting has an archived bottle, all of them without
+ * factors, by bringer and slot.
  */
 export type Reveal =
-	| { archived: false; bottles: RevealedBottle[] }
+	| { archived: false; bottles: RevealedBottle[]; rules: ScoreRules }
 	| { archived: true; bottles: ArchivedRevealedBottle[] };
 
 /**
@@ -210,8 +216,8 @@ export type ScoreBreakdown = { smoke: number; cask: number; abv: number; value: 
 // ── Scoring ──────────────────────────────────────────────────────────────
 // Starting values, to be revisited after the first tasting with real bottles.
 // Shared source of truth for the actual computation (tastingScore.ts, server-only)
-// and the TastingScoreExplainer tile, which renders these same numbers for
-// participants – so it can't import from $lib/server.
+// and SCORE_RULES, which the TastingScoreExplainer tile renders for
+// participants – frozen with each order, see freezePouringOrder.
 
 /**
  * Weights of the normalized factors. They sum to 1, so the score spans 0–100.
@@ -307,9 +313,9 @@ function normalizeAbv(abv: number): number {
 
 /**
  * Normalizes each scoring factor to 0–1: smoke/cask/value as a fraction of the
- * 0–{@link TASTING_SCALE.max} scale, ABV via {@link normalizeAbv}. Shared by
- * the score computation (tastingScore.ts) and the score-development chart,
- * which plots these same fractions per bottle on one common axis.
+ * 0–{@link TASTING_SCALE.max} scale, ABV via {@link normalizeAbv}. Feeds the
+ * score computation (tastingScore.ts) and the shares the score-development
+ * chart plots per bottle on one common axis (frozen with the order).
  */
 export function normalizeScoreFactors(bottle: ScoreInput): NormalizedScoreFactors {
 	return {
@@ -319,6 +325,51 @@ export function normalizeScoreFactors(bottle: ScoreInput): NormalizedScoreFactor
 		value: bottle.value / TASTING_SCALE.max
 	};
 }
+
+/**
+ * The rules of the pouring order as the TastingScoreExplainer tile explains
+ * them. Frozen with a tasting's order (tasting.pour_rules), so the tile keeps
+ * explaining the order a tasting was poured in after the algorithm changed.
+ * A change to their structure – not just their numbers – needs a new
+ * `version` the tile can tell apart from the frozen ones.
+ */
+export type ScoreRules = {
+	version: 1;
+	/** Poured in this order, each with the smoke values it covers ("0", "1–3"). */
+	smokeGroups: Array<{ label: string; range: string }>;
+	/** Heaviest weight first – also the order of the tie-breakers. */
+	factors: Array<{ key: ScoreFactor; weight: number }>;
+	/** Smoke, cask and value count as the own value ÷ scaleMax. */
+	scaleMax: number;
+	/** The ABV in two segments meeting at the kink, see normalizeAbv(). */
+	abv: {
+		floor: number;
+		kink: number;
+		ceiling: number;
+		lowDivisor: number;
+		highDivisor: number;
+		kinkShare: number;
+	};
+};
+
+/** The rules as the code computes the order now. */
+export const SCORE_RULES: ScoreRules = {
+	version: 1,
+	smokeGroups: SMOKE_GROUPS.map((group, i) => ({
+		label: group.label,
+		range: formatSmokeGroupRange(i + 1)
+	})),
+	factors: SCORE_FACTORS_BY_WEIGHT.map((key) => ({ key, weight: SCORE_WEIGHTS[key] })),
+	scaleMax: TASTING_SCALE.max,
+	abv: {
+		floor: ABV_FLOOR,
+		kink: ABV_KINK,
+		ceiling: ABV_FLOOR + ABV_SPAN,
+		lowDivisor: ABV_LOW_DIVISOR,
+		highDivisor: ABV_HIGH_DIVISOR,
+		kinkShare: ABV_KINK_FRACTION
+	}
+};
 
 /** Display name from the name fields, e.g. "Caol Ila 12 Jahre Distillers Edition (Signatory)". */
 export function formatBottleName(

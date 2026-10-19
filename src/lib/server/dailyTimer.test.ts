@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { startDistilleryResearchTimer } from './distilleryResearchTimer';
+import { startDailyTimer } from './dailyTimer';
 
 const HOUR = 60 * 60 * 1000;
 
@@ -18,13 +18,13 @@ function fakeScheduler() {
 	return { timers, schedule, cancel: vi.fn() };
 }
 
-describe('startDistilleryResearchTimer', () => {
+describe('startDailyTimer', () => {
 	it('runs at the next 21:00 Berlin time and every evening after', () => {
 		let clock = new Date('2026-06-20T10:00:00Z'); // 12:00 CEST
 		const run = vi.fn();
 		const { timers, schedule, cancel } = fakeScheduler();
 
-		const stop = startDistilleryResearchTimer({ run, now: () => clock, schedule, cancel });
+		const stop = startDailyTimer({ hour: 21, run, now: () => clock, schedule, cancel });
 
 		expect(timers).toHaveLength(1);
 		expect(timers[0].delayMs).toBe(9 * HOUR);
@@ -41,12 +41,41 @@ describe('startDistilleryResearchTimer', () => {
 		expect(cancel).toHaveBeenCalledWith(timers[1]);
 	});
 
+	it('runs at any other hour, e.g. 18:00 for the pouring orders', () => {
+		const { timers, schedule, cancel } = fakeScheduler();
+		startDailyTimer({
+			hour: 18,
+			run: vi.fn(),
+			now: () => new Date('2026-06-20T10:00:00Z'), // 12:00 CEST
+			schedule,
+			cancel
+		});
+		expect(timers[0].delayMs).toBe(6 * HOUR);
+	});
+
+	it('runs again at once if the timeout fired a moment early', () => {
+		let clock = new Date('2026-06-20T15:59:59.999Z'); // 17:59:59.999 CEST
+		const run = vi.fn();
+		const { timers, schedule, cancel } = fakeScheduler();
+
+		startDailyTimer({ hour: 18, run, now: () => clock, schedule, cancel });
+		timers[0].callback();
+
+		// Still before 18:00: the next run is due in a millisecond, not tomorrow.
+		expect(timers[1].delayMs).toBe(1);
+		clock = new Date('2026-06-20T16:00:00Z');
+		timers[1].callback();
+		expect(run).toHaveBeenCalledTimes(2);
+		expect(timers[2].delayMs).toBe(24 * HOUR);
+	});
+
 	it('follows daylight saving time', () => {
 		const run = vi.fn();
 		const { timers, schedule, cancel } = fakeScheduler();
 
 		// 21:00 CEST on 24.10.2026, the clocks go back that night.
-		startDistilleryResearchTimer({
+		startDailyTimer({
+			hour: 21,
 			run,
 			now: () => new Date('2026-10-24T19:00:00Z'),
 			schedule,
@@ -60,7 +89,7 @@ describe('startDistilleryResearchTimer', () => {
 		vi.useFakeTimers({ now: new Date('2026-12-12T19:59:00Z') }); // 20:59 CET
 		const run = vi.fn();
 
-		const stop = startDistilleryResearchTimer({ run });
+		const stop = startDailyTimer({ hour: 21, run });
 		vi.advanceTimersByTime(59_000);
 		expect(run).not.toHaveBeenCalled();
 		vi.advanceTimersByTime(1_000);

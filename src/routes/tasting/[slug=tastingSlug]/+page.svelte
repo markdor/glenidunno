@@ -132,7 +132,7 @@
 			<TastingOrderList order={view.order} {presentationHref} {viewHref} />
 		</section>
 		<TastingOrderChart order={view.order} />
-		<TastingScoreExplainer />
+		<TastingScoreExplainer rules={view.rules} />
 	{:else}
 		<TastingManualNotice manual={view.manual} />
 		<section class="space-y-3">
@@ -142,7 +142,7 @@
 		<!-- Archived bottles have no factors: no score to chart, no order to explain. -->
 		{#if !view.archived}
 			<TastingScoreChart bottles={view.bottles} />
-			<TastingScoreExplainer />
+			<TastingScoreExplainer rules={view.rules} />
 		{/if}
 	{/if}
 </div>

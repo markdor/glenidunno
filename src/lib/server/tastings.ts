@@ -3,17 +3,21 @@ import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from 'driz
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
 	isViewablePresentation,
+	normalizeScoreFactors,
 	participantLabel,
+	SCORE_RULES,
 	type ArchivedRevealedBottle,
 	type DashboardLastTasting,
 	type DashboardTasting,
 	type HistoryBottle,
 	type ManualPhaseChanges,
+	type NormalizedScoreFactors,
 	type OrderEntry,
 	type PresentationRef,
 	type Progress,
 	type Reveal,
 	type RevealedBottle,
+	type ScoreRules,
 	type Statistics,
 	type TastingBottle,
 	type TastingHistoryDetail,
@@ -49,7 +53,7 @@ import { getBerlinToday, getTastingPhase, isTastingReleased } from './tastingPha
 import { buildStatistics, numberBottles } from './statistics';
 import { buildWorldMap } from './worldMap';
 import type { PendingUpload, StoredPresentation } from './tastingMedia';
-import { sortForPouring, type BottleScore } from './tastingScore';
+import { sortForPouring } from './tastingScore';
 
 type Db = BetterSQLite3Database<typeof Schema>;
 /** The database or a transaction on it – both can run the same queries. */
@@ -160,8 +164,11 @@ function toOrder(
 	}));
 }
 
+/** Score and factor shares of a bottle in the pouring order. */
+type Pour = { score: number; shares: NormalizedScoreFactors };
+
 type PouredBottle = TastingBottle &
-	BottleScore & { broughtBy: string; presentation: PresentationRef | null };
+	Pour & { broughtBy: string; presentation: PresentationRef | null };
 
 function toReveal(poured: ReadonlyArray<PouredBottle>) {
 	return poured.map((b, i): RevealedBottle => ({
@@ -178,6 +185,12 @@ function toReveal(poured: ReadonlyArray<PouredBottle>) {
 		value: b.value,
 		broughtBy: b.broughtBy,
 		score: b.score,
+		shares: {
+			smoke: b.shares.smoke,
+			cask: b.shares.cask,
+			abv: b.shares.abv,
+			value: b.shares.value
+		},
 		presentation: b.presentation
 	}));
 }
@@ -223,8 +236,13 @@ function pouredBottles(
 	tastingId: string,
 	presentations = true
 ):
-	| { archived: false; bottles: PouredBottle[] }
+	| { archived: false; bottles: PouredBottle[]; rules: ScoreRules }
 	| { archived: true; bottles: ArchivedRevealedBottle[] } {
+	const frozenRules = db
+		.select({ pourRules: tasting.pourRules })
+		.from(tasting)
+		.where(eq(tasting.id, tastingId))
+		.get()?.pourRules;
 	const rows = db
 		.select({
 			bottle: tastingBottle,
@@ -243,14 +261,126 @@ function pouredBottles(
 					{
 						...toDomain(bottle),
 						broughtBy: participantLabel(username, deactivatedAt),
-						presentation: presentations ? presentationRef(bottle) : null
+						presentation: presentations ? presentationRef(bottle) : null,
+						frozen: frozenPour(bottle)
 					}
 				]
 			: []
 	);
-	return active.length === rows.length
-		? { archived: false, bottles: sortForPouring(active) }
-		: { archived: true, bottles: toArchivedReveal(rows, presentations) };
+	if (active.length !== rows.length) {
+		return { archived: true, bottles: toArchivedReveal(rows, presentations) };
+	}
+	// Frozen with the order like positions and scores, the current ones before.
+	const rules = frozenRules ? (JSON.parse(frozenRules) as ScoreRules) : SCORE_RULES;
+	return { archived: false, bottles: inPouringOrder(active), rules };
+}
+
+type FrozenPour = Pour & { position: number };
+
+function frozenPour(bottle: BottleRow): FrozenPour | null {
+	const {
+		pourPosition: position,
+		pourScore: score,
+		pourSmokeShare: smoke,
+		pourCaskShare: cask,
+		pourAbvShare: abv,
+		pourValueShare: value
+	} = bottle;
+	return position !== null &&
+		score !== null &&
+		smoke !== null &&
+		cask !== null &&
+		abv !== null &&
+		value !== null
+		? { position, score, shares: { smoke, cask, abv, value } }
+		: null;
+}
+
+/**
+ * Bottles in pouring order with their scores and factor shares. Once the
+ * order came out, as frozen then (freezePouringOrder): a later change of
+ * weights, groups, normalization or tie-breakers changes neither the order
+ * nor the score chart of a tasting that was poured already. Computed with the
+ * current algorithm only before that.
+ */
+function inPouringOrder<T extends TastingBottle & { frozen: FrozenPour | null }>(
+	bottles: T[]
+): Array<T & Pour> {
+	if (!bottles.every((b): b is T & { frozen: FrozenPour } => b.frozen !== null)) {
+		return sortForPouring(bottles).map((b) => ({ ...b, shares: normalizeScoreFactors(b) }));
+	}
+	return bottles
+		.map((b) => ({ ...b, score: b.frozen.score, shares: b.frozen.shares }))
+		.sort((a, b) => a.frozen.position - b.frozen.position);
+}
+
+/**
+ * Freezes a tasting's pouring order as the algorithm computes it now:
+ * position, score and factor shares stored with each bottle, the rules the
+ * explainer tile shows (SCORE_RULES) with the tasting – pouredBottles reads
+ * them from then on. Runs once the order comes out (see freezeDueOrders), the
+ * bottles can't change any more by then. Idempotent; a tasting with an
+ * archived bottle has no order and stays as it is. Returns whether it froze
+ * anything.
+ */
+function freezePouringOrder(db: Executor, tastingId: string): boolean {
+	const rulesFrozen =
+		db
+			.select({ id: tasting.id })
+			.from(tasting)
+			.where(and(eq(tasting.id, tastingId), isNotNull(tasting.pourRules)))
+			.get() !== undefined;
+	const rows = db
+		.select({ bottle: tastingBottle })
+		.from(tastingBottle)
+		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+		.where(eq(tastingParticipant.tastingId, tastingId))
+		// The same input order as pouredBottles.
+		.orderBy(asc(tastingBottle.id))
+		.all()
+		.map((row) => row.bottle);
+	if (rulesFrozen && rows.every((row) => frozenPour(row) !== null)) return false;
+	const active = rows.filter(isActiveBottle);
+	if (active.length !== rows.length) return false;
+
+	sortForPouring(active.map((row) => ({ id: row.id, ...toDomain(row) }))).forEach((b, i) => {
+		const shares = normalizeScoreFactors(b);
+		db.update(tastingBottle)
+			.set({
+				pourPosition: i + 1,
+				pourScore: b.score,
+				pourSmokeShare: shares.smoke,
+				pourCaskShare: shares.cask,
+				pourAbvShare: shares.abv,
+				pourValueShare: shares.value
+			})
+			.where(eq(tastingBottle.id, b.id))
+			.run();
+	});
+	db.update(tasting)
+		.set({ pourRules: JSON.stringify(SCORE_RULES) })
+		.where(eq(tasting.id, tastingId))
+		.run();
+	return true;
+}
+
+/**
+ * Freezes the pouring order of every tasting whose order is out – by the
+ * clock or by the admin's buttons, which freeze theirs at once. Runs at
+ * startup and daily at TASTING_ORDER_HOUR, so an order is frozen with the
+ * algorithm of the code that showed it, before a deployment can change it.
+ * Returns how many tastings it froze.
+ */
+export function freezeDueOrders(db: Db, now: Date = new Date()): number {
+	return db.transaction(
+		(tx) =>
+			tx
+				.select({ id: tasting.id, ...phaseColumns })
+				.from(tasting)
+				.all()
+				.filter((t) => getTastingPhase(t.tastingDate, now, t) !== 'entry')
+				.filter((t) => freezePouringOrder(tx, t.id)).length
+	);
 }
 
 function presentationRef(bottle: BottleRow): PresentationRef | null {
@@ -910,7 +1040,13 @@ export function getTastingHistoryDetail(
 	const poured = pouredBottles(db, id, own);
 	return poured.archived
 		? { tasting: head, slug, archived: true, bottles: poured.bottles }
-		: { tasting: head, slug, archived: false, bottles: toReveal(poured.bottles) };
+		: {
+				tasting: head,
+				slug,
+				archived: false,
+				bottles: toReveal(poured.bottles),
+				rules: poured.rules
+			};
 }
 
 /** `name` is the display label: the username, marked if deactivated. */
@@ -1060,16 +1196,20 @@ export function updateTastingMotto(
  * open. Returns false if the tasting doesn't exist.
  */
 export function openOrderEarly(db: Db, id: string, now: Date = new Date()): boolean {
-	const phase = currentPhase(db, id, now);
-	if (!phase) return false;
-	if (phase !== 'entry') {
-		throw new TastingValidationError(
-			`open order rejected: tasting ${id} is already in phase ${phase}`,
-			'Die Reihenfolge ist bereits freigegeben.'
-		);
-	}
-	db.update(tasting).set({ orderOpenedAt: now }).where(eq(tasting.id, id)).run();
-	return true;
+	return db.transaction((tx) => {
+		const phase = currentPhase(tx, id, now);
+		if (!phase) return false;
+		if (phase !== 'entry') {
+			throw new TastingValidationError(
+				`open order rejected: tasting ${id} is already in phase ${phase}`,
+				'Die Reihenfolge ist bereits freigegeben.'
+			);
+		}
+		tx.update(tasting).set({ orderOpenedAt: now }).where(eq(tasting.id, id)).run();
+		// The order is out: frozen right away, not only by the next freezeDueOrders.
+		freezePouringOrder(tx, id);
+		return true;
+	});
 }
 
 /**
@@ -1079,22 +1219,26 @@ export function openOrderEarly(db: Db, id: string, now: Date = new Date()): bool
  * doesn't exist.
  */
 export function revealEarly(db: Db, id: string, now: Date = new Date()): boolean {
-	const phase = currentPhase(db, id, now);
-	if (!phase) return false;
-	if (phase === 'entry') {
-		throw new TastingValidationError(
-			`reveal rejected: tasting ${id} is still in the entry phase`,
-			'Gib zuerst die Reihenfolge frei.'
-		);
-	}
-	if (phase === 'revealed') {
-		throw new TastingValidationError(
-			`reveal rejected: tasting ${id} is already revealed`,
-			'Das Tasting ist bereits aufgelöst.'
-		);
-	}
-	db.update(tasting).set({ revealedAt: now }).where(eq(tasting.id, id)).run();
-	return true;
+	return db.transaction((tx) => {
+		const phase = currentPhase(tx, id, now);
+		if (!phase) return false;
+		if (phase === 'entry') {
+			throw new TastingValidationError(
+				`reveal rejected: tasting ${id} is still in the entry phase`,
+				'Gib zuerst die Reihenfolge frei.'
+			);
+		}
+		if (phase === 'revealed') {
+			throw new TastingValidationError(
+				`reveal rejected: tasting ${id} is already revealed`,
+				'Das Tasting ist bereits aufgelöst.'
+			);
+		}
+		tx.update(tasting).set({ revealedAt: now }).where(eq(tasting.id, id)).run();
+		// Normally frozen with the order already; this catches a failed daily run.
+		freezePouringOrder(tx, id);
+		return true;
+	});
 }
 
 /** Deletes the tasting; participants, bottles and throttle rows cascade. */
@@ -1225,6 +1369,8 @@ export type ParticipantView =
 			tasting: ParticipantTasting;
 			manual: ManualPhaseChanges;
 			order: OrderEntry[];
+			/** The rules the explainer tile shows, frozen with the order. */
+			rules: ScoreRules;
 	  }
 	| ({
 			phase: 'revealed';
@@ -1293,7 +1439,13 @@ export function getParticipantView(
 		case 'order': {
 			const poured = pouredBottles(db, holder.tastingId);
 			if (poured.archived) throw archivedBeforeReveal(holder.tastingId, phase);
-			return { phase, tasting: tastingInfo, manual, order: toOrder(poured.bottles) };
+			return {
+				phase,
+				tasting: tastingInfo,
+				manual,
+				order: toOrder(poured.bottles),
+				rules: poured.rules
+			};
 		}
 		case 'revealed': {
 			const poured = pouredBottles(db, holder.tastingId);
@@ -1304,7 +1456,8 @@ export function getParticipantView(
 						tasting: tastingInfo,
 						manual,
 						archived: false,
-						bottles: toReveal(poured.bottles)
+						bottles: toReveal(poured.bottles),
+						rules: poured.rules
 					};
 		}
 	}

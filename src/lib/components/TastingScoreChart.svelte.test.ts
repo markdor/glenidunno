@@ -1,12 +1,18 @@
 import { describe, test, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
+import { normalizeScoreFactors, type ScoreInput } from '$lib/tasting';
 import TastingScoreChart from './TastingScoreChart.svelte';
+
+/** With the shares the current algorithm computes, as the server sends them. */
+function withShares<T extends ScoreInput>(bottle: T) {
+	return { ...bottle, shares: normalizeScoreFactors(bottle) };
+}
 
 const bottles = [
 	{ position: 1, alias: 'Blume', smoke: 0, cask: 1, abv: 40, value: 2 },
 	{ position: 2, alias: 'Nebel', smoke: 5, cask: 5, abv: 60, value: 5 }
-];
+].map(withShares);
 
 describe('TastingScoreChart', () => {
 	test('says so when nobody entered a bottle', async () => {
@@ -34,7 +40,7 @@ describe('TastingScoreChart', () => {
 			{ position: 1, alias: 'Blume', smoke: 0, cask: 0, abv: 40, value: 0 },
 			{ position: 2, alias: 'Nebel', smoke: 2, cask: 2, abv: 50, value: 2 },
 			{ position: 3, alias: 'Rauch', smoke: 5, cask: 5, abv: 60, value: 5 }
-		];
+		].map(withShares);
 		render(TastingScoreChart, { bottles: threeBottles });
 
 		const areas = document.querySelectorAll('path[fill-opacity]');
@@ -52,6 +58,21 @@ describe('TastingScoreChart', () => {
 			(el) => el.getAttribute('x1') === el.getAttribute('x2')
 		);
 		expect(verticalGuides).toHaveLength(threeBottles.length);
+	});
+
+	test('plots the shares it gets, not ones it computes itself', async () => {
+		// The same raw values, but frozen with different shares.
+		const frozen = [
+			{ position: 1, alias: 'Blume', smoke: 2, cask: 2, abv: 50, value: 2 },
+			{ position: 2, alias: 'Nebel', smoke: 2, cask: 2, abv: 50, value: 2 }
+		].map((b, i) => ({ ...b, shares: { smoke: i, cask: i, abv: i, value: i } }));
+		render(TastingScoreChart, { bottles: frozen });
+
+		// Every line climbs from 0 to 1 instead of staying flat.
+		for (const line of document.querySelectorAll('path[fill="none"]')) {
+			const ys = [...line.getAttribute('d')!.matchAll(/[\d.]+,([\d.]+)/g)].map((m) => Number(m[1]));
+			expect(ys[0]).not.toBe(ys.at(-1));
+		}
 	});
 
 	test('shows the raw values of a bottle on hover and hides them again', async () => {

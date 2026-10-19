@@ -60,6 +60,6 @@
 	<!-- Archived bottles have no factors: no score to chart, no order to explain. -->
 	{#if !detail.archived}
 		<TastingScoreChart bottles={detail.bottles} />
-		<TastingScoreExplainer />
+		<TastingScoreExplainer rules={detail.rules} />
 	{/if}
 </div>
