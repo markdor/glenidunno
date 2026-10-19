@@ -75,6 +75,8 @@ describe('admin tastings list load', () => {
 		insertUsers('Anna', 'Ben');
 		const { slug } = createTasting(db, {
 			name: 'Herbst-Tasting',
+			motto: 'Islay gegen den Rest',
+			mottoDescription: 'Eine Flasche von Islay.',
 			tastingDate: '2026-10-24',
 			participantUserIds: ['u-Anna', 'u-Ben']
 		});
@@ -97,13 +99,15 @@ describe('admin tastings list load', () => {
 			{
 				id: expect.any(String),
 				name: 'Herbst-Tasting',
+				motto: 'Islay gegen den Rest',
 				tastingDate: '2026-10-24',
 				phase: 'entry',
 				progress: { entered: 1, total: 4 }
 			}
 		]);
 		const serialized = JSON.stringify(result);
-		for (const hidden of ['Nebel', 'Ardbeg', slug]) {
+		// The motto description only shows on the detail and participant pages.
+		for (const hidden of ['Nebel', 'Ardbeg', slug, 'Eine Flasche von Islay.']) {
 			expect(serialized).not.toContain(hidden);
 		}
 	});

@@ -16,6 +16,7 @@ const user = { id: 'u-anna', username: 'Anna', isAdmin: false };
 const BOTTLE: HistoryBottle = {
 	number: 1,
 	tastingDate: '2021-05-07',
+	motto: null,
 	slug: null,
 	alias: 'P1',
 	distillery: 'Glen Spey',

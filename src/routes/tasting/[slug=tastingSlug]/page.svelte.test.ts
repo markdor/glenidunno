@@ -9,7 +9,23 @@ vi.mock('$app/state', () => ({ page: { params: { slug: 'fluffy-otter' } } }));
 import Page from './+page.svelte';
 import { toast } from '$lib/components/toastStore.svelte';
 
-const tasting = { name: 'Herbst-Tasting', tastingDate: '2026-10-24' };
+const tasting = {
+	name: 'Herbst-Tasting',
+	tastingDate: '2026-10-24',
+	motto: null,
+	mottoDescription: null
+};
+
+const withMotto = {
+	...tasting,
+	motto: 'Inselhüpfen',
+	mottoDescription: 'Eine Insel pro Flasche.\nKeine Blends.'
+};
+
+/** The page head: date line, name and – if set – the motto. */
+function header() {
+	return document.querySelector('header')!;
+}
 
 const savedBottle = {
 	slot: 1,
@@ -44,6 +60,52 @@ describe('Tasting participant page', () => {
 			order: [{ position: 1, alias: 'Nebel', score: 75.2, presentation: null }]
 		});
 		await expect.poll(() => document.title).toBe('Whisky-Tasting');
+	});
+
+	test.each([
+		{ phase: 'entry', extra: { participant: { username: 'Anna' }, bottles: [] } },
+		{ phase: 'order', extra: { order: [] } },
+		{ phase: 'revealed', extra: { archived: true, bottles: [] } }
+	])('shows heading and description of the motto below the name in phase $phase', async (c) => {
+		renderView({ phase: c.phase, tasting: withMotto, ...c.extra });
+
+		const name = page.getByRole('heading', { level: 1, name: 'Herbst-Tasting' });
+		await expect.element(name).toBeVisible();
+		const heading = page.getByText('Inselhüpfen', { exact: true });
+		await expect.element(heading).toBeVisible();
+		const description = header().lastElementChild as HTMLElement;
+		// Kept as text with its line break, which only CSS renders.
+		expect(description.textContent).toBe('Eine Insel pro Flasche.\nKeine Blends.');
+		expect(description.classList).toContain('whitespace-pre-line');
+		expect([...header().children].slice(1)).toEqual([
+			name.element(),
+			heading.element(),
+			description
+		]);
+		// Only in the page, never in the title.
+		await expect.poll(() => document.title).toBe('Whisky-Tasting');
+	});
+
+	test('renders markup in the description as plain text', async () => {
+		renderView({
+			phase: 'order',
+			tasting: { ...withMotto, mottoDescription: '<b>fett</b> & **mehr**' },
+			order: []
+		});
+		await expect.element(page.getByText('<b>fett</b> & **mehr**')).toBeVisible();
+		expect(header().querySelector('b')).toBeNull();
+	});
+
+	test('shows only the heading without a description', async () => {
+		renderView({ phase: 'order', tasting: { ...withMotto, mottoDescription: null }, order: [] });
+		await expect.element(page.getByText('Inselhüpfen', { exact: true })).toBeVisible();
+		expect(header().children).toHaveLength(3);
+	});
+
+	test('leaves no empty line in the head without a motto', async () => {
+		renderView({ phase: 'order', tasting, order: [] });
+		await expect.element(page.getByRole('heading', { level: 1 })).toBeVisible();
+		expect(header().children).toHaveLength(2);
 	});
 
 	test('shows one card per bottle during entry, filled with the own bottles', async () => {

@@ -1,0 +1,1382 @@
+{
+	"version": "6",
+	"dialect": "sqlite",
+	"id": "22468f82-3293-4d27-a3cd-d885efdb0f4a",
+	"prevId": "6f9caee6-1c35-4b4a-8543-920c89d80cb1",
+	"tables": {
+		"account": {
+			"name": "account",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"account_id": {
+					"name": "account_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"provider_id": {
+					"name": "provider_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"user_id": {
+					"name": "user_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"access_token": {
+					"name": "access_token",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"refresh_token": {
+					"name": "refresh_token",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"id_token": {
+					"name": "id_token",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"access_token_expires_at": {
+					"name": "access_token_expires_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"refresh_token_expires_at": {
+					"name": "refresh_token_expires_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"scope": {
+					"name": "scope",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"password": {
+					"name": "password",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"updated_at": {
+					"name": "updated_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {
+				"account_user_id_user_id_fk": {
+					"name": "account_user_id_user_id_fk",
+					"tableFrom": "account",
+					"tableTo": "user",
+					"columnsFrom": ["user_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"app_setting": {
+			"name": "app_setting",
+			"columns": {
+				"key": {
+					"name": "key",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"value": {
+					"name": "value",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"updated_at": {
+					"name": "updated_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"distillery": {
+			"name": "distillery",
+			"columns": {
+				"name_key": {
+					"name": "name_key",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"country": {
+					"name": "country",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"country_state": {
+					"name": "country_state",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": "'pending'"
+				},
+				"country_source": {
+					"name": "country_source",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"country_rules": {
+					"name": "country_rules",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"region": {
+					"name": "region",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"region_state": {
+					"name": "region_state",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": "'pending'"
+				},
+				"region_source": {
+					"name": "region_source",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"region_rules": {
+					"name": "region_rules",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"capacity": {
+					"name": "capacity",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"capacity_state": {
+					"name": "capacity_state",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": "'pending'"
+				},
+				"capacity_source": {
+					"name": "capacity_source",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"capacity_rules": {
+					"name": "capacity_rules",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"updated_at": {
+					"name": "updated_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"distillery_country_state": {
+					"name": "distillery_country_state",
+					"value": "\"distillery\".\"country_state\" IN ('pending', 'found', 'admin', 'empty')"
+				},
+				"distillery_country_value_state": {
+					"name": "distillery_country_value_state",
+					"value": "(\"distillery\".\"country\" IS NOT NULL) = (\"distillery\".\"country_state\" IN ('found', 'admin'))"
+				},
+				"distillery_country_source_state": {
+					"name": "distillery_country_source_state",
+					"value": "(\"distillery\".\"country_source\" IS NULL AND \"distillery\".\"country_rules\" IS NULL) OR \"distillery\".\"country_state\" = 'found'"
+				},
+				"distillery_country_source_length": {
+					"name": "distillery_country_source_length",
+					"value": "length(\"distillery\".\"country_source\") BETWEEN 1 AND 2048"
+				},
+				"distillery_region_state": {
+					"name": "distillery_region_state",
+					"value": "\"distillery\".\"region_state\" IN ('pending', 'found', 'admin', 'empty')"
+				},
+				"distillery_region_value_state": {
+					"name": "distillery_region_value_state",
+					"value": "(\"distillery\".\"region\" IS NOT NULL) = (\"distillery\".\"region_state\" IN ('found', 'admin'))"
+				},
+				"distillery_region_source_state": {
+					"name": "distillery_region_source_state",
+					"value": "(\"distillery\".\"region_source\" IS NULL AND \"distillery\".\"region_rules\" IS NULL) OR \"distillery\".\"region_state\" = 'found'"
+				},
+				"distillery_region_source_length": {
+					"name": "distillery_region_source_length",
+					"value": "length(\"distillery\".\"region_source\") BETWEEN 1 AND 2048"
+				},
+				"distillery_capacity_state": {
+					"name": "distillery_capacity_state",
+					"value": "\"distillery\".\"capacity_state\" IN ('pending', 'found', 'admin', 'empty')"
+				},
+				"distillery_capacity_value_state": {
+					"name": "distillery_capacity_value_state",
+					"value": "(\"distillery\".\"capacity\" IS NOT NULL) = (\"distillery\".\"capacity_state\" IN ('found', 'admin'))"
+				},
+				"distillery_capacity_source_state": {
+					"name": "distillery_capacity_source_state",
+					"value": "(\"distillery\".\"capacity_source\" IS NULL AND \"distillery\".\"capacity_rules\" IS NULL) OR \"distillery\".\"capacity_state\" = 'found'"
+				},
+				"distillery_capacity_source_length": {
+					"name": "distillery_capacity_source_length",
+					"value": "length(\"distillery\".\"capacity_source\") BETWEEN 1 AND 2048"
+				},
+				"distillery_country_length": {
+					"name": "distillery_country_length",
+					"value": "length(\"distillery\".\"country\") BETWEEN 1 AND 60"
+				},
+				"distillery_region_list": {
+					"name": "distillery_region_list",
+					"value": "\"distillery\".\"region\" IN ('Islay', 'Campbeltown', 'Inseln', 'Speyside', 'Highlands', 'Lowlands')"
+				},
+				"distillery_region_country": {
+					"name": "distillery_region_country",
+					"value": "\"distillery\".\"region\" IS NULL OR \"distillery\".\"country\" = 'Schottland'"
+				},
+				"distillery_capacity_range": {
+					"name": "distillery_capacity_range",
+					"value": "\"distillery\".\"capacity\" BETWEEN 1 AND 1000000000"
+				}
+			}
+		},
+		"distillery_research_call": {
+			"name": "distillery_research_call",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": true
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"name_key": {
+					"name": "name_key",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"stage": {
+					"name": "stage",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"model": {
+					"name": "model",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"input_tokens": {
+					"name": "input_tokens",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"output_tokens": {
+					"name": "output_tokens",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"cache_creation_input_tokens": {
+					"name": "cache_creation_input_tokens",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"cache_read_input_tokens": {
+					"name": "cache_read_input_tokens",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"web_search_requests": {
+					"name": "web_search_requests",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"web_fetch_requests": {
+					"name": "web_fetch_requests",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"cost_micro_usd": {
+					"name": "cost_micro_usd",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"distillery_research_call_name_key": {
+					"name": "distillery_research_call_name_key",
+					"columns": ["name_key"],
+					"isUnique": false
+				}
+			},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"distillery_research_call_stage": {
+					"name": "distillery_research_call_stage",
+					"value": "\"distillery_research_call\".\"stage\" IN (1, 2)"
+				}
+			}
+		},
+		"distillery_variant_call": {
+			"name": "distillery_variant_call",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": true
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"model": {
+					"name": "model",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"input_tokens": {
+					"name": "input_tokens",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"output_tokens": {
+					"name": "output_tokens",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"cache_creation_input_tokens": {
+					"name": "cache_creation_input_tokens",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"cache_read_input_tokens": {
+					"name": "cache_read_input_tokens",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"cost_micro_usd": {
+					"name": "cost_micro_usd",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"distillery_variant_suggestion": {
+			"name": "distillery_variant_suggestion",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "integer",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": true
+				},
+				"variant_key": {
+					"name": "variant_key",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"target_key": {
+					"name": "target_key",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"target_name": {
+					"name": "target_name",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"kind": {
+					"name": "kind",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"prefix": {
+					"name": "prefix",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"status": {
+					"name": "status",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": "'open'"
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"distillery_variant_suggestion_pair": {
+					"name": "distillery_variant_suggestion_pair",
+					"columns": ["variant_key", "target_key"],
+					"isUnique": true
+				}
+			},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"distillery_variant_suggestion_keys": {
+					"name": "distillery_variant_suggestion_keys",
+					"value": "\"distillery_variant_suggestion\".\"variant_key\" <> \"distillery_variant_suggestion\".\"target_key\""
+				},
+				"distillery_variant_suggestion_kind": {
+					"name": "distillery_variant_suggestion_kind",
+					"value": "\"distillery_variant_suggestion\".\"kind\" IN ('spelling', 'brand')"
+				},
+				"distillery_variant_suggestion_status": {
+					"name": "distillery_variant_suggestion_status",
+					"value": "\"distillery_variant_suggestion\".\"status\" IN ('open', 'rejected')"
+				},
+				"distillery_variant_suggestion_prefix_kind": {
+					"name": "distillery_variant_suggestion_prefix_kind",
+					"value": "(\"distillery_variant_suggestion\".\"prefix\" IS NOT NULL) = (\"distillery_variant_suggestion\".\"kind\" = 'brand')"
+				},
+				"distillery_variant_suggestion_target_length": {
+					"name": "distillery_variant_suggestion_target_length",
+					"value": "length(\"distillery_variant_suggestion\".\"target_name\") BETWEEN 1 AND 60"
+				},
+				"distillery_variant_suggestion_prefix_length": {
+					"name": "distillery_variant_suggestion_prefix_length",
+					"value": "length(\"distillery_variant_suggestion\".\"prefix\") BETWEEN 1 AND 120"
+				}
+			}
+		},
+		"magic_link_throttle": {
+			"name": "magic_link_throttle",
+			"columns": {
+				"email": {
+					"name": "email",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"count": {
+					"name": "count",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"window_start": {
+					"name": "window_start",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"rate_limit": {
+			"name": "rate_limit",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"key": {
+					"name": "key",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"count": {
+					"name": "count",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"last_request": {
+					"name": "last_request",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"session": {
+			"name": "session",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"expires_at": {
+					"name": "expires_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"token": {
+					"name": "token",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"updated_at": {
+					"name": "updated_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"ip_address": {
+					"name": "ip_address",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"user_agent": {
+					"name": "user_agent",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"user_id": {
+					"name": "user_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"session_token_unique": {
+					"name": "session_token_unique",
+					"columns": ["token"],
+					"isUnique": true
+				}
+			},
+			"foreignKeys": {
+				"session_user_id_user_id_fk": {
+					"name": "session_user_id_user_id_fk",
+					"tableFrom": "session",
+					"tableTo": "user",
+					"columnsFrom": ["user_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"startup_job": {
+			"name": "startup_job",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"status": {
+					"name": "status",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"started_at": {
+					"name": "started_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"finished_at": {
+					"name": "finished_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"message": {
+					"name": "message",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"progress_done": {
+					"name": "progress_done",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"progress_total": {
+					"name": "progress_total",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"startup_job_status": {
+					"name": "startup_job_status",
+					"value": "\"startup_job\".\"status\" IN ('running', 'succeeded', 'failed')"
+				}
+			}
+		},
+		"tasting": {
+			"name": "tasting",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"slug": {
+					"name": "slug",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"name": {
+					"name": "name",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"tasting_date": {
+					"name": "tasting_date",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"order_opened_at": {
+					"name": "order_opened_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"revealed_at": {
+					"name": "revealed_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"motto": {
+					"name": "motto",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"motto_description": {
+					"name": "motto_description",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"tasting_slug_unique": {
+					"name": "tasting_slug_unique",
+					"columns": ["slug"],
+					"isUnique": true
+				}
+			},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"tasting_name_length": {
+					"name": "tasting_name_length",
+					"value": "length(\"tasting\".\"name\") BETWEEN 1 AND 60"
+				}
+			}
+		},
+		"tasting_bottle": {
+			"name": "tasting_bottle",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"participant_id": {
+					"name": "participant_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"slot": {
+					"name": "slot",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"alias": {
+					"name": "alias",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"distillery": {
+					"name": "distillery",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"bottler": {
+					"name": "bottler",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"bottling": {
+					"name": "bottling",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"age": {
+					"name": "age",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"whiskybase_url": {
+					"name": "whiskybase_url",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"smoke": {
+					"name": "smoke",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"cask": {
+					"name": "cask",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"abv": {
+					"name": "abv",
+					"type": "real",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"value": {
+					"name": "value",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"archived": {
+					"name": "archived",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": false
+				},
+				"updated_at": {
+					"name": "updated_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"presentation_file": {
+					"name": "presentation_file",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"presentation_name": {
+					"name": "presentation_name",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"tasting_bottle_participant_slot_unique": {
+					"name": "tasting_bottle_participant_slot_unique",
+					"columns": ["participant_id", "slot"],
+					"isUnique": true
+				}
+			},
+			"foreignKeys": {
+				"tasting_bottle_participant_id_tasting_participant_id_fk": {
+					"name": "tasting_bottle_participant_id_tasting_participant_id_fk",
+					"tableFrom": "tasting_bottle",
+					"tableTo": "tasting_participant",
+					"columnsFrom": ["participant_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {
+				"tasting_bottle_slot_range": {
+					"name": "tasting_bottle_slot_range",
+					"value": "\"tasting_bottle\".\"slot\" BETWEEN 1 AND 6"
+				},
+				"tasting_bottle_alias_length": {
+					"name": "tasting_bottle_alias_length",
+					"value": "length(\"tasting_bottle\".\"alias\") BETWEEN 1 AND 30"
+				},
+				"tasting_bottle_distillery_length": {
+					"name": "tasting_bottle_distillery_length",
+					"value": "length(\"tasting_bottle\".\"distillery\") BETWEEN 1 AND 60"
+				},
+				"tasting_bottle_bottler_length": {
+					"name": "tasting_bottle_bottler_length",
+					"value": "length(\"tasting_bottle\".\"bottler\") BETWEEN 1 AND 60"
+				},
+				"tasting_bottle_bottling_length": {
+					"name": "tasting_bottle_bottling_length",
+					"value": "length(\"tasting_bottle\".\"bottling\") BETWEEN 1 AND 120"
+				},
+				"tasting_bottle_age_range": {
+					"name": "tasting_bottle_age_range",
+					"value": "\"tasting_bottle\".\"age\" BETWEEN 1 AND 80"
+				},
+				"tasting_bottle_whiskybase_url_length": {
+					"name": "tasting_bottle_whiskybase_url_length",
+					"value": "length(\"tasting_bottle\".\"whiskybase_url\") BETWEEN 1 AND 300"
+				},
+				"tasting_bottle_smoke_range": {
+					"name": "tasting_bottle_smoke_range",
+					"value": "\"tasting_bottle\".\"smoke\" BETWEEN 0 AND 5"
+				},
+				"tasting_bottle_cask_range": {
+					"name": "tasting_bottle_cask_range",
+					"value": "\"tasting_bottle\".\"cask\" BETWEEN 0 AND 5"
+				},
+				"tasting_bottle_abv_range": {
+					"name": "tasting_bottle_abv_range",
+					"value": "\"tasting_bottle\".\"abv\" BETWEEN 35 AND 75"
+				},
+				"tasting_bottle_value_range": {
+					"name": "tasting_bottle_value_range",
+					"value": "\"tasting_bottle\".\"value\" BETWEEN 0 AND 5"
+				},
+				"tasting_bottle_archived_factors": {
+					"name": "tasting_bottle_archived_factors",
+					"value": "(\"tasting_bottle\".\"archived\" = 0 AND \"tasting_bottle\".\"smoke\" IS NOT NULL AND \"tasting_bottle\".\"cask\" IS NOT NULL AND \"tasting_bottle\".\"value\" IS NOT NULL) OR (\"tasting_bottle\".\"archived\" = 1 AND \"tasting_bottle\".\"smoke\" IS NULL AND \"tasting_bottle\".\"cask\" IS NULL AND \"tasting_bottle\".\"value\" IS NULL)"
+				}
+			}
+		},
+		"tasting_participant": {
+			"name": "tasting_participant",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"tasting_id": {
+					"name": "tasting_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"user_id": {
+					"name": "user_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"tasting_participant_tasting_user_unique": {
+					"name": "tasting_participant_tasting_user_unique",
+					"columns": ["tasting_id", "user_id"],
+					"isUnique": true
+				}
+			},
+			"foreignKeys": {
+				"tasting_participant_tasting_id_tasting_id_fk": {
+					"name": "tasting_participant_tasting_id_tasting_id_fk",
+					"tableFrom": "tasting_participant",
+					"tableTo": "tasting",
+					"columnsFrom": ["tasting_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				},
+				"tasting_participant_user_id_user_id_fk": {
+					"name": "tasting_participant_user_id_user_id_fk",
+					"tableFrom": "tasting_participant",
+					"tableTo": "user",
+					"columnsFrom": ["user_id"],
+					"columnsTo": ["id"],
+					"onDelete": "restrict",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"tasting_slug_adjective": {
+			"name": "tasting_slug_adjective",
+			"columns": {
+				"word": {
+					"name": "word",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"tasting_slug_animal": {
+			"name": "tasting_slug_animal",
+			"columns": {
+				"word": {
+					"name": "word",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"tasting_write_throttle": {
+			"name": "tasting_write_throttle",
+			"columns": {
+				"participant_id": {
+					"name": "participant_id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"count": {
+					"name": "count",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"window_start": {
+					"name": "window_start",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {
+				"tasting_write_throttle_participant_id_tasting_participant_id_fk": {
+					"name": "tasting_write_throttle_participant_id_tasting_participant_id_fk",
+					"tableFrom": "tasting_write_throttle",
+					"tableTo": "tasting_participant",
+					"columnsFrom": ["participant_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"user": {
+			"name": "user",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"name": {
+					"name": "name",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"email": {
+					"name": "email",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"email_verified": {
+					"name": "email_verified",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": false
+				},
+				"image": {
+					"name": "image",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"updated_at": {
+					"name": "updated_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"username": {
+					"name": "username",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"is_admin": {
+					"name": "is_admin",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": false
+				},
+				"deactivated_at": {
+					"name": "deactivated_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				}
+			},
+			"indexes": {
+				"user_email_unique": {
+					"name": "user_email_unique",
+					"columns": ["email"],
+					"isUnique": true
+				},
+				"user_username_unique": {
+					"name": "user_username_unique",
+					"columns": ["username"],
+					"isUnique": true
+				}
+			},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		},
+		"verification": {
+			"name": "verification",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"identifier": {
+					"name": "identifier",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"value": {
+					"name": "value",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"expires_at": {
+					"name": "expires_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false
+				},
+				"created_at": {
+					"name": "created_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				},
+				"updated_at": {
+					"name": "updated_at",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": false,
+					"autoincrement": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"checkConstraints": {}
+		}
+	},
+	"views": {},
+	"enums": {},
+	"_meta": {
+		"schemas": {},
+		"tables": {},
+		"columns": {}
+	},
+	"internal": {
+		"indexes": {}
+	}
+}

@@ -18,6 +18,7 @@ function bottle(number: number, overrides: Partial<HistoryBottle> = {}): History
 	return {
 		number,
 		tastingDate: '2021-05-07',
+		motto: null,
 		slug: null,
 		alias: `P${number}`,
 		distillery: 'Ardbeg',
@@ -36,6 +37,7 @@ function bottle(number: number, overrides: Partial<HistoryBottle> = {}): History
 const BOTTLES = [
 	bottle(4, {
 		tastingDate: '2024-09-27',
+		motto: 'Inselhüpfen',
 		slug: 'fluffy-otter',
 		alias: 'P113',
 		distillery: 'Deanston',
@@ -49,6 +51,7 @@ const BOTTLES = [
 	}),
 	bottle(5, {
 		tastingDate: '2024-09-27',
+		motto: 'Inselhüpfen',
 		slug: 'fluffy-otter',
 		alias: 'P21',
 		abv: 54.1,
@@ -161,7 +164,8 @@ describe('HistoryBottleTable – search and filters', () => {
 		['the bringer', 'INAKTIV', ['P2']],
 		['NAS', 'nas', ['P21']],
 		['the ABV as shown', '54,1 %', ['P21']],
-		['the bottler', 'originalabf', ['P21', 'p10']]
+		['the bottler', 'originalabf', ['P21', 'p10']],
+		['the motto heading of the tasting', 'inselhüpf', ['P113', 'P21']]
 	])('finds %s', async (_label, q, expected) => {
 		show(`?${new URLSearchParams({ q })}`);
 		expect(aliases()).toEqual(expected);
@@ -206,6 +210,31 @@ describe('HistoryBottleTable – cells and links', () => {
 		await expect.element(row).toHaveTextContent('Signatory');
 		await expect.element(row).toHaveTextContent('66,6 %');
 		expect(row.element().textContent).not.toContain('(Signatory)');
+	});
+
+	test('shows the motto heading below the date and in the tile, nothing without one', async () => {
+		show();
+		const tbodies = [...document.querySelectorAll('tbody[id]')];
+		const [withMotto, without] = [tbodies[0], tbodies[2]];
+
+		// Desktop: a line of its own in the date cell, outside the link.
+		const dateCell = withMotto.querySelector('tr')!.querySelectorAll('td')[1];
+		const subline = dateCell.querySelector('span')!;
+		expect(subline.textContent?.trim()).toBe('Inselhüpfen');
+		expect(subline.closest('a')).toBeNull();
+		expect(subline.classList).toContain('lg:block');
+		await expect
+			.element(page.getByRole('link', { name: '27.09.2024', exact: true }).first())
+			.toBeInTheDocument();
+
+		// Mobile: an entry of the tile.
+		const tile = withMotto.querySelectorAll('tr')[1];
+		const terms = (tr: Element) => [...tr.querySelectorAll('dt')].map((dt) => dt.textContent);
+		expect(terms(tile)).toContain('Motto');
+		expect(tile.querySelector('dt:nth-last-of-type(2)')?.textContent).toBe('Motto');
+
+		expect(without.querySelector('tr')!.querySelectorAll('td')[1].querySelector('span')).toBeNull();
+		expect(terms(without.querySelectorAll('tr')[1])).not.toContain('Motto');
 	});
 
 	test('links the date and the presentation only for the own tastings', async () => {

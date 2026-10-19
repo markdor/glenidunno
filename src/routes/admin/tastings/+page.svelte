@@ -37,6 +37,9 @@
 						<div class="flex items-start justify-between gap-3">
 							<div class="min-w-0">
 								<p class="truncate font-medium">{t.name}</p>
+								{#if t.motto}
+									<p class="truncate text-sm text-slate-700">{t.motto}</p>
+								{/if}
 								<p class="text-sm text-slate-500">{formatTastingDate(t.tastingDate)}</p>
 							</div>
 							<span

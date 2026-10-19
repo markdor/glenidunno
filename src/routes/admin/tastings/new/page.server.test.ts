@@ -120,6 +120,7 @@ describe('create tasting', () => {
 		expect(created).toMatchObject({
 			name: 'Herbst-Tasting',
 			motto: null,
+			mottoDescription: null,
 			tastingDate: '2026-10-24'
 		});
 		expect(created.slug).toMatch(TASTING_SLUG_RE);
@@ -148,6 +149,40 @@ describe('create tasting', () => {
 		});
 	});
 
+	it('stores the description with its line breaks, normalized and trimmed', async () => {
+		await expect(
+			create({
+				...valid,
+				motto: 'Inselhüpfen',
+				mottoDescription: '  Eine Insel pro Flasche.\r\n\r\nKeine Blends.\r\n'
+			})
+		).rejects.toMatchObject({ status: 303 });
+		expect(db.select().from(tasting).get()).toMatchObject({
+			motto: 'Inselhüpfen',
+			mottoDescription: 'Eine Insel pro Flasche.\n\nKeine Blends.'
+		});
+	});
+
+	it('stores a blank description as none', async () => {
+		await expect(
+			create({ ...valid, motto: 'Sherry', mottoDescription: ' \r\n ' })
+		).rejects.toMatchObject({ status: 303 });
+		expect(db.select().from(tasting).get()?.mottoDescription).toBeNull();
+	});
+
+	it('refuses a description without a heading at the heading and keeps the input', async () => {
+		const result = await create({ ...valid, motto: '  ', mottoDescription: 'Nur Inseln.' });
+		expect(result).toMatchObject({
+			status: 400,
+			data: {
+				action: 'create',
+				values: { motto: '  ', mottoDescription: 'Nur Inseln.' },
+				fieldErrors: { motto: 'required' }
+			}
+		});
+		expect(db.select().from(tasting).all()).toEqual([]);
+	});
+
 	it('adds a user sent twice only once', async () => {
 		await expect(
 			create({ ...valid, participant: ['u-anna', 'u-ben', 'u-anna'] })
@@ -165,6 +200,7 @@ describe('create tasting', () => {
 		{ field: 'name', value: '', code: 'required' },
 		{ field: 'name', value: 'x'.repeat(61), code: 'invalid' },
 		{ field: 'motto', value: 'x'.repeat(121), code: 'invalid' },
+		{ field: 'mottoDescription', value: 'x'.repeat(1001), code: 'invalid' },
 		{ field: 'tastingDate', value: '', code: 'required' },
 		{ field: 'tastingDate', value: '2026-02-30', code: 'invalid' },
 		// Yesterday in Berlin.
@@ -214,6 +250,7 @@ describe('create tasting', () => {
 			...valid,
 			name: '',
 			motto: ' Sherry ',
+			mottoDescription: 'Nur\r\nSherry ',
 			participant: ['u-anna', 'u-ben']
 		});
 		expect(result).toMatchObject({
@@ -221,6 +258,7 @@ describe('create tasting', () => {
 				values: {
 					name: '',
 					motto: ' Sherry ',
+					mottoDescription: 'Nur\r\nSherry ',
 					tastingDate: '2026-10-24',
 					participants: ['u-anna', 'u-ben']
 				}

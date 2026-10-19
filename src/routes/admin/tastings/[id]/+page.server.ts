@@ -83,13 +83,15 @@ export const actions: Actions = {
 		requireAdmin(locals);
 		const form = await request.formData();
 		const rawMotto = String(form.get('motto') ?? '');
+		const rawDescription = String(form.get('mottoDescription') ?? '');
 
-		const { motto, error: mottoError } = validateTastingMotto(rawMotto);
-		if (mottoError) {
+		const { fieldErrors, ...motto } = validateTastingMotto(rawMotto, rawDescription);
+		if (Object.keys(fieldErrors).length > 0) {
 			return fail(400, {
 				action: 'updateMotto',
 				motto: rawMotto,
-				fieldErrors: { motto: mottoError }
+				mottoDescription: rawDescription,
+				fieldErrors
 			});
 		}
 

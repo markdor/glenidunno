@@ -556,6 +556,8 @@ export type HistoryBottle = {
 	 */
 	number: number;
 	tastingDate: string;
+	/** The tasting's motto heading (never its description), searchable. */
+	motto: string | null;
 	/** Link to the participant page: only for the viewer's own tastings. */
 	slug: string | null;
 	alias: string;

@@ -181,11 +181,14 @@ describe('admin tasting detail – projection per phase', () => {
 	});
 
 	it('returns the management data of the tasting, the motto included', () => {
-		db.update(tasting).set({ motto: 'Islay gegen den Rest' }).run();
+		db.update(tasting)
+			.set({ motto: 'Islay gegen den Rest', mottoDescription: 'Eine Flasche von Islay.' })
+			.run();
 		expect(loadAs(ADMIN).detail.tasting).toEqual({
 			id: tastingId,
 			name: 'Herbst-Tasting',
 			motto: 'Islay gegen den Rest',
+			mottoDescription: 'Eine Flasche von Islay.',
 			tastingDate: '2026-10-24'
 		});
 	});
@@ -321,39 +324,79 @@ describe('updateDate', () => {
 });
 
 describe('updateMotto', () => {
-	const storedMotto = () => db.select().from(tasting).get()?.motto;
+	const NO_MOTTO = { motto: null, mottoDescription: null };
+	const storedMotto = () => {
+		const t = db.select().from(tasting).get();
+		return { motto: t?.motto, mottoDescription: t?.mottoDescription };
+	};
+	const sent = { motto: '  Inselhüpfen ', mottoDescription: 'Eine Insel pro Flasche.\r\nDanke! ' };
+	const stored = { motto: 'Inselhüpfen', mottoDescription: 'Eine Insel pro Flasche.\nDanke!' };
 
 	it.each([
 		{ phase: 'entry', now: ENTRY },
 		{ phase: 'order', now: ORDER },
 		{ phase: 'revealed', now: REVEALED }
-	])('sets the trimmed motto in phase $phase', async ({ phase, now }) => {
+	])('sets heading and description, normalized, in phase $phase', async ({ phase, now }) => {
 		vi.setSystemTime(now);
 		expect(loadAs(ADMIN).detail.phase).toBe(phase);
 
-		expect(await act('updateMotto', { motto: '  Islay gegen den Rest ' })).toEqual({
-			action: 'updateMotto',
-			updated: true
-		});
-		expect(storedMotto()).toBe('Islay gegen den Rest');
+		expect(await act('updateMotto', sent)).toEqual({ action: 'updateMotto', updated: true });
+		expect(storedMotto()).toEqual(stored);
+	});
+
+	it('changes the motto of an archived tasting too', async () => {
+		// Archived bottles only come with the history import.
+		db.update(tastingBottle)
+			.set({ archived: true, smoke: null, cask: null, value: null })
+			.where(eq(tastingBottle.participantId, anna.id))
+			.run();
+		vi.setSystemTime(REVEALED);
+
+		expect(await act('updateMotto', sent)).toEqual({ action: 'updateMotto', updated: true });
+		expect(storedMotto()).toEqual(stored);
 	});
 
 	it.each<{ label: string; fields: Record<string, string> }>([
-		{ label: 'sent blank', fields: { motto: '   ' } },
+		{ label: 'sent blank', fields: { motto: '   ', mottoDescription: ' \r\n ' } },
 		{ label: 'left out', fields: {} }
-	])('clears the motto when $label', async ({ fields }) => {
-		await act('updateMotto', { motto: 'Sherry' });
+	])('clears heading and description when $label', async ({ fields }) => {
+		await act('updateMotto', sent);
 		expect(await act('updateMotto', fields)).toEqual({ action: 'updateMotto', updated: true });
-		expect(storedMotto()).toBeNull();
+		expect(storedMotto()).toEqual(NO_MOTTO);
 	});
 
-	it('rejects a motto that is too long and echoes it', async () => {
-		const tooLong = 'x'.repeat(121);
-		expect(await act('updateMotto', { motto: tooLong })).toMatchObject({
-			status: 400,
-			data: { action: 'updateMotto', motto: tooLong, fieldErrors: { motto: 'invalid' } }
+	it('clears only the description when the heading stays', async () => {
+		await act('updateMotto', sent);
+		expect(await act('updateMotto', { motto: 'Inselhüpfen' })).toEqual({
+			action: 'updateMotto',
+			updated: true
 		});
-		expect(storedMotto()).toBeNull();
+		expect(storedMotto()).toEqual({ motto: 'Inselhüpfen', mottoDescription: null });
+	});
+
+	it.each([
+		{
+			label: 'a heading that is too long',
+			fields: { motto: 'x'.repeat(121), mottoDescription: '' },
+			fieldErrors: { motto: 'invalid' }
+		},
+		{
+			label: 'a description that is too long',
+			fields: { motto: 'Sherry', mottoDescription: 'y'.repeat(1001) },
+			fieldErrors: { mottoDescription: 'invalid' }
+		},
+		{
+			label: 'a description without a heading',
+			fields: { motto: ' ', mottoDescription: 'Nur Inseln.' },
+			fieldErrors: { motto: 'required' }
+		}
+	])('rejects $label, keeps the stored motto and echoes the input', async (c) => {
+		await act('updateMotto', sent);
+		expect(await act('updateMotto', c.fields)).toEqual({
+			status: 400,
+			data: { action: 'updateMotto', ...c.fields, fieldErrors: c.fieldErrors }
+		});
+		expect(storedMotto()).toEqual(stored);
 	});
 
 	it('answers 404 once the tasting is gone', async () => {

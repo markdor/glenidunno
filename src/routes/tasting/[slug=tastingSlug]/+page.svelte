@@ -86,6 +86,13 @@
 			Whisky-Tasting · {formatTastingDate(view.tasting.tastingDate)}
 		</p>
 		<h1 class="text-2xl font-semibold tracking-tight break-words">{view.tasting.name}</h1>
+		<!-- Plain text, never {@html}: line breaks of the description only via CSS. -->
+		{#if view.tasting.motto}
+			<p class="pt-1 text-lg font-medium break-words text-slate-800">{view.tasting.motto}</p>
+		{/if}
+		{#if view.tasting.mottoDescription}
+			<p class="break-words whitespace-pre-line text-slate-600">{view.tasting.mottoDescription}</p>
+		{/if}
 	</header>
 
 	{#if view.phase === 'entry'}

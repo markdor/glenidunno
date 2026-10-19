@@ -18,7 +18,12 @@ import {
 	type TastingBottle,
 	type TastingPhase
 } from '$lib/tasting';
-import { isValidTastingDate, TASTING_BOTTLE_SLOTS, TASTING_MOTTO_LENGTH } from '$lib/validation';
+import {
+	isValidTastingDate,
+	TASTING_BOTTLE_SLOTS,
+	TASTING_MOTTO_DESCRIPTION_LENGTH,
+	TASTING_MOTTO_LENGTH
+} from '$lib/validation';
 import type { WorldMapData } from '$lib/worldMap';
 import { distinctDistilleryNames, nameKey } from '$lib/distilleryNames';
 import type * as Schema from './db/schema';
@@ -79,18 +84,30 @@ export function validateTastingDate(
 	return { tastingDate, error: null };
 }
 
+export type TastingMotto = { motto: string | null; mottoDescription: string | null };
+
 /**
  * Field-level check of the optional motto shared by "create" and "change
- * motto": trimmed, empty means no motto (`null`). The only length guard – the
- * column has no CHECK constraint.
+ * motto": a heading and a multi-line description, both trimmed, empty means
+ * none (`null`). The description keeps its line breaks (normalized to `\n`)
+ * and needs a heading – without one the heading reports `required`. The only
+ * length guard: neither column has a CHECK constraint.
  */
-export function validateTastingMotto(raw: string): {
-	motto: string | null;
-	error: 'invalid' | null;
+export function validateTastingMotto(
+	rawMotto: string,
+	rawDescription: string
+): TastingMotto & {
+	fieldErrors: { motto?: 'invalid' | 'required'; mottoDescription?: 'invalid' };
 } {
-	const motto = raw.trim();
-	if (motto.length > TASTING_MOTTO_LENGTH.max) return { motto, error: 'invalid' };
-	return { motto: motto || null, error: null };
+	const motto = rawMotto.trim() || null;
+	const mottoDescription = rawDescription.replace(/\r\n?/g, '\n').trim() || null;
+	const fieldErrors: { motto?: 'invalid' | 'required'; mottoDescription?: 'invalid' } = {};
+	if (motto && motto.length > TASTING_MOTTO_LENGTH.max) fieldErrors.motto = 'invalid';
+	else if (!motto && mottoDescription) fieldErrors.motto = 'required';
+	if (mottoDescription && mottoDescription.length > TASTING_MOTTO_DESCRIPTION_LENGTH.max) {
+		fieldErrors.mottoDescription = 'invalid';
+	}
+	return { motto, mottoDescription, fieldErrors };
 }
 
 type BottleRow = typeof tastingBottle.$inferSelect;
@@ -310,6 +327,8 @@ export type NewTasting = {
 	name: string;
 	/** Optional, `null` (or missing) means no motto. */
 	motto?: string | null;
+	/** Optional explanation of the motto, only with a motto (validateTastingMotto). */
+	mottoDescription?: string | null;
 	tastingDate: string;
 	/** Users taking part, in the order they are listed. */
 	participantUserIds: string[];
@@ -388,6 +407,7 @@ export function createTasting(
 				slug,
 				name: input.name,
 				motto: input.motto ?? null,
+				mottoDescription: input.mottoDescription ?? null,
 				tastingDate: input.tastingDate,
 				createdAt: now
 			})
@@ -418,13 +438,15 @@ export function listSelectableUsers(db: Db): SelectableUser[] {
 export type TastingListItem = {
 	id: string;
 	name: string;
+	/** The motto heading only, never its description. */
+	motto: string | null;
 	tastingDate: string;
 	phase: TastingPhase;
 	progress: Progress;
 };
 
 /**
- * Management data only: name, date, phase and entry progress. The progress
+ * Management data only: name, motto heading, date, phase and entry progress. The progress
  * adds up the participants' own targets, so a participant's third bottle
  * doesn't raise the target of the others.
  */
@@ -453,6 +475,7 @@ export function listTastings(db: Db, now: Date = new Date()): TastingListItem[] 
 		.map((t) => ({
 			id: t.id,
 			name: t.name,
+			motto: t.motto,
 			tastingDate: t.tastingDate,
 			phase: getTastingPhase(t.tastingDate, now, t),
 			progress: progress.get(t.id) ?? { entered: 0, total: 0 }
@@ -547,7 +570,7 @@ export function getDashboardTasting(
  */
 function revealedBottles(db: Db, userId: string, now: Date) {
 	const tastings = db
-		.select({ id: tasting.id, slug: tasting.slug, ...phaseColumns })
+		.select({ id: tasting.id, slug: tasting.slug, motto: tasting.motto, ...phaseColumns })
 		.from(tasting)
 		// created_at only has second precision: see getDashboardTasting.
 		.orderBy(asc(tasting.tastingDate), asc(tasting.createdAt), sql`${tasting}.rowid`)
@@ -780,6 +803,7 @@ export function getHistory(db: Db, userId: string, now: Date = new Date()): Hist
 			return {
 				number: b.number,
 				tastingDate: t.tastingDate,
+				motto: t.motto,
 				slug: isOwn ? t.slug : null,
 				alias: b.alias,
 				distillery: b.distillery,
@@ -807,6 +831,7 @@ export type AdminTastingDetail = {
 		id: string;
 		name: string;
 		motto: string | null;
+		mottoDescription: string | null;
 		tastingDate: string;
 	};
 	phase: TastingPhase;
@@ -848,7 +873,13 @@ export function getAdminTastingDetail(
 		}));
 
 	return {
-		tasting: { id: t.id, name: t.name, motto: t.motto, tastingDate: t.tastingDate },
+		tasting: {
+			id: t.id,
+			name: t.name,
+			motto: t.motto,
+			mottoDescription: t.mottoDescription,
+			tastingDate: t.tastingDate
+		},
 		phase: getTastingPhase(t.tastingDate, now, t),
 		participants,
 		manual: { orderOpenedAt: t.orderOpenedAt, revealedAt: t.revealedAt }
@@ -918,12 +949,19 @@ export function updateTastingDate(
 }
 
 /**
- * Sets or clears (`null`) the motto – in every phase: like name and date it is
- * management data the admin sets blind. Returns false if the tasting doesn't
- * exist.
+ * Sets or clears (`null`) heading and description of the motto together – in
+ * every phase, archived tastings included: like name and date it is
+ * management data the admin sets blind. Expects validateTastingMotto's
+ * output. Returns false if the tasting doesn't exist.
  */
-export function updateTastingMotto(db: Db, id: string, motto: string | null): boolean {
-	return db.update(tasting).set({ motto }).where(eq(tasting.id, id)).run().changes > 0;
+export function updateTastingMotto(
+	db: Db,
+	id: string,
+	{ motto, mottoDescription }: TastingMotto
+): boolean {
+	return (
+		db.update(tasting).set({ motto, mottoDescription }).where(eq(tasting.id, id)).run().changes > 0
+	);
 }
 
 /**
@@ -1034,6 +1072,8 @@ export type Participant = ManualPhaseChanges & {
 	tastingId: string;
 	tastingName: string;
 	tastingDate: string;
+	tastingMotto: string | null;
+	tastingMottoDescription: string | null;
 };
 
 /**
@@ -1050,6 +1090,8 @@ export function findParticipant(db: Db, slug: string, userId: string): Participa
 				tastingId: tasting.id,
 				tastingName: tasting.name,
 				tastingDate: tasting.tastingDate,
+				tastingMotto: tasting.motto,
+				tastingMottoDescription: tasting.mottoDescription,
 				orderOpenedAt: tasting.orderOpenedAt,
 				revealedAt: tasting.revealedAt
 			})
@@ -1064,10 +1106,21 @@ export function findParticipant(db: Db, slug: string, userId: string): Participa
 /** The participant's own bottle during entry, incl. the name of an uploaded presentation. */
 export type OwnBottle = TastingBottle & { slot: number; presentationName: string | null };
 
+/**
+ * The page head in every phase. The motto is management data the admin sets
+ * blind, no whisky content, so it shows before the reveal too.
+ */
+export type ParticipantTasting = {
+	name: string;
+	tastingDate: string;
+	motto: string | null;
+	mottoDescription: string | null;
+};
+
 export type ParticipantView =
 	| {
 			phase: 'entry';
-			tasting: { name: string; tastingDate: string };
+			tasting: ParticipantTasting;
 			participant: { username: string };
 			bottles: OwnBottle[];
 			/**
@@ -1079,13 +1132,13 @@ export type ParticipantView =
 	  }
 	| {
 			phase: 'order';
-			tasting: { name: string; tastingDate: string };
+			tasting: ParticipantTasting;
 			manual: ManualPhaseChanges;
 			order: OrderEntry[];
 	  }
 	| ({
 			phase: 'revealed';
-			tasting: { name: string; tastingDate: string };
+			tasting: ParticipantTasting;
 			manual: ManualPhaseChanges;
 	  } & Reveal);
 
@@ -1110,7 +1163,12 @@ export function getParticipantView(
 	holder: Participant,
 	now: Date = new Date()
 ): ParticipantView {
-	const tastingInfo = { name: holder.tastingName, tastingDate: holder.tastingDate };
+	const tastingInfo: ParticipantTasting = {
+		name: holder.tastingName,
+		tastingDate: holder.tastingDate,
+		motto: holder.tastingMotto,
+		mottoDescription: holder.tastingMottoDescription
+	};
 	// When the admin pressed the 18:00 / 9:00 button – every participant sees it.
 	const manual = { orderOpenedAt: holder.orderOpenedAt, revealedAt: holder.revealedAt };
 	const phase = getTastingPhase(holder.tastingDate, now, manual);

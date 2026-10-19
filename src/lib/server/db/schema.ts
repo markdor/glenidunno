@@ -153,7 +153,10 @@ export const tasting = sqliteTable(
 		// Optional, null = no motto. Deliberately no CHECK on its length (the
 		// actions validate it), for the same reason as presentation_name below:
 		// a CHECK on an existing table makes drizzle-kit rebuild it.
-		motto: text('motto')
+		motto: text('motto'),
+		// Optional multi-line explanation of the motto, only with a motto.
+		// Plain text, line breaks stored as \n. No CHECK, same reason.
+		mottoDescription: text('motto_description')
 	},
 	(t) => [check('tasting_name_length', lengthUpTo(t.name, TASTING_NAME_LENGTH.max))]
 );

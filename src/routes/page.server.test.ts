@@ -52,6 +52,7 @@ beforeEach(() => {
 	({ slug } = createTasting(db, {
 		name: 'Herbst-Tasting',
 		motto: 'Islay gegen den Rest',
+		mottoDescription: 'Eine Flasche von Islay.',
 		tastingDate: '2026-10-24',
 		participantUserIds: ['u-Anna', 'u-Ben', 'u-Cem']
 	}));
@@ -79,6 +80,7 @@ const summary = {
 		{
 			id: expect.any(String),
 			name: 'Herbst-Tasting',
+			motto: 'Islay gegen den Rest',
 			tastingDate: '2026-10-24',
 			phase: 'entry',
 			progress: { entered: 1, total: 6 },
@@ -91,6 +93,8 @@ function expectNoContent(result: unknown) {
 	const serialized = JSON.stringify(result);
 	expect(serialized).not.toContain('Nebel');
 	expect(serialized).not.toContain('Ardbeg');
+	// Cards and summary show the motto heading only.
+	expect(serialized).not.toContain('Eine Flasche von Islay.');
 }
 
 describe('start page load', () => {
@@ -145,7 +149,7 @@ describe('start page load', () => {
 
 	it('gives the admin a summary without any bottle content, but no cards without a participation', () => {
 		const result = loadAs({ id: 'a', username: 'admin', isAdmin: true });
-		// The summary carries no motto either: it stays on the two cards.
+		// The summary carries the motto heading like the list of all tastings.
 		expect(result).toEqual({
 			nextTasting: null,
 			lastTasting: null,

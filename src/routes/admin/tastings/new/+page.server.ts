@@ -28,6 +28,7 @@ export const load: PageServerLoad = ({ locals }) => {
 type Values = {
 	name: string;
 	motto: string;
+	mottoDescription: string;
 	tastingDate: string;
 	participants: string[];
 };
@@ -39,8 +40,8 @@ function validate(values: Values, now: Date) {
 	if (!name) fieldErrors.name = 'required';
 	else if (name.length > TASTING_NAME_LENGTH.max) fieldErrors.name = 'invalid';
 
-	const motto = validateTastingMotto(values.motto);
-	if (motto.error) fieldErrors.motto = motto.error;
+	const motto = validateTastingMotto(values.motto, values.mottoDescription);
+	Object.assign(fieldErrors, motto.fieldErrors);
 
 	const date = validateTastingDate(values.tastingDate, now);
 	if (date.error) fieldErrors.tastingDate = date.error;
@@ -59,6 +60,7 @@ function validate(values: Values, now: Date) {
 		input: {
 			name,
 			motto: motto.motto,
+			mottoDescription: motto.mottoDescription,
 			tastingDate: date.tastingDate,
 			participantUserIds
 		},
@@ -73,6 +75,7 @@ export const actions: Actions = {
 		const values: Values = {
 			name: String(form.get('name') ?? ''),
 			motto: String(form.get('motto') ?? ''),
+			mottoDescription: String(form.get('mottoDescription') ?? ''),
 			tastingDate: String(form.get('tastingDate') ?? ''),
 			participants: form.getAll('participant').map(String)
 		};

@@ -4,7 +4,12 @@
 	import { resolve } from '$app/paths';
 	import SubHeader from '$lib/components/SubHeader.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
-	import { TASTING_MOTTO_LENGTH, TASTING_NAME_LENGTH, TASTING_PARTICIPANTS } from '$lib/validation';
+	import {
+		TASTING_MOTTO_DESCRIPTION_LENGTH,
+		TASTING_MOTTO_LENGTH,
+		TASTING_NAME_LENGTH,
+		TASTING_PARTICIPANTS
+	} from '$lib/validation';
 
 	let { data, form } = $props();
 
@@ -28,6 +33,10 @@
 		const code = form?.fieldErrors?.[field];
 		return code ? (errorText[code] ?? 'Ungültig') : null;
 	}
+
+	// A description only goes with a heading: its field stays disabled until one
+	// is typed, and a disabled field isn't sent. The server checks it anyway.
+	let motto = $derived(form?.values?.motto ?? '');
 
 	const inputClass =
 		'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-900';
@@ -67,17 +76,37 @@
 		</div>
 
 		<div class="space-y-1">
-			<label for="t-motto" class="block text-sm font-medium text-slate-700">Motto</label>
+			<label for="t-motto" class="block text-sm font-medium text-slate-700">
+				Motto (Überschrift)
+			</label>
 			<input
 				id="t-motto"
 				name="motto"
 				maxlength={TASTING_MOTTO_LENGTH.max}
 				placeholder="optional, z. B. Islay gegen den Rest"
-				value={form?.values?.motto ?? ''}
+				bind:value={motto}
 				class="{inputClass} placeholder:text-slate-400"
 			/>
 			{#if fieldError('motto')}
 				<p class="text-xs text-red-600">{fieldError('motto')}</p>
+			{/if}
+		</div>
+
+		<div class="space-y-1">
+			<label for="t-motto-description" class="block text-sm font-medium text-slate-700">
+				Erklärung
+			</label>
+			<textarea
+				id="t-motto-description"
+				name="mottoDescription"
+				rows="4"
+				maxlength={TASTING_MOTTO_DESCRIPTION_LENGTH.max}
+				disabled={!motto.trim()}
+				value={form?.values?.mottoDescription ?? ''}
+				class="{inputClass} disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+			></textarea>
+			{#if fieldError('mottoDescription')}
+				<p class="text-xs text-red-600">{fieldError('mottoDescription')}</p>
 			{/if}
 		</div>
 

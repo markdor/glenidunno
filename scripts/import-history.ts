@@ -839,6 +839,8 @@ function writeTastings(
 			 ORDER BY random() LIMIT 1`
 		)
 		.pluck();
+	// The motto's description (motto_description) isn't part of the format: it
+	// stays NULL, the admin adds it on the tasting's admin page.
 	const insertTasting = sqlite.prepare(
 		`INSERT INTO tasting
 		   (id, slug, name, motto, tasting_date, created_at, order_opened_at, revealed_at)
