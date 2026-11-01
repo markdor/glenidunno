@@ -35,7 +35,7 @@ services:
   # Chromium, pinned and kept current by Dependabot since it parses uploaded
   # files. Only reachable by the app: no ports, no Traefik.
   gotenberg:
-    image: gotenberg/gotenberg:8.37.0-libreoffice
+    image: gotenberg/gotenberg:8.39.0-libreoffice
     container_name: glenidunno-gotenberg
     restart: unless-stopped
     command:
