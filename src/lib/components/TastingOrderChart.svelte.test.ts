@@ -12,25 +12,30 @@ const order = [
 
 describe('TastingOrderChart', () => {
 	test('says so when nobody entered a bottle', async () => {
-		render(TastingOrderChart, { order: [], smokeGroups: true });
+		render(TastingOrderChart, { order: [], groupLabel: 'Rauchgruppe' });
 		await expect.element(page.getByText('Es wurden keine Flaschen eingetragen.')).toBeVisible();
 	});
 
 	test('mentions the smoke groups only if the order was poured in them', async () => {
 		const groupDrop = /mit der nächsten Gruppe kann er wieder fallen/;
-		const { unmount } = render(TastingOrderChart, { order, smokeGroups: true });
+		const { unmount } = render(TastingOrderChart, { order, groupLabel: 'Rauchgruppe' });
 		await expect.element(page.getByText(groupDrop)).toBeVisible();
 		unmount();
 
-		render(TastingOrderChart, { order, smokeGroups: false });
+		render(TastingOrderChart, { order, groupLabel: null });
 		await expect
 			.element(page.getByText('Der Score jeder Flasche (0–100) in Ausschankreihenfolge.'))
 			.toBeVisible();
 		await expect.element(page.getByText(groupDrop)).not.toBeInTheDocument();
 	});
 
+	test('names the peat groups of a facts order', async () => {
+		render(TastingOrderChart, { order, groupLabel: 'Torfgruppe' });
+		await expect.element(page.getByText(/Innerhalb einer Torfgruppe steigt er/)).toBeVisible();
+	});
+
 	test('draws exactly one brown score line and nothing per bottle', async () => {
-		render(TastingOrderChart, { order, smokeGroups: true });
+		render(TastingOrderChart, { order, groupLabel: 'Rauchgruppe' });
 
 		await expect.element(page.getByRole('img', { name: /Gesamtscore/ })).toBeVisible();
 		const lines = document.querySelectorAll('path[fill="none"]');
@@ -46,7 +51,7 @@ describe('TastingOrderChart', () => {
 	});
 
 	test('labels only the y-axis: score points without a unit, no aliases', async () => {
-		render(TastingOrderChart, { order, smokeGroups: true });
+		render(TastingOrderChart, { order, groupLabel: 'Rauchgruppe' });
 
 		const texts = Array.from(document.querySelectorAll('svg text')).map((t) =>
 			t.textContent?.trim()
@@ -60,7 +65,7 @@ describe('TastingOrderChart', () => {
 				{ position: 1, alias: 'Blume', score: 0, presentation: null },
 				{ position: 2, alias: 'Nebel', score: 100, presentation: null }
 			],
-			smokeGroups: true
+			groupLabel: 'Rauchgruppe'
 		});
 
 		const d = document.querySelector('path[fill="none"]')!.getAttribute('d')!;
@@ -75,7 +80,7 @@ describe('TastingOrderChart', () => {
 	});
 
 	test('reveals no single bottle on hover, tap or focus', async () => {
-		const { container } = render(TastingOrderChart, { order, smokeGroups: true });
+		const { container } = render(TastingOrderChart, { order, groupLabel: 'Rauchgruppe' });
 		const chart = page.getByRole('img', { name: /Gesamtscore/ });
 		await expect.element(chart).toBeVisible();
 

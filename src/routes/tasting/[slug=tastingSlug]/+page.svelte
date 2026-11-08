@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { Plus } from '@lucide/svelte';
 	import TastingBottleForm from '$lib/components/TastingBottleForm.svelte';
+	import TastingFactsChart from '$lib/components/TastingFactsChart.svelte';
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import TastingOrderChart from '$lib/components/TastingOrderChart.svelte';
 	import TastingOrderList from '$lib/components/TastingOrderList.svelte';
@@ -11,7 +12,12 @@
 	import TastingScoreChart from '$lib/components/TastingScoreChart.svelte';
 	import TastingScoreExplainer from '$lib/components/TastingScoreExplainer.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
-	import { formatTastingDate, TASTING_ORDER_HOUR, TASTING_REVEAL_HOUR } from '$lib/tasting';
+	import {
+		formatTastingDate,
+		pouringGroupLabel,
+		TASTING_ORDER_HOUR,
+		TASTING_REVEAL_HOUR
+	} from '$lib/tasting';
 	import { TASTING_BOTTLE_SLOTS } from '$lib/validation';
 
 	let { data, form } = $props();
@@ -110,6 +116,7 @@
 				result={form?.action === 'save' && form.slot === slot && form !== dismissed ? form : null}
 				onremove={hideSlot}
 				distilleryNames={view.distilleryNames}
+				algorithm={view.algorithm}
 			/>
 		{/each}
 		{#if nextSlot !== undefined}
@@ -131,7 +138,7 @@
 			</p>
 			<TastingOrderList order={view.order} {presentationHref} {viewHref} />
 		</section>
-		<TastingOrderChart order={view.order} smokeGroups={view.rules.smokeGroups.length > 0} />
+		<TastingOrderChart order={view.order} groupLabel={pouringGroupLabel(view.rules)} />
 		<TastingScoreExplainer rules={view.rules} />
 	{:else}
 		<TastingManualNotice manual={view.manual} />
@@ -141,7 +148,11 @@
 		</section>
 		<!-- Archived bottles have no factors: no score to chart, no order to explain. -->
 		{#if !view.archived}
-			<TastingScoreChart bottles={view.bottles} />
+			{#if view.algorithm === 'facts'}
+				<TastingFactsChart bottles={view.bottles} />
+			{:else}
+				<TastingScoreChart bottles={view.bottles} />
+			{/if}
 			<TastingScoreExplainer rules={view.rules} />
 		{/if}
 	{/if}

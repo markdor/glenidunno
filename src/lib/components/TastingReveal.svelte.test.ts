@@ -2,7 +2,13 @@ import { describe, test, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import type { ResolvedPathname } from '$app/types';
-import { SCORE_RULES, type ArchivedRevealedBottle, type RevealedBottle } from '$lib/tasting';
+import {
+	SCORE_RULES,
+	type ArchivedRevealedBottle,
+	type RevealedBottle,
+	type RevealedFactsBottle
+} from '$lib/tasting';
+import { FACTS_RULES } from '$lib/tastingFacts';
 import TastingReveal from './TastingReveal.svelte';
 
 const presentationHref = (bottleId: string) =>
@@ -47,7 +53,7 @@ function renderPoured(bottles: RevealedBottle[]) {
 	return render(TastingReveal, {
 		presentationHref,
 		viewHref,
-		reveal: { archived: false, bottles, rules: SCORE_RULES }
+		reveal: { archived: false, algorithm: 'taste', bottles, rules: SCORE_RULES }
 	});
 }
 
@@ -164,5 +170,122 @@ describe('TastingReveal', () => {
 				.element(page.getByRole('link', { name: 'Präsentation zu Nebelhorn ansehen' }))
 				.toHaveAttribute('href', viewHref('b3'));
 		});
+	});
+});
+
+describe('TastingReveal – facts tasting', () => {
+	const base: Omit<RevealedFactsBottle, 'position' | 'alias' | 'facts' | 'score' | 'range'> = {
+		distillery: 'Glenfarclas',
+		bottler: null,
+		bottling: null,
+		age: 12,
+		whiskybaseUrl: null,
+		abv: 46,
+		broughtBy: 'Anna',
+		shares: { cask: 0.7, abv: 0.3, price: null },
+		presentation: null
+	};
+
+	const certain: RevealedFactsBottle = {
+		...base,
+		position: 1,
+		alias: 'Bernstein',
+		score: 39,
+		range: null,
+		facts: {
+			peat: 'none',
+			cask: { kind: 'known', type: 'sherry_oloroso', refill: true },
+			finish: { kind: 'known', type: 'port', refill: false, months: 1 },
+			priceCents: 5990
+		}
+	};
+
+	const unsure: RevealedFactsBottle = {
+		...base,
+		position: 2,
+		alias: 'Rätsel',
+		score: 41.2,
+		range: { min: 30.1, max: 60.4 },
+		facts: {
+			peat: 'none',
+			cask: { kind: 'unknown' },
+			finish: { kind: 'other', label: 'Tequila', influence: 4, months: null },
+			priceCents: null
+		}
+	};
+
+	const peated: RevealedFactsBottle = {
+		...base,
+		position: 3,
+		alias: 'Torf',
+		score: 20,
+		range: null,
+		facts: {
+			peat: 'heavy',
+			cask: { kind: 'known', type: 'bourbon', refill: false },
+			finish: { kind: 'none' },
+			priceCents: 5500
+		}
+	};
+
+	function renderFacts(bottles: RevealedFactsBottle[]) {
+		return render(TastingReveal, {
+			presentationHref,
+			viewHref,
+			reveal: { archived: false, algorithm: 'facts', bottles, rules: FACTS_RULES }
+		});
+	}
+
+	test('shows the facts of every bottle instead of the sliders, unknown ones named', async () => {
+		renderFacts([certain, unsure, peated]);
+
+		const item = (alias: string) =>
+			page.getByRole('listitem').filter({ has: page.getByRole('heading', { name: alias }) });
+		await expect.element(item('Bernstein')).toHaveTextContent(/Torf\s*ungetorft/);
+		await expect
+			.element(item('Bernstein'))
+			.toHaveTextContent(/Fass\s*Sherry Oloroso\/Amontillado \(Refill\)/);
+		await expect.element(item('Bernstein')).toHaveTextContent(/Nachreifung\s*Port, 1 Monat/);
+		await expect.element(item('Bernstein')).toHaveTextContent(/Alkohol\s*46,0 % vol\./);
+		await expect.element(item('Bernstein')).toHaveTextContent(/Preis\s*59,90\s€/);
+		await expect.element(item('Bernstein')).toHaveTextContent(/Wucht\s*39,0/);
+		await expect.element(item('Rätsel')).toHaveTextContent(/Fass\s*unbekannt/);
+		await expect
+			.element(item('Rätsel'))
+			.toHaveTextContent(/Nachreifung\s*Tequila \(Einfluss 4 von 10\), Dauer unbekannt/);
+		await expect.element(item('Rätsel')).toHaveTextContent(/Preis\s*unbekannt/);
+		await expect.element(item('Torf')).toHaveTextContent(/Torf\s*stark getorft/);
+		await expect.element(item('Torf')).toHaveTextContent(/Nachreifung\s*keine/);
+		expect(page.getByText(/Kaliber/).elements()).toHaveLength(0);
+	});
+
+	test('marks an unknown cask with ~ and its range', async () => {
+		renderFacts([certain, unsure, peated]);
+
+		const item = page
+			.getByRole('listitem')
+			.filter({ has: page.getByRole('heading', { name: 'Rätsel' }) });
+		await expect.element(item).toHaveTextContent(/Wucht\s*~\s*ungefähr\s*41,2/);
+		await expect.element(item).toHaveTextContent(/Spanne\s*30,1–60,4 \(Fass unbekannt\)/);
+		expect(page.getByText('Spanne', { exact: true }).elements()).toHaveLength(1);
+	});
+
+	test('calls the order uncertain only next to an overlapping neighbor of the same peat group', async () => {
+		renderFacts([certain, unsure, peated]);
+
+		// Bernstein (39,0) lies in Rätsel's range, Torf is another group.
+		expect(page.getByText(/Reihenfolge unsicher/).elements()).toHaveLength(2);
+		const torf = page
+			.getByRole('listitem')
+			.filter({ has: page.getByRole('heading', { name: 'Torf' }) });
+		await expect.element(torf).not.toHaveTextContent(/Reihenfolge unsicher/);
+	});
+
+	test('calls nothing uncertain without overlapping ranges', async () => {
+		renderFacts([
+			{ ...certain, score: 20 },
+			{ ...unsure, range: { min: 30, max: 50 } }
+		]);
+		expect(page.getByText(/Reihenfolge unsicher/).elements()).toHaveLength(0);
 	});
 });

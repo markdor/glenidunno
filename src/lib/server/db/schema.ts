@@ -17,16 +17,26 @@ import {
 	DISTILLERY_SOURCE_LENGTH,
 	DISTILLERY_VALUE_STATES,
 	DISTILLERY_VARIANT_KINDS,
+	CASK_TYPE_WITHOUT_REFILL,
 	SCOTLAND,
 	SCOTTISH_REGIONS,
 	TASTING_ABV,
 	TASTING_AGE,
+	TASTING_ALGORITHMS,
 	TASTING_ALIAS_LENGTH,
 	TASTING_BOTTLE_SLOTS,
 	TASTING_BOTTLER_LENGTH,
 	TASTING_BOTTLING_LENGTH,
+	TASTING_CASK_INFLUENCE,
+	TASTING_CASK_KINDS,
+	TASTING_CASK_LABEL_LENGTH,
+	TASTING_CASK_TYPES,
 	TASTING_DISTILLERY_LENGTH,
+	TASTING_FINISH_KINDS,
+	TASTING_FINISH_MONTHS,
 	TASTING_NAME_LENGTH,
+	TASTING_PEAT_LEVELS,
+	TASTING_PRICE,
 	TASTING_SCALE,
 	TASTING_WHISKYBASE_URL_LENGTH
 } from '../../validation';
@@ -123,14 +133,17 @@ function lengthUpTo(column: SQLiteColumn, max: number): SQL {
 	return sql`length(${column}) BETWEEN 1 AND ${sql.raw(String(max))}`;
 }
 
-// An archived bottle has none of the factors, every other bottle all of them.
+// An archived bottle has none of the factors. Every other bottle has all of
+// them (a `taste` tasting) or none (a `facts` tasting, its facts are in
+// tasting_bottle_fact) – which one follows from tasting.algorithm, the app
+// checks that.
 function factorsMatchArchived(archived: SQLiteColumn, factors: SQLiteColumn[]): SQL {
 	const all = (condition: string) =>
 		sql.join(
 			factors.map((factor) => sql`${factor} ${sql.raw(condition)}`),
 			sql` AND `
 		);
-	return sql`(${archived} = 0 AND ${all('IS NOT NULL')}) OR (${archived} = 1 AND ${all('IS NULL')})`;
+	return sql`(${archived} = 0 AND ((${all('IS NOT NULL')}) OR (${all('IS NULL')}))) OR (${archived} = 1 AND ${all('IS NULL')})`;
 }
 
 // The tasting date is a calendar date (YYYY-MM-DD), not a timestamp: the
@@ -160,7 +173,11 @@ export const tasting = sqliteTable(
 		// The rules of the pouring order (ScoreRules as JSON) as frozen with the
 		// order, see freezePouringOrder in tastings.ts: the explainer tile keeps
 		// explaining them after the algorithm changed. NULL before that.
-		pourRules: text('pour_rules')
+		pourRules: text('pour_rules'),
+		// How the pouring order is computed (TASTING_ALGORITHMS), chosen on
+		// creation and never changed. No CHECK, same reason as the motto: the
+		// create action validates it.
+		algorithm: text('algorithm', { enum: TASTING_ALGORITHMS }).notNull().default('taste')
 	},
 	(t) => [check('tasting_name_length', lengthUpTo(t.name, TASTING_NAME_LENGTH.max))]
 );
@@ -233,7 +250,11 @@ export const tastingBottle = sqliteTable(
 		pourSmokeShare: real('pour_smoke_share'),
 		pourCaskShare: real('pour_cask_share'),
 		pourAbvShare: real('pour_abv_share'),
-		pourValueShare: real('pour_value_share')
+		pourValueShare: real('pour_value_share'),
+		// The same for a bottle of a `facts` tasting, whose factors (cask, ABV,
+		// price) don't fit the four share columns: shares and range as JSON
+		// (FrozenFactsBreakdown in tastings.ts). Position and score as above.
+		pourBreakdown: text('pour_breakdown')
 	},
 	(t) => [
 		uniqueIndex('tasting_bottle_participant_slot_unique').on(t.participantId, t.slot),
@@ -263,6 +284,108 @@ export const tastingBottle = sqliteTable(
 		// table makes drizzle-kit rebuild the table, and its generated
 		// INSERT … SELECT reads the new columns from the old table, which breaks
 		// the migration.
+	]
+);
+
+// A cask of main maturation or finish: a type only for one of the list, label
+// and rating only for another one, refill only for one of the list that can
+// be refilled.
+function caskChecks(
+	name: string,
+	columns: {
+		kind: SQLiteColumn;
+		type: SQLiteColumn;
+		refill: SQLiteColumn;
+		label: SQLiteColumn;
+		influence: SQLiteColumn;
+	},
+	kinds: readonly string[]
+) {
+	const { kind, type, refill, label, influence } = columns;
+	const prefix = `tasting_bottle_fact_${name}`;
+	return [
+		check(`${prefix}_kind`, inList(kind, kinds)),
+		check(`${prefix}_type`, inList(type, TASTING_CASK_TYPES)),
+		check(`${prefix}_type_kind`, sql`(${type} IS NOT NULL) = (${kind} = 'known')`),
+		check(
+			`${prefix}_other_kind`,
+			sql`(${label} IS NOT NULL) = (${kind} = 'other') AND (${influence} IS NOT NULL) = (${kind} = 'other')`
+		),
+		check(`${prefix}_label_length`, lengthUpTo(label, TASTING_CASK_LABEL_LENGTH.max)),
+		check(
+			`${prefix}_influence_range`,
+			inRange(influence, TASTING_CASK_INFLUENCE.min, TASTING_CASK_INFLUENCE.max)
+		),
+		check(
+			`${prefix}_refill_kind`,
+			sql`${refill} = 0 OR (${kind} = 'known' AND ${type} <> '${sql.raw(CASK_TYPE_WITHOUT_REFILL)}')`
+		)
+	];
+}
+
+// The facts of a bottle in a `facts` tasting (src/lib/tastingFacts.ts), one
+// row per bottle. A table of its own instead of columns on tasting_bottle: a
+// new table may have CHECKs without a rebuild, and facts can be added to a
+// `taste` bottle later (backtest). Whether a bottle needs a row follows from
+// tasting.algorithm, which a CHECK can't see – the app checks it.
+export const tastingBottleFact = sqliteTable(
+	'tasting_bottle_fact',
+	{
+		bottleId: text('bottle_id')
+			.primaryKey()
+			.references(() => tastingBottle.id, { onDelete: 'cascade' }),
+		peat: text('peat', { enum: TASTING_PEAT_LEVELS }).notNull(),
+		caskKind: text('cask_kind', { enum: TASTING_CASK_KINDS }).notNull(),
+		caskType: text('cask_type', { enum: TASTING_CASK_TYPES }),
+		caskRefill: integer('cask_refill', { mode: 'boolean' }).notNull().default(false),
+		caskLabel: text('cask_label'),
+		caskInfluence: integer('cask_influence'),
+		finishKind: text('finish_kind', { enum: TASTING_FINISH_KINDS }).notNull(),
+		finishType: text('finish_type', { enum: TASTING_CASK_TYPES }),
+		finishRefill: integer('finish_refill', { mode: 'boolean' }).notNull().default(false),
+		finishLabel: text('finish_label'),
+		finishInfluence: integer('finish_influence'),
+		// NULL = duration unknown (or no finish).
+		finishMonths: integer('finish_months'),
+		// Per 0.7 l in cents, NULL = unknown.
+		priceCents: integer('price_cents')
+	},
+	(t) => [
+		check('tasting_bottle_fact_peat', inList(t.peat, TASTING_PEAT_LEVELS)),
+		...caskChecks(
+			'cask',
+			{
+				kind: t.caskKind,
+				type: t.caskType,
+				refill: t.caskRefill,
+				label: t.caskLabel,
+				influence: t.caskInfluence
+			},
+			TASTING_CASK_KINDS
+		),
+		...caskChecks(
+			'finish',
+			{
+				kind: t.finishKind,
+				type: t.finishType,
+				refill: t.finishRefill,
+				label: t.finishLabel,
+				influence: t.finishInfluence
+			},
+			TASTING_FINISH_KINDS
+		),
+		check(
+			'tasting_bottle_fact_finish_months_range',
+			inRange(t.finishMonths, TASTING_FINISH_MONTHS.min, TASTING_FINISH_MONTHS.max)
+		),
+		check(
+			'tasting_bottle_fact_finish_months_kind',
+			sql`${t.finishMonths} IS NULL OR ${t.finishKind} IN ('known', 'other')`
+		),
+		check(
+			'tasting_bottle_fact_price_range',
+			inRange(t.priceCents, TASTING_PRICE.min * 100, TASTING_PRICE.max * 100)
+		)
 	]
 );
 

@@ -840,7 +840,8 @@ function writeTastings(
 		)
 		.pluck();
 	// The motto's description (motto_description) isn't part of the format: it
-	// stays NULL, the admin adds it on the tasting's admin page.
+	// stays NULL, the admin adds it on the tasting's admin page. The algorithm
+	// stays at its default `taste` – an archived tasting has no order anyway.
 	const insertTasting = sqlite.prepare(
 		`INSERT INTO tasting
 		   (id, slug, name, motto, tasting_date, created_at, order_opened_at, revealed_at)
@@ -850,8 +851,8 @@ function writeTastings(
 		`INSERT INTO tasting_participant (id, tasting_id, user_id, created_at)
 		 VALUES (@id, @tastingId, @userId, @now)`
 	);
-	// No frozen pouring order (pour_position, pour_score stay NULL): archived
-	// bottles have none.
+	// No frozen pouring order (pour_position, pour_score, pour_breakdown stay
+	// NULL) and no row in tasting_bottle_fact: archived bottles have neither.
 	const insertBottle = sqlite.prepare(
 		`INSERT INTO tasting_bottle
 		   (id, participant_id, slot, alias, distillery, bottler, bottling, age, whiskybase_url,

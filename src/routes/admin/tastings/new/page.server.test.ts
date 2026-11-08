@@ -135,6 +135,20 @@ describe('create tasting', () => {
 		).toEqual(['u-anna', 'u-ben', 'u-cem']);
 	});
 
+	it('computes the order by taste unless the admin picks facts', async () => {
+		await expect(create(valid)).rejects.toMatchObject({ status: 303 });
+		await expect(create({ ...valid, algorithm: 'taste' })).rejects.toMatchObject({ status: 303 });
+		await expect(create({ ...valid, algorithm: 'facts' })).rejects.toMatchObject({ status: 303 });
+		expect(
+			db
+				.select({ algorithm: tasting.algorithm })
+				.from(tasting)
+				.all()
+				.map((t) => t.algorithm)
+				.sort()
+		).toEqual(['facts', 'taste', 'taste']);
+	});
+
 	it.each([
 		{ label: 'trimmed', sent: '  Islay gegen den Rest ', stored: 'Islay gegen den Rest' },
 		{ label: 'blank as none', sent: '   ', stored: null }
@@ -205,6 +219,7 @@ describe('create tasting', () => {
 		{ field: 'tastingDate', value: '2026-02-30', code: 'invalid' },
 		// Yesterday in Berlin.
 		{ field: 'tastingDate', value: '2026-10-20', code: 'invalid' },
+		{ field: 'algorithm', value: 'smoke', code: 'invalid' },
 		{ field: 'participant', value: [], code: 'required', errorField: 'participants' },
 		{ field: 'participant', value: ['u-anna'], code: 'invalid', errorField: 'participants' },
 		// The same user twice is still only one participant.

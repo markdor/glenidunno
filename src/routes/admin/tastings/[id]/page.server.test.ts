@@ -189,7 +189,8 @@ describe('admin tasting detail – projection per phase', () => {
 			name: 'Herbst-Tasting',
 			motto: 'Islay gegen den Rest',
 			mottoDescription: 'Eine Flasche von Islay.',
-			tastingDate: '2026-10-24'
+			tastingDate: '2026-10-24',
+			algorithm: 'taste'
 		});
 	});
 

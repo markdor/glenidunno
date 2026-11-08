@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { TASTING_NAME_LENGTH, TASTING_PARTICIPANTS } from '$lib/validation';
+import { isTastingAlgorithm, TASTING_NAME_LENGTH, TASTING_PARTICIPANTS } from '$lib/validation';
 import { db } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/authGuards';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
@@ -31,6 +31,7 @@ type Values = {
 	mottoDescription: string;
 	tastingDate: string;
 	participants: string[];
+	algorithm: string;
 };
 
 function validate(values: Values, now: Date) {
@@ -56,8 +57,13 @@ function validate(values: Values, now: Date) {
 		fieldErrors.participants = 'invalid';
 	}
 
+	// Chosen once, never changed afterwards; without a choice the taste algorithm.
+	const algorithm = values.algorithm || 'taste';
+	if (!isTastingAlgorithm(algorithm)) fieldErrors.algorithm = 'invalid';
+
 	return {
 		input: {
+			algorithm: isTastingAlgorithm(algorithm) ? algorithm : 'taste',
 			name,
 			motto: motto.motto,
 			mottoDescription: motto.mottoDescription,
@@ -77,7 +83,8 @@ export const actions: Actions = {
 			motto: String(form.get('motto') ?? ''),
 			mottoDescription: String(form.get('mottoDescription') ?? ''),
 			tastingDate: String(form.get('tastingDate') ?? ''),
-			participants: form.getAll('participant').map(String)
+			participants: form.getAll('participant').map(String),
+			algorithm: String(form.get('algorithm') ?? '')
 		};
 
 		const { input, fieldErrors } = validate(values, new Date());

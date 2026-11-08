@@ -1,11 +1,14 @@
 <script lang="ts" module>
-	/** One line of the chart: a 0–1 fraction per bottle, in pouring order. */
+	/**
+	 * One line of the chart: a 0–1 fraction per bottle, in pouring order. A
+	 * `null` is a gap: no point there, the line pauses (e.g. an unknown price).
+	 */
 	export type ChartSeries = {
 		key: string;
 		color: string;
 		/** Direct end label – without one the line stays unnamed. */
 		label?: string;
-		values: number[];
+		values: Array<number | null>;
 	};
 </script>
 
@@ -153,29 +156,51 @@
 		return `${smoothLinePath(coords)} L${last.x},${baselineY} L${first.x},${baselineY} Z`;
 	}
 
+	/** Runs of consecutive points between the gaps of a line. */
+	function segments(points: Array<Point | null>): Point[][] {
+		const runs: Point[][] = [[]];
+		for (const point of points) {
+			if (point) runs[runs.length - 1].push(point);
+			else if (runs[runs.length - 1].length > 0) runs.push([]);
+		}
+		return runs.filter((run) => run.length > 0);
+	}
+
+	// A line without a single value has nothing to draw, not even its label.
 	const seriesLines = $derived(
-		series.map((s) => {
-			const coords = s.values.map((fraction, i) => ({ x: xAt(i), y: yAt(fraction) }));
-			return {
-				...s,
-				coords,
-				linePath: smoothLinePath(coords),
-				areaPath: smoothAreaPath(coords, yAt(0))
-			};
+		series.flatMap((s) => {
+			const points = s.values.map((fraction, i) =>
+				fraction === null ? null : { x: xAt(i), y: yAt(fraction) }
+			);
+			const runs = segments(points);
+			if (runs.length === 0) return [];
+			return [
+				{
+					...s,
+					coords: points.flatMap((point, i) => (point ? [{ ...point, i }] : [])),
+					linePath: runs.map(smoothLinePath).join(' '),
+					areaPath: runs
+						.map((run) => smoothAreaPath(run, yAt(0)))
+						.filter(Boolean)
+						.join(' ')
+				}
+			];
 		})
 	);
 
 	// End-of-line direct labels (for the labeled lines only): stacked top →
 	// bottom by their actual line-end position with a minimum gap, each kept
 	// honest with a leader line back to its real value – nudging them apart is
-	// only legible with that connector (dataviz skill).
+	// only legible with that connector (dataviz skill). A line ending in a gap
+	// is labeled at its last point, the leader line reaching back to it.
 	const endLabels = $derived.by(() => {
 		if (aliases.length === 0) return [];
 		const endX = xAt(aliases.length - 1);
 		const sorted = seriesLines
-			.flatMap((s) =>
-				s.label ? [{ key: s.key, label: s.label, anchorY: s.coords[s.coords.length - 1].y }] : []
-			)
+			.flatMap((s) => {
+				const last = s.coords[s.coords.length - 1];
+				return s.label ? [{ key: s.key, label: s.label, anchorX: last.x, anchorY: last.y }] : [];
+			})
 			.sort((a, b) => a.anchorY - b.anchorY);
 		let prevY = -Infinity;
 		return sorted.map((item) => {
@@ -242,16 +267,16 @@
 				stroke-linejoin="round"
 			/>
 			{#if bottleMarks}
-				{#each s.coords as c, i (i)}
+				{#each s.coords as c (c.i)}
 					<circle cx={c.x} cy={c.y} r="4" fill={s.color} stroke="white" stroke-width="2" />
 				{/each}
 			{/if}
 		{/each}
 
 		{#each endLabels as l (l.key)}
-			{#if Math.abs(l.placedY - l.anchorY) > 1}
+			{#if Math.abs(l.placedY - l.anchorY) > 1 || l.anchorX < l.endX}
 				<line
-					x1={l.endX + 5}
+					x1={l.anchorX + 5}
 					y1={l.anchorY}
 					x2={l.endX + 9}
 					y2={l.placedY}

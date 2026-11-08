@@ -7,9 +7,11 @@ import {
 	SCORE_RULES,
 	type OrderEntry,
 	type RevealedBottle,
+	type RevealedFactsBottle,
 	type ScoreRules,
 	type TastingBottle
 } from '$lib/tasting';
+import { FACTS_RULES, type FactsBottle, type FactsScoreRules } from '$lib/tastingFacts';
 import {
 	TASTING_MOTTO_DESCRIPTION_LENGTH,
 	TASTING_MOTTO_LENGTH,
@@ -46,6 +48,7 @@ import {
 	updateTastingMotto,
 	validateTastingDate,
 	validateTastingMotto,
+	WRONG_FIELDS_MESSAGE,
 	type NewTasting
 } from './tastings';
 
@@ -727,8 +730,14 @@ describe('getAdminTastingDetail', () => {
 			name: 'Herbst-Tasting',
 			motto: 'Sherry',
 			mottoDescription: 'Nur Sherryfässer.',
-			tastingDate: TASTING_DATE
+			tastingDate: TASTING_DATE,
+			algorithm: 'taste'
 		});
+	});
+
+	it('names the algorithm of a facts tasting – management data, no bottle content', () => {
+		const { id } = createTasting(db, newTasting({ algorithm: 'facts' }), ENTRY);
+		expect(getAdminTastingDetail(db, id, ENTRY)?.tasting.algorithm).toBe('facts');
 	});
 
 	it('shows only participants and progress during entry', () => {
@@ -2259,5 +2268,330 @@ describe('frozen pouring order', () => {
 		expect(frozenRules(archived.id)).toBeNull();
 		// Its explainer tile shows in the order phase, too.
 		expect(frozenRules(empty.id)).toEqual(SCORE_RULES);
+	});
+});
+
+describe('facts tastings', () => {
+	const OLOROSO = { kind: 'known', type: 'sherry_oloroso', refill: false } as const;
+	const REFILL_BOURBON = { kind: 'known', type: 'bourbon', refill: true } as const;
+
+	function factsBottle(overrides: Partial<FactsBottle> = {}): FactsBottle {
+		return {
+			alias: 'Bernstein',
+			distillery: 'Glenfarclas',
+			bottler: null,
+			bottling: null,
+			age: 12,
+			whiskybaseUrl: null,
+			abv: 46,
+			facts: { peat: 'none', cask: OLOROSO, finish: { kind: 'none' }, priceCents: null },
+			...overrides
+		};
+	}
+
+	/**
+	 * A facts tasting of Anna and Ben with four bottles. Their pouring order:
+	 * Nebel 13,8 · Rätsel ~28,8 (18,8–53,8) · Bernstein 55,0 · Torf (peated) 37,8.
+	 */
+	function setupFacts() {
+		const { id, slug } = createTasting(
+			db,
+			newTasting({ algorithm: 'facts', participantUserIds: ['u-anna', 'u-ben'] }),
+			ENTRY
+		);
+		const anna = findParticipant(db, slug, 'u-anna')!;
+		const ben = findParticipant(db, slug, 'u-ben')!;
+		saveBottle(db, anna, 1, factsBottle(), ENTRY);
+		saveBottle(
+			db,
+			anna,
+			2,
+			factsBottle({
+				alias: 'Rätsel',
+				abv: 40,
+				facts: {
+					peat: 'none',
+					cask: { kind: 'unknown' },
+					finish: { kind: 'other', label: 'Tequila', influence: 4, months: 6 },
+					priceCents: 3500
+				}
+			}),
+			ENTRY
+		);
+		saveBottle(
+			db,
+			ben,
+			1,
+			factsBottle({
+				alias: 'Nebel',
+				distillery: 'Glenlivet',
+				abv: 40,
+				facts: { peat: 'none', cask: REFILL_BOURBON, finish: { kind: 'none' }, priceCents: 3500 }
+			}),
+			ENTRY
+		);
+		saveBottle(
+			db,
+			ben,
+			2,
+			factsBottle({
+				alias: 'Torf',
+				distillery: 'Laphroaig',
+				facts: {
+					peat: 'heavy',
+					cask: { kind: 'known', type: 'bourbon', refill: false },
+					finish: { kind: 'none' },
+					priceCents: 5500
+				}
+			}),
+			ENTRY
+		);
+		return { id, slug, anna, ben };
+	}
+
+	function factRows() {
+		return db.select().from(schema.tastingBottleFact).all();
+	}
+
+	it('stores the algorithm with the tasting, the participation carries it', () => {
+		const { anna } = setupFacts();
+		expect(anna.tastingAlgorithm).toBe('facts');
+		expect(setup().anna.tastingAlgorithm).toBe('taste');
+	});
+
+	it('stores the facts next to the bottle, without the sliders', () => {
+		const { anna } = setupFacts();
+		const row = db
+			.select()
+			.from(schema.tastingBottle)
+			.where(eq(schema.tastingBottle.alias, 'Rätsel'))
+			.get()!;
+		expect(row).toMatchObject({ smoke: null, cask: null, value: null, archived: false, abv: 40 });
+		expect(factRows().find((f) => f.bottleId === row.id)).toMatchObject({
+			peat: 'none',
+			caskKind: 'unknown',
+			caskType: null,
+			finishKind: 'other',
+			finishLabel: 'Tequila',
+			finishInfluence: 4,
+			finishMonths: 6,
+			priceCents: 3500
+		});
+		expect(getParticipantView(db, anna, ENTRY)).toMatchObject({
+			phase: 'entry',
+			algorithm: 'facts',
+			bottles: [
+				{ slot: 1, alias: 'Bernstein', presentationName: null, facts: factsBottle().facts },
+				{ slot: 2, alias: 'Rätsel' }
+			]
+		});
+	});
+
+	it('updates the facts of a bottle saved again', () => {
+		const { anna } = setupFacts();
+		const facts = {
+			peat: 'light',
+			cask: { kind: 'known', type: 'port', refill: true },
+			finish: { kind: 'known', type: 'sherry_px', refill: false, months: null },
+			priceCents: 9990
+		} as const;
+		saveBottle(db, anna, 1, factsBottle({ facts }), ENTRY);
+		const view = getParticipantView(db, anna, ENTRY) as { bottles: Array<{ facts?: unknown }> };
+		expect(view.bottles[0].facts).toEqual(facts);
+		expect(factRows()).toHaveLength(4);
+	});
+
+	it('rejects a bottle that doesn’t fit the algorithm, in both directions', () => {
+		const { anna } = setupFacts();
+		const taste = setup();
+		const attempts: Array<[typeof anna, TastingBottle | FactsBottle]> = [
+			[anna, bottle({ alias: 'Falsch' })],
+			[taste.anna, factsBottle({ alias: 'Falsch' })]
+		];
+		for (const [holder, wrong] of attempts) {
+			expect(() => saveBottle(db, holder, 3, wrong, ENTRY)).toThrow(
+				expect.objectContaining({
+					name: 'TastingValidationError',
+					userMessage: WRONG_FIELDS_MESSAGE
+				})
+			);
+		}
+		expect(
+			db.select().from(schema.tastingBottle).where(eq(schema.tastingBottle.alias, 'Falsch')).all()
+		).toEqual([]);
+	});
+
+	it('removes the facts with the bottle', () => {
+		const { ben } = setupFacts();
+		saveBottle(db, ben, 3, factsBottle({ alias: 'Dritte' }), ENTRY);
+		expect(factRows()).toHaveLength(5);
+		removeBottle(db, ben, 3, ENTRY);
+		expect(factRows()).toHaveLength(4);
+	});
+
+	it('doesn’t query the facts of the other participants during entry', () => {
+		const { ben } = setupFacts();
+		const json = JSON.stringify(getParticipantView(db, ben, ENTRY));
+		expect(json).toContain('Nebel');
+		for (const secret of ['Bernstein', 'Rätsel', 'Tequila', 'sherry_oloroso']) {
+			expect(json).not.toContain(secret);
+		}
+	});
+
+	it('shows only position, alias, score and presentation in the order phase', () => {
+		const { anna } = setupFacts();
+		const view = getParticipantView(db, anna, ORDER) as {
+			order: OrderEntry[];
+			rules: ScoreRules;
+		};
+		expect(view.order).toEqual([
+			{ position: 1, alias: 'Nebel', score: 13.8, presentation: null },
+			{ position: 2, alias: 'Rätsel', score: 28.8, presentation: null },
+			{ position: 3, alias: 'Bernstein', score: 55, presentation: null },
+			{ position: 4, alias: 'Torf', score: 37.8, presentation: null }
+		]);
+		expect(view.rules).toEqual(FACTS_RULES);
+		const orderOnly = JSON.stringify(view.order);
+		for (const secret of ['Glenfarclas', 'Tequila', 'heavy', 'range', 'shares', 'price']) {
+			expect(orderOnly).not.toContain(secret);
+		}
+	});
+
+	it('reveals the facts with shares and range, in pouring order', () => {
+		const { anna, id } = setupFacts();
+		const view = getParticipantView(db, anna, REVEALED);
+		expect(view).toMatchObject({ phase: 'revealed', archived: false, algorithm: 'facts' });
+		const { bottles, rules } = view as { bottles: RevealedFactsBottle[]; rules: ScoreRules };
+		expect(rules).toEqual(FACTS_RULES);
+		expect(bottles.map((b) => [b.position, b.alias, b.score, b.range, b.broughtBy])).toEqual([
+			[1, 'Nebel', 13.8, null, 'Ben'],
+			[2, 'Rätsel', 28.8, { min: 18.8, max: 53.8 }, 'Anna'],
+			[3, 'Bernstein', 55, null, 'Anna'],
+			[4, 'Torf', 37.8, null, 'Ben']
+		]);
+		expect(bottles[2]).toEqual({
+			position: 3,
+			alias: 'Bernstein',
+			distillery: 'Glenfarclas',
+			bottler: null,
+			bottling: null,
+			age: 12,
+			whiskybaseUrl: null,
+			abv: 46,
+			facts: factsBottle().facts,
+			broughtBy: 'Anna',
+			score: 55,
+			shares: { cask: 0.7, abv: 0.3, price: null },
+			range: null,
+			presentation: null
+		});
+		// The tasting history shows the same reveal to everybody.
+		const detail = getTastingHistoryDetail(db, id, 'u-admin', REVEALED)!;
+		expect(detail).toMatchObject({ archived: false, algorithm: 'facts', rules: FACTS_RULES });
+		expect(detail.bottles.map((b) => b.alias)).toEqual(['Nebel', 'Rätsel', 'Bernstein', 'Torf']);
+	});
+
+	it('freezes position, score, shares, range and rules once the order is out', () => {
+		const { id } = setupFacts();
+		expect(freezeDueOrders(db, ORDER)).toBe(1);
+		const frozen = db
+			.select({
+				alias: schema.tastingBottle.alias,
+				position: schema.tastingBottle.pourPosition,
+				score: schema.tastingBottle.pourScore,
+				smoke: schema.tastingBottle.pourSmokeShare,
+				breakdown: schema.tastingBottle.pourBreakdown
+			})
+			.from(schema.tastingBottle)
+			.orderBy(schema.tastingBottle.pourPosition)
+			.all();
+		expect(frozen.map((f) => [f.alias, f.position, f.score, f.smoke])).toEqual([
+			['Nebel', 1, 13.8, null],
+			['Rätsel', 2, 28.8, null],
+			['Bernstein', 3, 55, null],
+			['Torf', 4, 37.8, null]
+		]);
+		expect(JSON.parse(frozen[1].breakdown!)).toEqual({
+			shares: { cask: 0.5, abv: 0, price: expect.closeTo(0.1878, 4) },
+			range: { min: 18.8, max: 53.8 }
+		});
+		const t = db.select().from(schema.tasting).where(eq(schema.tasting.id, id)).get()!;
+		expect(JSON.parse(t.pourRules!)).toEqual(FACTS_RULES);
+		// Idempotent.
+		expect(freezeDueOrders(db, REVEALED)).toBe(0);
+	});
+
+	it('keeps order, scores, ranges and rules frozen when the algorithm would differ now', () => {
+		const { id, anna } = setupFacts();
+		openOrderEarly(db, id, ENTRY);
+		const OLD_RULES: FactsScoreRules = { ...FACTS_RULES, tieBreakers: ['price', 'abv'] };
+		for (const [alias, pourPosition, pourScore, range] of [
+			['Torf', 1, 1.1, { min: 0, max: 9 }],
+			['Bernstein', 2, 2.2, null],
+			['Rätsel', 3, 3.3, null],
+			['Nebel', 4, 4.4, null]
+		] as const) {
+			db.update(schema.tastingBottle)
+				.set({
+					pourPosition,
+					pourScore,
+					pourBreakdown: JSON.stringify({ shares: { cask: 1, abv: 1, price: 1 }, range })
+				})
+				.where(eq(schema.tastingBottle.alias, alias))
+				.run();
+		}
+		db.update(schema.tasting)
+			.set({ pourRules: JSON.stringify(OLD_RULES) })
+			.where(eq(schema.tasting.id, id))
+			.run();
+
+		const view = getParticipantView(db, anna, REVEALED) as {
+			bottles: RevealedFactsBottle[];
+			rules: ScoreRules;
+		};
+		expect(view.bottles.map((b) => [b.alias, b.score, b.range])).toEqual([
+			['Torf', 1.1, { min: 0, max: 9 }],
+			['Bernstein', 2.2, null],
+			['Rätsel', 3.3, null],
+			['Nebel', 4.4, null]
+		]);
+		expect(view.bottles[0].shares).toEqual({ cask: 1, abv: 1, price: 1 });
+		expect(view.rules).toEqual(OLD_RULES);
+		expect(freezeDueOrders(db, REVEALED)).toBe(0);
+	});
+
+	it('fails closed on a bottle that doesn’t fit the algorithm and freezes nothing', () => {
+		const facts = setupFacts();
+		db.update(schema.tastingBottle)
+			.set({ smoke: 1, cask: 1, value: 1 })
+			.where(eq(schema.tastingBottle.alias, 'Nebel'))
+			.run();
+		const taste = setup();
+		db.insert(schema.tastingBottle)
+			.values({
+				id: 'b-ohne',
+				participantId: taste.anna.id,
+				slot: 1,
+				alias: 'Ohne',
+				distillery: 'Ardbeg',
+				abv: 46,
+				updatedAt: ENTRY
+			})
+			.run();
+
+		expect(freezeDueOrders(db, ORDER)).toBe(0);
+		expect(() => getParticipantView(db, facts.anna, ORDER)).toThrow(/fit its facts algorithm/);
+		expect(() => getParticipantView(db, facts.ben, ENTRY)).toThrow(/fit its facts algorithm/);
+		expect(() => getParticipantView(db, taste.anna, ORDER)).toThrow(/fit its taste algorithm/);
+		expect(() => getParticipantView(db, taste.anna, ENTRY)).toThrow(/fit its taste algorithm/);
+	});
+
+	it('refuses frozen rules of the other algorithm', () => {
+		const { id, anna } = setupFacts();
+		db.update(schema.tasting)
+			.set({ pourRules: JSON.stringify(SCORE_RULES) })
+			.where(eq(schema.tasting.id, id))
+			.run();
+		expect(() => getParticipantView(db, anna, ORDER)).toThrow(/frozen rules of version 1/);
 	});
 });

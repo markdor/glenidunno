@@ -9,6 +9,7 @@ vi.mock('$app/state', () => ({ page: { params: { slug: 'fluffy-otter' } } }));
 import Page from './+page.svelte';
 import { toast } from '$lib/components/toastStore.svelte';
 import { SCORE_RULES } from '$lib/tasting';
+import { FACTS_RULES } from '$lib/tastingFacts';
 
 const tasting = {
 	name: 'Herbst-Tasting',
@@ -453,5 +454,93 @@ describe('Tasting participant page', () => {
 				(t) => t.variant === 'error' && t.message === 'Die Eingabe ist geschlossen.'
 			)
 		).toBe(true);
+	});
+	describe('facts tasting', () => {
+		const facts = {
+			peat: 'none',
+			cask: { kind: 'known', type: 'sherry_px', refill: false },
+			finish: { kind: 'none' },
+			priceCents: null
+		};
+
+		test('shows the facts fields instead of the sliders during entry', async () => {
+			renderView({
+				phase: 'entry',
+				tasting,
+				participant: { username: 'Anna' },
+				algorithm: 'facts',
+				bottles: [
+					{
+						slot: 1,
+						alias: 'Feuer',
+						distillery: 'Aberlour',
+						bottler: null,
+						bottling: null,
+						age: null,
+						whiskybaseUrl: null,
+						abv: 58,
+						facts,
+						presentationName: null
+					}
+				],
+				distilleryNames: []
+			});
+
+			await expect
+				.element(page.getByRole('form', { name: 'Flasche 1' }).getByLabelText('Hauptreifung *'))
+				.toHaveValue('sherry_px');
+			await expect
+				.element(page.getByRole('form', { name: 'Flasche 2' }).getByLabelText('Hauptreifung *'))
+				.toHaveValue('');
+			expect(page.getByRole('slider', { name: 'Rauch *' }).elements()).toHaveLength(0);
+		});
+
+		test('names the peat groups in the order phase', async () => {
+			renderView({
+				phase: 'order',
+				tasting,
+				rules: FACTS_RULES,
+				order: [{ position: 1, alias: 'Feuer', score: 92, presentation: null }]
+			});
+			await expect.element(page.getByText(/Innerhalb einer Torfgruppe/)).toBeVisible();
+			await expect.element(page.getByText(/zuerst nach Torf in drei Gruppen/)).toBeVisible();
+		});
+
+		test('shows the facts, their chart and their explainer after the reveal', async () => {
+			renderView({
+				phase: 'revealed',
+				tasting,
+				archived: false,
+				algorithm: 'facts',
+				rules: FACTS_RULES,
+				bottles: [
+					{
+						position: 1,
+						alias: 'Feuer',
+						distillery: 'Aberlour',
+						bottler: null,
+						bottling: null,
+						age: null,
+						whiskybaseUrl: null,
+						abv: 58,
+						facts,
+						broughtBy: 'Anna',
+						score: 80.6,
+						shares: { cask: 0.9, abv: 0.9, price: null },
+						range: null,
+						presentation: null
+					}
+				]
+			});
+
+			// The cask table of the explainer names it, too: only the reveal's list.
+			await expect
+				.element(page.getByRole('list', { name: 'Auflösung' }))
+				.toHaveTextContent(/Fass\s*Sherry PX/);
+			await expect
+				.element(page.getByRole('img', { name: /Fass, Alkohol und Preis/ }))
+				.toBeVisible();
+			await expect.element(page.getByText(/zuerst nach Torf in drei Gruppen/)).toBeVisible();
+		});
 	});
 });

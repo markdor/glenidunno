@@ -879,3 +879,118 @@ describe('participant page with archived bottles', () => {
 		expect(await readdir(mediaDir)).toEqual(['Tasting_2026-10-24_Nebel.pptx']);
 	});
 });
+
+describe('facts tasting', () => {
+	let factsSlug: string;
+
+	const factsBottle = {
+		slot: '1',
+		alias: 'Bernstein',
+		distillery: 'Glenfarclas',
+		bottler: '',
+		bottling: '',
+		age: '12',
+		whiskybaseUrl: '',
+		abv: '46',
+		peat: 'none',
+		mainCask: 'sherry_oloroso',
+		finish: 'sherry_px',
+		finishMonths: '6',
+		price: '59,90'
+	};
+
+	beforeEach(() => {
+		factsSlug = createTasting(db, {
+			name: 'Fakten-Tasting',
+			tastingDate: '2026-10-24',
+			participantUserIds: [ANNA, BEN],
+			algorithm: 'facts'
+		}).slug;
+	});
+
+	it('saves the facts and shows the participant the facts form with them', async () => {
+		expect(await save(ANNA, factsBottle, factsSlug)).toEqual({
+			action: 'save',
+			slot: 1,
+			saved: true
+		});
+		const { view } = loadFor(ANNA, factsSlug);
+		expect(view).toMatchObject({
+			phase: 'entry',
+			algorithm: 'facts',
+			bottles: [
+				{
+					slot: 1,
+					alias: 'Bernstein',
+					facts: {
+						peat: 'none',
+						cask: { kind: 'known', type: 'sherry_oloroso', refill: false },
+						finish: { kind: 'known', type: 'sherry_px', refill: false, months: 6 },
+						priceCents: 5990
+					}
+				}
+			]
+		});
+		expect(loadFor(ANNA).view).toMatchObject({ phase: 'entry', algorithm: 'taste' });
+	});
+
+	it('returns the field errors with the sent values', async () => {
+		expect(await save(ANNA, { ...factsBottle, price: '5', peat: '' }, factsSlug)).toMatchObject({
+			status: 400,
+			data: {
+				action: 'save',
+				slot: 1,
+				fieldErrors: { price: 'invalid', peat: 'required' },
+				values: { price: '5', mainCask: 'sherry_oloroso' }
+			}
+		});
+		expect(db.select().from(tastingBottle).all()).toEqual([]);
+	});
+
+	it('rejects the sliders in a facts tasting and the facts in a taste tasting', async () => {
+		const expected = {
+			status: 422,
+			data: {
+				action: 'save',
+				reload: true,
+				userMessage: expect.stringContaining('Lade die Seite neu')
+			}
+		};
+		expect(await save(ANNA, { ...factsBottle, smoke: '3' }, factsSlug)).toMatchObject(expected);
+		expect(await save(ANNA, { ...validBottle, peat: 'none' })).toMatchObject(expected);
+		expect(await save(ANNA, validBottle, factsSlug)).toMatchObject(expected);
+		expect(db.select().from(tastingBottle).all()).toEqual([]);
+	});
+
+	it('keeps the facts blind until the reveal', async () => {
+		await save(ANNA, factsBottle, factsSlug);
+		await save(
+			BEN,
+			{
+				...factsBottle,
+				alias: 'Nebel',
+				mainCask: 'other',
+				mainCaskLabel: 'Tequila',
+				mainCaskInfluence: '4'
+			},
+			factsSlug
+		);
+
+		const entry = JSON.stringify(loadFor(BEN, factsSlug));
+		expect(entry).not.toContain('Bernstein');
+		expect(entry).not.toContain('sherry_oloroso');
+
+		vi.setSystemTime(ORDER);
+		const order = loadFor(BEN, factsSlug).view as Extract<ParticipantView, { phase: 'order' }>;
+		const json = JSON.stringify(order.order);
+		for (const secret of ['Glenfarclas', 'Tequila', 'sherry', 'facts', 'range', 'shares']) {
+			expect(json).not.toContain(secret);
+		}
+		expect(order.order.map((o) => o.alias)).toEqual(['Nebel', 'Bernstein']);
+
+		vi.setSystemTime(REVEALED);
+		const revealed = JSON.stringify(loadFor(BEN, factsSlug));
+		expect(revealed).toContain('Tequila');
+		expect(revealed).toContain('sherry_oloroso');
+	});
+});

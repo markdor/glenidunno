@@ -4,7 +4,9 @@
 	import { resolve } from '$app/paths';
 	import SubHeader from '$lib/components/SubHeader.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
+	import { TASTING_ALGORITHM_LABEL } from '$lib/tasting';
 	import {
+		TASTING_ALGORITHMS,
 		TASTING_MOTTO_DESCRIPTION_LENGTH,
 		TASTING_MOTTO_LENGTH,
 		TASTING_NAME_LENGTH,
@@ -13,8 +15,9 @@
 
 	let { data, form } = $props();
 
-	// After a failed submit the picked users stay ticked.
+	// After a failed submit the picked users stay ticked, the algorithm picked.
 	const sentParticipants = $derived<string[]>(form?.values?.participants ?? []);
+	const sentAlgorithm = $derived<string>(form?.values?.algorithm || 'taste');
 
 	$effect(() => {
 		if (form?.userMessage) {
@@ -125,6 +128,37 @@
 				<p class="text-xs text-red-600">{fieldError('tastingDate')}</p>
 			{/if}
 		</div>
+
+		<fieldset class="space-y-2">
+			<legend class="text-sm font-medium text-slate-700">Reihenfolge nach *</legend>
+			<p class="text-xs text-slate-500">Lässt sich nach dem Anlegen nicht mehr ändern.</p>
+			<div class="grid gap-2 sm:grid-cols-2">
+				{#each TASTING_ALGORITHMS as algorithm (algorithm)}
+					<label
+						class="flex min-h-14 cursor-pointer items-start gap-3 rounded-lg border border-slate-300 px-3 py-3 hover:bg-slate-50 has-[:checked]:border-brand has-[:checked]:bg-brand/5 has-[:checked]:ring-1 has-[:checked]:ring-brand"
+					>
+						<input
+							type="radio"
+							name="algorithm"
+							value={algorithm}
+							checked={sentAlgorithm === algorithm}
+							class="mt-0.5 h-5 w-5 shrink-0 accent-brand"
+						/>
+						<span class="min-w-0">
+							<span class="block text-base font-medium text-slate-900">
+								{TASTING_ALGORITHM_LABEL[algorithm].label}
+							</span>
+							<span class="block text-sm text-slate-500">
+								{TASTING_ALGORITHM_LABEL[algorithm].description}
+							</span>
+						</span>
+					</label>
+				{/each}
+			</div>
+			{#if fieldError('algorithm')}
+				<p class="text-xs text-red-600">{fieldError('algorithm')}</p>
+			{/if}
+		</fieldset>
 
 		<fieldset class="space-y-2">
 			<legend class="text-sm font-medium text-slate-700">Teilnehmer *</legend>

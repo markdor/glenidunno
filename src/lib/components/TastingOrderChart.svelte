@@ -3,9 +3,10 @@
 	import type { OrderEntry } from '$lib/tasting';
 	import TastingLineChart from './TastingLineChart.svelte';
 
-	// `smokeGroups`: whether the order was poured in smoke groups – from the
-	// rules frozen with it, not from the current SMOKE_GROUPS_ENABLED.
-	let { order, smokeGroups }: { order: OrderEntry[]; smokeGroups: boolean } = $props();
+	// `groupLabel`: the groups the order was poured in ("Rauchgruppe",
+	// "Torfgruppe"), `null` without – from the rules frozen with it
+	// (pouringGroupLabel), not from the current constants.
+	let { order, groupLabel }: { order: OrderEntry[]; groupLabel: string | null } = $props();
 
 	// One line in the logo's amber (--color-brand). Its chroma sits just under
 	// the dataviz skill's categorical floor, which only matters when several
@@ -31,8 +32,8 @@
 		</h2>
 		<p class="text-sm text-slate-500">
 			Der Score jeder Flasche (0–100) in Ausschankreihenfolge.
-			{#if smokeGroups}
-				Innerhalb einer Rauchgruppe steigt er, mit der nächsten Gruppe kann er wieder fallen.
+			{#if groupLabel}
+				Innerhalb einer {groupLabel} steigt er, mit der nächsten Gruppe kann er wieder fallen.
 			{/if}
 		</p>
 	</div>

@@ -320,6 +320,82 @@ test.describe('Tasting – Ablauf', () => {
 			if (viewport) await page.setViewportSize(viewport);
 		});
 	});
+
+	// The facts algorithm in the built app: picked on creation, its form,
+	// its reveal. Earlier than the tasting above, so the hero shows this one
+	// whatever ran before; score, order and the blind projection are covered
+	// by unit and route tests.
+	test('Admin legt ein Fakten-Tasting an, trägt eine Flasche mit Fakten ein und löst auf', async ({
+		page
+	}) => {
+		const guest = `fakt_${Date.now().toString(36)}`;
+		const tastingName = `E2E-Fakten ${Date.now()}`;
+		const alias = 'E2E-Bernstein';
+
+		await test.step('Admin legt den zweiten Teilnehmer und ein Fakten-Tasting an', async () => {
+			await page.goto('/admin');
+			await page.getByLabel('E-Mail *').fill(`${guest}@e2e.test`);
+			await page.getByLabel('Benutzername *').fill(guest);
+			await page.getByRole('button', { name: 'Anlegen' }).click();
+			await expect(page.getByText('Benutzer angelegt.')).toBeVisible();
+
+			await page.goto('/admin/tastings/new');
+			await page.getByLabel('Name *').fill(tastingName);
+			await page.getByLabel('Datum *').fill(dateInDays(3));
+			// The whole card is the label.
+			await page.getByText('Etikett, Preis, Fass').click();
+			await expect(page.getByRole('radio', { name: /Fakten/ })).toBeChecked();
+			await page.getByRole('checkbox', { name: 'admin', exact: true }).check();
+			await page.getByRole('checkbox', { name: guest }).check();
+			await page.getByRole('button', { name: 'Tasting anlegen' }).click();
+			await expect(page).toHaveURL(/\/admin\/tastings\/[0-9a-f-]{36}$/);
+			await expect(page.getByText('Reihenfolge nach:')).toContainText('Fakten');
+		});
+
+		const detailUrl = page.url();
+
+		await test.step('Admin trägt über den Hero eine Flasche mit Fakten ein', async () => {
+			await page.goto('/');
+			await expect(page.getByRole('link', { name: /Nächstes Tasting/ })).toContainText(tastingName);
+			await page.getByRole('heading', { name: 'Nächstes Tasting' }).click();
+			await expect(page.getByRole('heading', { level: 1, name: tastingName })).toBeVisible();
+
+			const form = page.getByRole('form', { name: 'Flasche 1' });
+			await expect(form.getByRole('slider', { name: 'Rauch *' })).toHaveCount(0);
+			await form.getByLabel('Synonym *').fill(alias);
+			await form.getByLabel('Distillery *').fill('Glenfarclas');
+			await form.getByLabel('Alkohol in % *').fill('46');
+			// The segment's label, the radio inside it is visually hidden.
+			await form.getByText('nein', { exact: true }).click();
+			await form.getByLabel('Hauptreifung *').selectOption('sherry_oloroso');
+			await form.getByLabel(/Preis in €/).fill('60');
+			await form.getByRole('button', { name: 'Flasche 1 speichern' }).click();
+			await expect(page.getByText('Flasche 1 gespeichert.')).toBeVisible();
+		});
+
+		await test.step('Admin gibt die Reihenfolge frei und löst auf', async () => {
+			await page.goto(detailUrl);
+			await page.getByRole('button', { name: 'Reihenfolge jetzt freigeben' }).click();
+			await page.getByRole('dialog').getByRole('button', { name: 'Freigeben' }).click();
+			await expect(page.getByRole('button', { name: 'Jetzt auflösen' })).toBeEnabled();
+			await page.getByRole('button', { name: 'Jetzt auflösen' }).click();
+			await page.getByRole('dialog').getByRole('button', { name: 'Auflösen' }).click();
+			await expect(page.getByText(/vorzeitig aufgelöst\.$/)).toBeVisible();
+		});
+
+		await test.step('Die Auflösung zeigt die Fakten, ihr Chart und ihre Kachel', async () => {
+			// The later tasting above is the "last" one: through the tasting history.
+			await page.goto('/tastings');
+			await page.getByRole('link', { name: tastingName }).click();
+			const reveal = page.getByRole('list', { name: 'Auflösung' });
+			await expect(reveal).toContainText(alias);
+			await expect(reveal).toContainText('Sherry Oloroso/Amontillado');
+			await expect(reveal).toContainText('ungetorft');
+			await expect(reveal).toContainText('Wucht');
+			await expect(page.getByRole('img', { name: /Fass, Alkohol und Preis/ })).toBeVisible();
+			await expect(page.getByText(/zuerst nach Torf in drei Gruppen/)).toBeVisible();
+		});
+	});
 });
 
 test.describe('Tasting – Zugriff ohne Login', () => {

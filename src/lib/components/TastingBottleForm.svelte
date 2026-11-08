@@ -9,6 +9,7 @@
 		SMOKE_GROUPS,
 		type TastingBottle
 	} from '$lib/tasting';
+	import type { FactsBottle } from '$lib/tastingFacts';
 	import {
 		TASTING_ABV,
 		TASTING_AGE,
@@ -17,11 +18,15 @@
 		TASTING_BOTTLER_LENGTH,
 		TASTING_BOTTLING_LENGTH,
 		TASTING_DISTILLERY_LENGTH,
+		TASTING_FINISH_MONTHS,
 		TASTING_PRESENTATION_MAX_BYTES,
+		TASTING_PRICE,
 		TASTING_PRESENTATION_NAME_LENGTH,
 		TASTING_SCALE,
-		TASTING_WHISKYBASE_URL_LENGTH
+		TASTING_WHISKYBASE_URL_LENGTH,
+		type TastingAlgorithm
 	} from '$lib/validation';
+	import TastingFactsFields from './TastingFactsFields.svelte';
 	import { confirmDialog } from './confirmDialogStore.svelte';
 	import { toast } from './toastStore.svelte';
 
@@ -36,15 +41,18 @@
 		bottle,
 		result = null,
 		onremove,
-		distilleryNames = []
+		distilleryNames = [],
+		algorithm = 'taste'
 	}: {
 		slot: number;
-		bottle: (TastingBottle & { presentationName?: string | null }) | null;
+		bottle: ((TastingBottle | FactsBottle) & { presentationName?: string | null }) | null;
 		result?: SaveResult;
 		/** Hides the card: right away if never saved, once the server removed it otherwise. */
 		onremove?: (slot: number) => void;
 		/** Input help: the distilleries of the revealed tastings, one spelling each. */
 		distilleryNames?: string[];
+		/** The sliders (`taste`) or the facts (`facts`), by the tasting's algorithm. */
+		algorithm?: TastingAlgorithm;
 	} = $props();
 
 	// The input help offers the distilleries starting with what's typed, from
@@ -92,8 +100,9 @@
 	function initial(field: keyof TastingBottle): string {
 		const sent = result?.values?.[field];
 		if (sent !== undefined) return sent;
-		const saved = bottle?.[field];
-		return saved === null || saved === undefined ? '' : String(saved);
+		// A facts bottle has no sliders.
+		const saved = bottle && field in bottle ? (bottle as TastingBottle)[field] : null;
+		return saved === null ? '' : String(saved);
 	}
 
 	function scaleValue(field: Scale): number {
@@ -108,6 +117,8 @@
 
 	const invalidText: Record<string, string> = {
 		age: `Ganze Jahre von ${TASTING_AGE.min} bis ${TASTING_AGE.max}`,
+		price: `${TASTING_PRICE.min} bis ${TASTING_PRICE.max} €, höchstens zwei Nachkommastellen`,
+		finishMonths: `Ganze Monate von ${TASTING_FINISH_MONTHS.min} bis ${TASTING_FINISH_MONTHS.max}`,
 		abv: `${TASTING_ABV.min} bis ${TASTING_ABV.max} %, höchstens eine Nachkommastelle`,
 		whiskybaseUrl: 'Nur https-Links auf whiskybase.com',
 		presentation: `Höchstens ${MAX_PRESENTATION_MB} MB und ein Dateiname mit höchstens ${TASTING_PRESENTATION_NAME_LENGTH.max} Zeichen`
@@ -366,40 +377,49 @@
 			{/if}
 		</div>
 
-		{#each scales as scale (scale.field)}
-			<div class="space-y-1">
-				<div class="flex items-baseline justify-between gap-3">
-					<label for={id(scale.field)} class="text-sm font-medium text-slate-700">
-						{scale.label} *
-					</label>
-					<output for={id(scale.field)} class="text-sm font-semibold text-slate-900">
-						{scaleValue(scale.field)}
-						{#if scale.field === 'smoke'}
-							<!-- The group decides the pouring block, so show where the value lands. -->
-							<span class="font-normal text-slate-500">
-								· {SMOKE_GROUPS[smokeGroup(scaleValue('smoke')) - 1].label}
-							</span>
-						{/if}
-					</output>
+		{#if algorithm === 'facts'}
+			<TastingFactsFields
+				{slot}
+				facts={bottle && 'facts' in bottle ? bottle.facts : null}
+				values={result?.values ?? null}
+				{fieldError}
+			/>
+		{:else}
+			{#each scales as scale (scale.field)}
+				<div class="space-y-1">
+					<div class="flex items-baseline justify-between gap-3">
+						<label for={id(scale.field)} class="text-sm font-medium text-slate-700">
+							{scale.label} *
+						</label>
+						<output for={id(scale.field)} class="text-sm font-semibold text-slate-900">
+							{scaleValue(scale.field)}
+							{#if scale.field === 'smoke'}
+								<!-- The group decides the pouring block, so show where the value lands. -->
+								<span class="font-normal text-slate-500">
+									· {SMOKE_GROUPS[smokeGroup(scaleValue('smoke')) - 1].label}
+								</span>
+							{/if}
+						</output>
+					</div>
+					<input
+						id={id(scale.field)}
+						name={scale.field}
+						type="range"
+						min={TASTING_SCALE.min}
+						max={TASTING_SCALE.max}
+						step="1"
+						value={scaleValue(scale.field)}
+						oninput={(e) => (moved[scale.field] = e.currentTarget.valueAsNumber)}
+						aria-describedby={id(`${scale.field}-hint`)}
+						class="h-8 w-full accent-brand"
+					/>
+					<p id={id(`${scale.field}-hint`)} class="text-xs text-slate-500">{scale.hint}</p>
+					{#if fieldError(scale.field)}
+						<p class="text-xs text-red-600">{fieldError(scale.field)}</p>
+					{/if}
 				</div>
-				<input
-					id={id(scale.field)}
-					name={scale.field}
-					type="range"
-					min={TASTING_SCALE.min}
-					max={TASTING_SCALE.max}
-					step="1"
-					value={scaleValue(scale.field)}
-					oninput={(e) => (moved[scale.field] = e.currentTarget.valueAsNumber)}
-					aria-describedby={id(`${scale.field}-hint`)}
-					class="h-8 w-full accent-brand"
-				/>
-				<p id={id(`${scale.field}-hint`)} class="text-xs text-slate-500">{scale.hint}</p>
-				{#if fieldError(scale.field)}
-					<p class="text-xs text-red-600">{fieldError(scale.field)}</p>
-				{/if}
-			</div>
-		{/each}
+			{/each}
+		{/if}
 
 		<div class="space-y-1">
 			<label for={id('presentation')} class="block text-sm font-medium text-slate-700">

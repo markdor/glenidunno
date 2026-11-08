@@ -1,0 +1,38 @@
+CREATE TABLE `tasting_bottle_fact` (
+	`bottle_id` text PRIMARY KEY NOT NULL,
+	`peat` text NOT NULL,
+	`cask_kind` text NOT NULL,
+	`cask_type` text,
+	`cask_refill` integer DEFAULT false NOT NULL,
+	`cask_label` text,
+	`cask_influence` integer,
+	`finish_kind` text NOT NULL,
+	`finish_type` text,
+	`finish_refill` integer DEFAULT false NOT NULL,
+	`finish_label` text,
+	`finish_influence` integer,
+	`finish_months` integer,
+	`price_cents` integer,
+	FOREIGN KEY (`bottle_id`) REFERENCES `tasting_bottle`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "tasting_bottle_fact_peat" CHECK("tasting_bottle_fact"."peat" IN ('none', 'light', 'heavy')),
+	CONSTRAINT "tasting_bottle_fact_cask_kind" CHECK("tasting_bottle_fact"."cask_kind" IN ('known', 'other', 'unknown')),
+	CONSTRAINT "tasting_bottle_fact_cask_type" CHECK("tasting_bottle_fact"."cask_type" IN ('bourbon', 'sherry_fino', 'sherry_oloroso', 'sherry', 'sherry_px', 'red_wine', 'port', 'madeira', 'rum', 'cognac', 'virgin_oak')),
+	CONSTRAINT "tasting_bottle_fact_cask_type_kind" CHECK(("tasting_bottle_fact"."cask_type" IS NOT NULL) = ("tasting_bottle_fact"."cask_kind" = 'known')),
+	CONSTRAINT "tasting_bottle_fact_cask_other_kind" CHECK(("tasting_bottle_fact"."cask_label" IS NOT NULL) = ("tasting_bottle_fact"."cask_kind" = 'other') AND ("tasting_bottle_fact"."cask_influence" IS NOT NULL) = ("tasting_bottle_fact"."cask_kind" = 'other')),
+	CONSTRAINT "tasting_bottle_fact_cask_label_length" CHECK(length("tasting_bottle_fact"."cask_label") BETWEEN 1 AND 40),
+	CONSTRAINT "tasting_bottle_fact_cask_influence_range" CHECK("tasting_bottle_fact"."cask_influence" BETWEEN 0 AND 10),
+	CONSTRAINT "tasting_bottle_fact_cask_refill_kind" CHECK("tasting_bottle_fact"."cask_refill" = 0 OR ("tasting_bottle_fact"."cask_kind" = 'known' AND "tasting_bottle_fact"."cask_type" <> 'virgin_oak')),
+	CONSTRAINT "tasting_bottle_fact_finish_kind" CHECK("tasting_bottle_fact"."finish_kind" IN ('none', 'known', 'other', 'unknown')),
+	CONSTRAINT "tasting_bottle_fact_finish_type" CHECK("tasting_bottle_fact"."finish_type" IN ('bourbon', 'sherry_fino', 'sherry_oloroso', 'sherry', 'sherry_px', 'red_wine', 'port', 'madeira', 'rum', 'cognac', 'virgin_oak')),
+	CONSTRAINT "tasting_bottle_fact_finish_type_kind" CHECK(("tasting_bottle_fact"."finish_type" IS NOT NULL) = ("tasting_bottle_fact"."finish_kind" = 'known')),
+	CONSTRAINT "tasting_bottle_fact_finish_other_kind" CHECK(("tasting_bottle_fact"."finish_label" IS NOT NULL) = ("tasting_bottle_fact"."finish_kind" = 'other') AND ("tasting_bottle_fact"."finish_influence" IS NOT NULL) = ("tasting_bottle_fact"."finish_kind" = 'other')),
+	CONSTRAINT "tasting_bottle_fact_finish_label_length" CHECK(length("tasting_bottle_fact"."finish_label") BETWEEN 1 AND 40),
+	CONSTRAINT "tasting_bottle_fact_finish_influence_range" CHECK("tasting_bottle_fact"."finish_influence" BETWEEN 0 AND 10),
+	CONSTRAINT "tasting_bottle_fact_finish_refill_kind" CHECK("tasting_bottle_fact"."finish_refill" = 0 OR ("tasting_bottle_fact"."finish_kind" = 'known' AND "tasting_bottle_fact"."finish_type" <> 'virgin_oak')),
+	CONSTRAINT "tasting_bottle_fact_finish_months_range" CHECK("tasting_bottle_fact"."finish_months" BETWEEN 1 AND 120),
+	CONSTRAINT "tasting_bottle_fact_finish_months_kind" CHECK("tasting_bottle_fact"."finish_months" IS NULL OR "tasting_bottle_fact"."finish_kind" IN ('known', 'other')),
+	CONSTRAINT "tasting_bottle_fact_price_range" CHECK("tasting_bottle_fact"."price_cents" BETWEEN 1000 AND 99900)
+);
+--> statement-breakpoint
+ALTER TABLE `tasting` ADD `algorithm` text DEFAULT 'taste' NOT NULL;--> statement-breakpoint
+ALTER TABLE `tasting_bottle` ADD `pour_breakdown` text;

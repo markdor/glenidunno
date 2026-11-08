@@ -69,6 +69,64 @@ export const TASTING_SCALE = { min: 0, max: 5 } as const;
 export const TASTING_ABV = { min: 35, max: 75, step: 0.1 } as const;
 
 /**
+ * How a tasting computes its pouring order, chosen once on creation:
+ * - `taste`: the bringers' estimates of smoke, cask and value (0–5 each)
+ * - `facts`: what label and shop say – peat, casks, price (src/lib/tastingFacts.ts)
+ */
+export const TASTING_ALGORITHMS = ['taste', 'facts'] as const;
+export type TastingAlgorithm = (typeof TASTING_ALGORITHMS)[number];
+
+export function isTastingAlgorithm(value: string): value is TastingAlgorithm {
+	return (TASTING_ALGORITHMS as readonly string[]).includes(value);
+}
+
+// The facts of a bottle in a `facts` tasting (table tasting_bottle_fact).
+
+/** Peat as label and shop state it: none, lightly or heavily peated. */
+export const TASTING_PEAT_LEVELS = ['none', 'light', 'heavy'] as const;
+export type PeatLevel = (typeof TASTING_PEAT_LEVELS)[number];
+
+/** The casks of the list; their base values live in src/lib/tastingFacts.ts. */
+export const TASTING_CASK_TYPES = [
+	'bourbon',
+	'sherry_fino',
+	'sherry_oloroso',
+	'sherry',
+	'sherry_px',
+	'red_wine',
+	'port',
+	'madeira',
+	'rum',
+	'cognac',
+	'virgin_oak'
+] as const;
+export type CaskType = (typeof TASTING_CASK_TYPES)[number];
+
+export function isCaskType(value: string): value is CaskType {
+	return (TASTING_CASK_TYPES as readonly string[]).includes(value);
+}
+
+/** The one cask without a refill: virgin oak is new by definition. */
+export const CASK_TYPE_WITHOUT_REFILL: CaskType = 'virgin_oak';
+
+/**
+ * A cask of the main maturation: one of the list (`known`), another one the
+ * bringer names and rates (`other`) or not known (`unknown`). The finish has
+ * `none` besides.
+ */
+export const TASTING_CASK_KINDS = ['known', 'other', 'unknown'] as const;
+export const TASTING_FINISH_KINDS = ['none', 'known', 'other', 'unknown'] as const;
+
+/** List or shop price per 0.7 l in euros, two decimals; stored in cents. */
+export const TASTING_PRICE = { min: 10, max: 999 } as const;
+/** Influence of an `other` cask, replacing the base value of the list. */
+export const TASTING_CASK_INFLUENCE = { min: 0, max: 10 } as const;
+/** Duration of a finish in months; empty means unknown. */
+export const TASTING_FINISH_MONTHS = { min: 1, max: 120 } as const;
+/** Name of an `other` cask, e.g. "Tequila". */
+export const TASTING_CASK_LABEL_LENGTH = { max: 40 } as const;
+
+/**
  * Optional presentation per bottle (usually PowerPoint), stored byte for byte.
  * The upload request may be slightly larger (form fields, multipart framing):
  * see UPLOAD_BODY_LIMIT_BYTES in $lib/server/bodyLimit.ts and BODY_SIZE_LIMIT
