@@ -6,7 +6,7 @@
 	import SubHeader from '$lib/components/SubHeader.svelte';
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
-	import { formatTastingDate, TASTING_PHASE_LABEL } from '$lib/tasting';
+	import { formatTastingDate, TASTING_ALGORITHM_LABEL, TASTING_PHASE_LABEL } from '$lib/tasting';
 	import { TASTING_MOTTO_DESCRIPTION_LENGTH, TASTING_MOTTO_LENGTH } from '$lib/validation';
 
 	let { data, form } = $props();
@@ -92,6 +92,12 @@
 			{formatTastingDate(detail.tasting.tastingDate)}
 			<span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
 				{TASTING_PHASE_LABEL[detail.phase]}
+			</span>
+		</p>
+		<p class="text-sm text-slate-500">
+			Reihenfolge nach:
+			<span class="font-medium text-slate-700">
+				{TASTING_ALGORITHM_LABEL[detail.tasting.algorithm].label}
 			</span>
 		</p>
 	</div>

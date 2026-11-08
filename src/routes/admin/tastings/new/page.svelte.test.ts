@@ -36,6 +36,45 @@ describe('New tasting page', () => {
 			.toHaveAttribute('href', '/admin');
 	});
 
+	test('offers taste and facts as the pouring order, taste picked', async () => {
+		render(Page, { data, form: null });
+
+		const taste = page.getByRole('radio', { name: /Geschmack/ });
+		const facts = page.getByRole('radio', { name: /Fakten/ });
+		await expect.element(taste).toBeChecked();
+		await expect.element(facts).not.toBeChecked();
+		await expect.element(taste).toHaveAttribute('value', 'taste');
+		await expect.element(facts).toHaveAttribute('value', 'facts');
+		await expect.element(page.getByText('Etikett, Preis, Fass')).toBeVisible();
+		await expect
+			.element(page.getByText('Lässt sich nach dem Anlegen nicht mehr ändern.'))
+			.toBeVisible();
+
+		await facts.click();
+		const form = facts.element().closest('form')!;
+		expect(new FormData(form).get('algorithm')).toBe('facts');
+	});
+
+	test('keeps the picked algorithm after a failed submit and shows its error', async () => {
+		render(Page, {
+			data,
+			form: {
+				action: 'create',
+				values: {
+					name: '',
+					motto: '',
+					mottoDescription: '',
+					tastingDate: '',
+					participants: [],
+					algorithm: 'facts'
+				},
+				fieldErrors: { name: 'required', algorithm: 'invalid' }
+			}
+		});
+		await expect.element(page.getByRole('radio', { name: /Fakten/ })).toBeChecked();
+		await expect.element(page.getByText('Ungültig')).toBeVisible();
+	});
+
 	test('offers an optional motto heading and description right below the name', async () => {
 		render(Page, { data, form: null });
 
@@ -85,7 +124,8 @@ describe('New tasting page', () => {
 					motto: 'Inselhüpfen',
 					mottoDescription: 'Eine Insel pro Flasche.\nKeine Blends.',
 					tastingDate: '2026-10-24',
-					participants: ['u-anna', 'u-ben']
+					participants: ['u-anna', 'u-ben'],
+					algorithm: ''
 				},
 				fieldErrors: { name: 'required' }
 			}
@@ -114,7 +154,8 @@ describe('New tasting page', () => {
 					motto: 'x'.repeat(121),
 					mottoDescription: 'y'.repeat(1001),
 					tastingDate: '2026-10-01',
-					participants: ['u-anna']
+					participants: ['u-anna'],
+					algorithm: ''
 				},
 				fieldErrors: {
 					name: 'required',
@@ -149,7 +190,8 @@ describe('New tasting page', () => {
 					motto: '',
 					mottoDescription: '',
 					tastingDate: '',
-					participants: []
+					participants: [],
+					algorithm: ''
 				},
 				userMessage: 'Da ist etwas schiefgelaufen.'
 			}

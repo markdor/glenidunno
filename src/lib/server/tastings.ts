@@ -15,20 +15,33 @@ import {
 	type OrderEntry,
 	type PresentationRef,
 	type Progress,
+	type FactsShares,
 	type Reveal,
 	type RevealedBottle,
+	type RevealedFactsBottle,
 	type ScoreRules,
 	type Statistics,
+	type TasteScoreRules,
 	type TastingBottle,
 	type TastingHistoryDetail,
 	type TastingHistoryItem,
 	type TastingPhase
 } from '$lib/tasting';
 import {
+	FACTS_RULES,
+	type BottleFacts,
+	type Cask,
+	type FactsBottle,
+	type FactsScoreRules,
+	type Finish,
+	type ScoreRange
+} from '$lib/tastingFacts';
+import {
 	isValidTastingDate,
 	TASTING_BOTTLE_SLOTS,
 	TASTING_MOTTO_DESCRIPTION_LENGTH,
-	TASTING_MOTTO_LENGTH
+	TASTING_MOTTO_LENGTH,
+	type TastingAlgorithm
 } from '$lib/validation';
 import type { WorldMapData } from '$lib/worldMap';
 import { distinctDistilleryNames, nameKey } from '$lib/distilleryNames';
@@ -37,6 +50,7 @@ import {
 	distillery,
 	tasting,
 	tastingBottle,
+	tastingBottleFact,
 	tastingParticipant,
 	tastingSlugAdjective,
 	tastingSlugAnimal,
@@ -54,6 +68,7 @@ import { buildStatistics, numberBottles } from './statistics';
 import { buildWorldMap } from './worldMap';
 import type { PendingUpload, StoredPresentation } from './tastingMedia';
 import { sortForPouring } from './tastingScore';
+import { sortFactsForPouring } from './tastingFactsScore';
 
 type Db = BetterSQLite3Database<typeof Schema>;
 /** The database or a transaction on it – both can run the same queries. */
@@ -117,15 +132,147 @@ export function validateTastingMotto(
 }
 
 type BottleRow = typeof tastingBottle.$inferSelect;
+type FactRow = typeof tastingBottleFact.$inferSelect;
 
 /**
- * A bottle entered in the app, not an archived one from the tasting history:
- * the CHECK tasting_bottle_archived_factors keeps its smoke, cask and value set.
+ * A bottle of a `taste` tasting entered in the app, not an archived one from
+ * the tasting history: smoke, cask and value set (CHECK
+ * tasting_bottle_archived_factors: all three or none).
  */
 type ActiveBottleRow = BottleRow & { archived: false; smoke: number; cask: number; value: number };
 
 function isActiveBottle(row: BottleRow): row is ActiveBottleRow {
 	return !row.archived && row.smoke !== null && row.cask !== null && row.value !== null;
+}
+
+/**
+ * The facts of a bottle of a `facts` tasting: not archived, without the
+ * sliders, with its row in tasting_bottle_fact – `null` for any other bottle.
+ */
+function factsOf(row: BottleRow, fact: FactRow | null): FactRow | null {
+	return !row.archived && row.smoke === null && row.cask === null && row.value === null
+		? fact
+		: null;
+}
+
+/**
+ * A bottle that doesn't fit its tasting's algorithm (e.g. sliders in a
+ * `facts` tasting): never computed with, the page fails closed.
+ */
+function bottleMismatch(tastingId: string, algorithm: TastingAlgorithm): Error {
+	return new Error(`tasting ${tastingId} has a bottle that doesn't fit its ${algorithm} algorithm`);
+}
+
+function toCask(
+	kind: 'known' | 'other' | 'unknown',
+	columns: {
+		type: FactRow['caskType'];
+		refill: boolean;
+		label: string | null;
+		influence: number | null;
+	}
+): Cask {
+	switch (kind) {
+		case 'known':
+			return { kind, type: columns.type!, refill: columns.refill };
+		case 'other':
+			return { kind, label: columns.label!, influence: columns.influence! };
+		case 'unknown':
+			return { kind };
+	}
+}
+
+/** Maps a fact row to the domain facts; the CHECKs keep the columns consistent with the kinds. */
+function toFacts(row: FactRow): BottleFacts {
+	const cask = toCask(row.caskKind, {
+		type: row.caskType,
+		refill: row.caskRefill,
+		label: row.caskLabel,
+		influence: row.caskInfluence
+	});
+	let finish: Finish;
+	if (row.finishKind === 'none' || row.finishKind === 'unknown') {
+		finish = { kind: row.finishKind };
+	} else if (row.finishKind === 'known') {
+		finish = {
+			kind: 'known',
+			type: row.finishType!,
+			refill: row.finishRefill,
+			months: row.finishMonths
+		};
+	} else {
+		finish = {
+			kind: 'other',
+			label: row.finishLabel!,
+			influence: row.finishInfluence!,
+			months: row.finishMonths
+		};
+	}
+	return { peat: row.peat, cask, finish, priceCents: row.priceCents };
+}
+
+function caskColumns(cask: Cask | Finish) {
+	return {
+		type: cask.kind === 'known' ? cask.type : null,
+		refill: cask.kind === 'known' ? cask.refill : false,
+		label: cask.kind === 'other' ? cask.label : null,
+		influence: cask.kind === 'other' ? cask.influence : null
+	};
+}
+
+/** The columns of tasting_bottle_fact for the facts, without the bottle id. */
+function factColumns(facts: BottleFacts) {
+	const cask = caskColumns(facts.cask);
+	const finish = caskColumns(facts.finish);
+	return {
+		peat: facts.peat,
+		caskKind: facts.cask.kind,
+		caskType: cask.type,
+		caskRefill: cask.refill,
+		caskLabel: cask.label,
+		caskInfluence: cask.influence,
+		finishKind: facts.finish.kind,
+		finishType: finish.type,
+		finishRefill: finish.refill,
+		finishLabel: finish.label,
+		finishInfluence: finish.influence,
+		finishMonths:
+			facts.finish.kind === 'known' || facts.finish.kind === 'other' ? facts.finish.months : null,
+		priceCents: facts.priceCents
+	};
+}
+
+/** Maps a bottle of a `facts` tasting to the domain bottle – like toDomain, the facts instead of the sliders. */
+function toFactsDomain(row: BottleRow, fact: FactRow): FactsBottle {
+	return {
+		alias: row.alias,
+		distillery: row.distillery,
+		bottler: row.bottler,
+		bottling: row.bottling,
+		age: row.age,
+		whiskybaseUrl: row.whiskybaseUrl,
+		abv: row.abv,
+		facts: toFacts(fact)
+	};
+}
+
+/**
+ * The domain bottle by the tasting's algorithm; throws (bottleMismatch) for a
+ * bottle that doesn't fit it. Archived bottles are handled before.
+ */
+function domainBottle(
+	row: BottleRow,
+	fact: FactRow | null,
+	algorithm: TastingAlgorithm,
+	tastingId: string
+): TastingBottle | FactsBottle {
+	if (algorithm === 'facts') {
+		const facts = factsOf(row, fact);
+		if (!facts) throw bottleMismatch(tastingId, algorithm);
+		return toFactsDomain(row, facts);
+	}
+	if (!isActiveBottle(row)) throw bottleMismatch(tastingId, algorithm);
+	return toDomain(row);
 }
 
 /** Maps a DB row to the domain bottle – drops ids, slot and timestamps. */
@@ -195,6 +342,32 @@ function toReveal(poured: ReadonlyArray<PouredBottle>) {
 	}));
 }
 
+/** Score (the "Wucht"), shares and range of a bottle in a facts order. */
+type FactsPour = { score: number; shares: FactsShares; range: ScoreRange | null };
+
+type PouredFactsBottle = FactsBottle &
+	FactsPour & { broughtBy: string; presentation: PresentationRef | null };
+
+function toFactsReveal(poured: ReadonlyArray<PouredFactsBottle>) {
+	return poured.map((b, i): RevealedFactsBottle => ({
+		position: i + 1,
+		alias: b.alias,
+		distillery: b.distillery,
+		bottler: b.bottler,
+		bottling: b.bottling,
+		age: b.age,
+		whiskybaseUrl: b.whiskybaseUrl,
+		abv: b.abv,
+		// Built field by field from the row in toFacts().
+		facts: b.facts,
+		broughtBy: b.broughtBy,
+		score: b.score,
+		shares: { cask: b.shares.cask, abv: b.shares.abv, price: b.shares.price },
+		range: b.range && { min: b.range.min, max: b.range.max },
+		presentation: b.presentation
+	}));
+}
+
 type BottleWithBringer = { bottle: BottleRow; username: string; deactivatedAt: Date | null };
 
 /**
@@ -223,56 +396,121 @@ function toArchivedReveal(
 		}));
 }
 
+type Poured =
+	| { archived: false; algorithm: 'taste'; bottles: PouredBottle[]; rules: TasteScoreRules }
+	| { archived: false; algorithm: 'facts'; bottles: PouredFactsBottle[]; rules: FactsScoreRules }
+	| { archived: true; bottles: ArchivedRevealedBottle[] };
+
 /**
- * All bottles of a tasting with their participant, in pouring order. As soon
- * as one of them is archived (imported from the tasting history without
- * smoke, cask and value), there is no order: then all of them come as
- * archived bottles, see toArchivedReveal(). Without `presentations` (a viewer
- * who didn't take part) no bottle carries one: the download runs through the
- * participant's link, and the original file name stays on the server.
+ * The rules frozen with the order (the current ones before), checked against
+ * the algorithm: a tasting never shows the tile of the other one.
  */
-function pouredBottles(
-	db: Db,
-	tastingId: string,
-	presentations = true
-):
-	| { archived: false; bottles: PouredBottle[]; rules: ScoreRules }
-	| { archived: true; bottles: ArchivedRevealedBottle[] } {
-	const frozenRules = db
-		.select({ pourRules: tasting.pourRules })
+function rulesFor<V extends ScoreRules['version']>(
+	pourRules: string | null,
+	current: Extract<ScoreRules, { version: V }>,
+	tastingId: string
+): Extract<ScoreRules, { version: V }> {
+	if (!pourRules) return current;
+	const rules = JSON.parse(pourRules) as ScoreRules;
+	if (rules.version !== current.version) {
+		throw new Error(`tasting ${tastingId} has frozen rules of version ${rules.version}`);
+	}
+	return rules as Extract<ScoreRules, { version: V }>;
+}
+
+/**
+ * All bottles of a tasting with their participant, in pouring order, by the
+ * tasting's algorithm. As soon as one of them is archived (imported from the
+ * tasting history without smoke, cask and value), there is no order: then
+ * all of them come as archived bottles, see toArchivedReveal(). A bottle that
+ * doesn't fit the algorithm throws (bottleMismatch). Without `presentations`
+ * (a viewer who didn't take part) no bottle carries one: the download runs
+ * through the participant's link, and the original file name stays on the
+ * server.
+ */
+function pouredBottles(db: Db, tastingId: string, presentations = true): Poured {
+	const t = db
+		.select({ pourRules: tasting.pourRules, algorithm: tasting.algorithm })
 		.from(tasting)
 		.where(eq(tasting.id, tastingId))
-		.get()?.pourRules;
+		.get();
 	const rows = db
 		.select({
 			bottle: tastingBottle,
+			fact: tastingBottleFact,
 			username: user.username,
 			deactivatedAt: user.deactivatedAt
 		})
 		.from(tastingBottle)
 		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
 		.innerJoin(user, eq(user.id, tastingParticipant.userId))
+		.leftJoin(tastingBottleFact, eq(tastingBottleFact.bottleId, tastingBottle.id))
 		.where(eq(tastingParticipant.tastingId, tastingId))
 		.orderBy(asc(tastingBottle.id))
 		.all();
-	const active = rows.flatMap(({ bottle, username, deactivatedAt }) =>
-		isActiveBottle(bottle)
-			? [
-					{
-						...toDomain(bottle),
-						broughtBy: participantLabel(username, deactivatedAt),
-						presentation: presentations ? presentationRef(bottle) : null,
-						frozen: frozenPour(bottle)
-					}
-				]
-			: []
-	);
-	if (active.length !== rows.length) {
+	if (rows.some((row) => row.bottle.archived)) {
 		return { archived: true, bottles: toArchivedReveal(rows, presentations) };
 	}
-	// Frozen with the order like positions and scores, the current ones before.
-	const rules = frozenRules ? (JSON.parse(frozenRules) as ScoreRules) : SCORE_RULES;
-	return { archived: false, bottles: inPouringOrder(active), rules };
+	const pourRules = t?.pourRules ?? null;
+	const withBringer = ({ bottle, username, deactivatedAt }: (typeof rows)[number]) => ({
+		broughtBy: participantLabel(username, deactivatedAt),
+		presentation: presentations ? presentationRef(bottle) : null
+	});
+
+	if (t?.algorithm === 'facts') {
+		const bottles = rows.map((row) => {
+			const fact = factsOf(row.bottle, row.fact);
+			if (!fact) throw bottleMismatch(tastingId, 'facts');
+			return {
+				...toFactsDomain(row.bottle, fact),
+				...withBringer(row),
+				frozen: frozenFactsPour(row.bottle)
+			};
+		});
+		// Frozen with the order like positions and scores, the current ones before.
+		const rules = rulesFor(pourRules, FACTS_RULES, tastingId);
+		return {
+			archived: false,
+			algorithm: 'facts',
+			bottles: inFactsPouringOrder(bottles, rules),
+			rules
+		};
+	}
+
+	const bottles = rows.map((row) => {
+		if (!isActiveBottle(row.bottle)) throw bottleMismatch(tastingId, 'taste');
+		return { ...toDomain(row.bottle), ...withBringer(row), frozen: frozenPour(row.bottle) };
+	});
+	const rules = rulesFor(pourRules, SCORE_RULES, tastingId);
+	return { archived: false, algorithm: 'taste', bottles: inPouringOrder(bottles), rules };
+}
+
+/** What a facts order freezes per bottle besides position and score (tasting_bottle.pour_breakdown). */
+type FrozenFactsBreakdown = { shares: FactsShares; range: ScoreRange | null };
+
+type FrozenFactsPour = FactsPour & { position: number };
+
+function frozenFactsPour(bottle: BottleRow): FrozenFactsPour | null {
+	const { pourPosition: position, pourScore: score, pourBreakdown } = bottle;
+	if (position === null || score === null || pourBreakdown === null) return null;
+	const { shares, range } = JSON.parse(pourBreakdown) as FrozenFactsBreakdown;
+	return { position, score, shares, range };
+}
+
+/**
+ * Like inPouringOrder for a facts tasting: as frozen once the order came out,
+ * computed with `rules` only before that.
+ */
+function inFactsPouringOrder<T extends FactsBottle & { frozen: FrozenFactsPour | null }>(
+	bottles: T[],
+	rules: FactsScoreRules
+): Array<T & FactsPour> {
+	if (!bottles.every((b): b is T & { frozen: FrozenFactsPour } => b.frozen !== null)) {
+		return sortFactsForPouring(bottles, rules);
+	}
+	return bottles
+		.map((b) => ({ ...b, score: b.frozen.score, shares: b.frozen.shares, range: b.frozen.range }))
+		.sort((a, b) => a.frozen.position - b.frozen.position);
 }
 
 type FrozenPour = Pour & { position: number };
@@ -315,30 +553,74 @@ function inPouringOrder<T extends TastingBottle & { frozen: FrozenPour | null }>
 }
 
 /**
- * Freezes a tasting's pouring order as the algorithm computes it now:
- * position, score and factor shares stored with each bottle, the rules the
- * explainer tile shows (SCORE_RULES) with the tasting – pouredBottles reads
- * them from then on. Runs once the order comes out (see freezeDueOrders), the
- * bottles can't change any more by then. Idempotent; a tasting with an
- * archived bottle has no order and stays as it is. Returns whether it froze
- * anything.
+ * Freezes a tasting's pouring order as its algorithm computes it now:
+ * position, score and factor shares (and, for facts, the range) stored with
+ * each bottle, the rules the explainer tile shows (SCORE_RULES resp.
+ * FACTS_RULES) with the tasting – pouredBottles reads them from then on. Runs
+ * once the order comes out (see freezeDueOrders), the bottles can't change any
+ * more by then. Idempotent; a tasting with an archived bottle has no order and
+ * stays as it is, so does one with a bottle that doesn't fit its algorithm.
+ * Returns whether it froze anything.
  */
 function freezePouringOrder(db: Executor, tastingId: string): boolean {
-	const rulesFrozen =
-		db
-			.select({ id: tasting.id })
-			.from(tasting)
-			.where(and(eq(tasting.id, tastingId), isNotNull(tasting.pourRules)))
-			.get() !== undefined;
+	const t = db
+		.select({ pourRules: tasting.pourRules, algorithm: tasting.algorithm })
+		.from(tasting)
+		.where(eq(tasting.id, tastingId))
+		.get();
+	if (!t) return false;
 	const rows = db
-		.select({ bottle: tastingBottle })
+		.select({ bottle: tastingBottle, fact: tastingBottleFact })
 		.from(tastingBottle)
 		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+		.leftJoin(tastingBottleFact, eq(tastingBottleFact.bottleId, tastingBottle.id))
 		.where(eq(tastingParticipant.tastingId, tastingId))
 		// The same input order as pouredBottles.
 		.orderBy(asc(tastingBottle.id))
-		.all()
-		.map((row) => row.bottle);
+		.all();
+	return t.algorithm === 'facts'
+		? freezeFactsOrder(db, tastingId, t.pourRules !== null, rows)
+		: freezeTasteOrder(
+				db,
+				tastingId,
+				t.pourRules !== null,
+				rows.map((row) => row.bottle)
+			);
+}
+
+function freezeFactsOrder(
+	db: Executor,
+	tastingId: string,
+	rulesFrozen: boolean,
+	rows: Array<{ bottle: BottleRow; fact: FactRow | null }>
+): boolean {
+	if (rulesFrozen && rows.every((row) => frozenFactsPour(row.bottle) !== null)) return false;
+	const bottles = rows.flatMap(({ bottle, fact }) => {
+		const facts = factsOf(bottle, fact);
+		return facts ? [{ id: bottle.id, ...toFactsDomain(bottle, facts) }] : [];
+	});
+	if (bottles.length !== rows.length) return false;
+
+	sortFactsForPouring(bottles, FACTS_RULES).forEach((b, i) => {
+		const breakdown: FrozenFactsBreakdown = { shares: b.shares, range: b.range };
+		db.update(tastingBottle)
+			.set({ pourPosition: i + 1, pourScore: b.score, pourBreakdown: JSON.stringify(breakdown) })
+			.where(eq(tastingBottle.id, b.id))
+			.run();
+	});
+	db.update(tasting)
+		.set({ pourRules: JSON.stringify(FACTS_RULES) })
+		.where(eq(tasting.id, tastingId))
+		.run();
+	return true;
+}
+
+function freezeTasteOrder(
+	db: Executor,
+	tastingId: string,
+	rulesFrozen: boolean,
+	rows: BottleRow[]
+): boolean {
 	if (rulesFrozen && rows.every((row) => frozenPour(row) !== null)) return false;
 	const active = rows.filter(isActiveBottle);
 	if (active.length !== rows.length) return false;
@@ -470,6 +752,8 @@ export type NewTasting = {
 	tastingDate: string;
 	/** Users taking part, in the order they are listed. */
 	participantUserIds: string[];
+	/** How the pouring order is computed, `taste` if missing; never changed afterwards. */
+	algorithm?: TastingAlgorithm;
 };
 
 /** A random index below `max`: crypto's randomInt, replaceable in tests. */
@@ -547,6 +831,7 @@ export function createTasting(
 				motto: input.motto ?? null,
 				mottoDescription: input.mottoDescription ?? null,
 				tastingDate: input.tastingDate,
+				algorithm: input.algorithm ?? 'taste',
 				createdAt: now
 			})
 			.run();
@@ -1037,13 +1322,22 @@ export function getTastingHistoryDetail(
 		mottoDescription: t.mottoDescription
 	};
 	const slug = own ? t.slug : null;
-	const poured = pouredBottles(db, id, own);
-	return poured.archived
-		? { tasting: head, slug, archived: true, bottles: poured.bottles }
-		: {
-				tasting: head,
-				slug,
+	return { tasting: head, slug, ...revealOf(pouredBottles(db, id, own)) };
+}
+
+/** The reveal of poured bottles, picked explicitly per algorithm. */
+function revealOf(poured: Poured): Reveal {
+	if (poured.archived) return { archived: true, bottles: poured.bottles };
+	return poured.algorithm === 'facts'
+		? {
 				archived: false,
+				algorithm: 'facts',
+				bottles: toFactsReveal(poured.bottles),
+				rules: poured.rules
+			}
+		: {
+				archived: false,
+				algorithm: 'taste',
 				bottles: toReveal(poured.bottles),
 				rules: poured.rules
 			};
@@ -1059,6 +1353,8 @@ export type AdminTastingDetail = {
 		motto: string | null;
 		mottoDescription: string | null;
 		tastingDate: string;
+		/** Management data like the date: says nothing about the bottles. */
+		algorithm: TastingAlgorithm;
 	};
 	phase: TastingPhase;
 	participants: AdminParticipant[];
@@ -1104,7 +1400,8 @@ export function getAdminTastingDetail(
 			name: t.name,
 			motto: t.motto,
 			mottoDescription: t.mottoDescription,
-			tastingDate: t.tastingDate
+			tastingDate: t.tastingDate,
+			algorithm: t.algorithm
 		},
 		phase: getTastingPhase(t.tastingDate, now, t),
 		participants,
@@ -1308,6 +1605,7 @@ export type Participant = ManualPhaseChanges & {
 	tastingDate: string;
 	tastingMotto: string | null;
 	tastingMottoDescription: string | null;
+	tastingAlgorithm: TastingAlgorithm;
 };
 
 /**
@@ -1326,6 +1624,7 @@ export function findParticipant(db: Db, slug: string, userId: string): Participa
 				tastingDate: tasting.tastingDate,
 				tastingMotto: tasting.motto,
 				tastingMottoDescription: tasting.mottoDescription,
+				tastingAlgorithm: tasting.algorithm,
 				orderOpenedAt: tasting.orderOpenedAt,
 				revealedAt: tasting.revealedAt
 			})
@@ -1337,8 +1636,14 @@ export function findParticipant(db: Db, slug: string, userId: string): Participa
 	);
 }
 
-/** The participant's own bottle during entry, incl. the name of an uploaded presentation. */
-export type OwnBottle = TastingBottle & { slot: number; presentationName: string | null };
+/**
+ * The participant's own bottle during entry, incl. the name of an uploaded
+ * presentation – with the sliders or the facts, by the tasting's algorithm.
+ */
+export type OwnBottle = (TastingBottle | FactsBottle) & {
+	slot: number;
+	presentationName: string | null;
+};
 
 /**
  * The page head in every phase. The motto is management data the admin sets
@@ -1356,6 +1661,8 @@ export type ParticipantView =
 			phase: 'entry';
 			tasting: ParticipantTasting;
 			participant: { username: string };
+			/** Which fields the form shows: the sliders or the facts. */
+			algorithm: TastingAlgorithm;
 			bottles: OwnBottle[];
 			/**
 			 * Input help of the distillery field: one spelling per distillery of the
@@ -1413,23 +1720,24 @@ export function getParticipantView(
 			if (hasArchivedBottles(db, holder.tastingId)) {
 				throw archivedBeforeReveal(holder.tastingId, phase);
 			}
+			// Only the participant's own bottles, their facts included.
 			const bottles = db
-				.select()
+				.select({ bottle: tastingBottle, fact: tastingBottleFact })
 				.from(tastingBottle)
+				.leftJoin(tastingBottleFact, eq(tastingBottleFact.bottleId, tastingBottle.id))
 				.where(eq(tastingBottle.participantId, holder.id))
 				.orderBy(asc(tastingBottle.slot))
 				.all()
-				// None of them is archived (checked above), this narrows the type.
-				.filter(isActiveBottle)
-				.map((row) => ({
-					slot: row.slot,
-					...toDomain(row),
-					presentationName: row.presentationFile ? row.presentationName : null
+				.map(({ bottle, fact }): OwnBottle => ({
+					slot: bottle.slot,
+					...domainBottle(bottle, fact, holder.tastingAlgorithm, holder.tastingId),
+					presentationName: bottle.presentationFile ? bottle.presentationName : null
 				}));
 			return {
 				phase,
 				tasting: tastingInfo,
 				participant: { username: holder.username },
+				algorithm: holder.tastingAlgorithm,
 				bottles,
 				distilleryNames: [
 					...distinctDistilleryNames(listRevealedDistilleryNames(db, now)).values()
@@ -1447,19 +1755,13 @@ export function getParticipantView(
 				rules: poured.rules
 			};
 		}
-		case 'revealed': {
-			const poured = pouredBottles(db, holder.tastingId);
-			return poured.archived
-				? { phase, tasting: tastingInfo, manual, archived: true, bottles: poured.bottles }
-				: {
-						phase,
-						tasting: tastingInfo,
-						manual,
-						archived: false,
-						bottles: toReveal(poured.bottles),
-						rules: poured.rules
-					};
-		}
+		case 'revealed':
+			return {
+				phase,
+				tasting: tastingInfo,
+				manual,
+				...revealOf(pouredBottles(db, holder.tastingId))
+			};
 	}
 }
 
@@ -1481,21 +1783,29 @@ function aliasKey(alias: string): string {
  * kept file as well. On success `fileChanges` lists the moves and deletions
  * the caller applies to MEDIA_PATH after the commit.
  *
+ * A bottle of a `facts` tasting comes with its facts instead of the sliders
+ * and stores them in tasting_bottle_fact in the same transaction.
+ *
  * Returns status 'alias-taken' if another bottle of the tasting uses the
  * alias; throws TastingValidationError if the entry phase is over, the tasting
- * has archived bottles or the slot doesn't exist.
+ * has archived bottles, the bottle doesn't fit the tasting's algorithm or the
+ * slot doesn't exist.
  */
 export function saveBottle(
 	db: Db,
 	holder: Pick<Participant, 'id' | 'tastingId'>,
 	slot: number,
-	bottle: TastingBottle,
+	bottle: TastingBottle | FactsBottle,
 	now: Date = new Date(),
 	presentation?: PendingUpload | null
 ): SaveBottleResult {
 	return db.transaction((tx): SaveBottleResult => {
 		const closed = 'Die Eingabe ist geschlossen, deine Änderung wurde nicht gespeichert.';
-		const t = tx.select(phaseColumns).from(tasting).where(eq(tasting.id, holder.tastingId)).get();
+		const t = tx
+			.select({ ...phaseColumns, algorithm: tasting.algorithm })
+			.from(tasting)
+			.where(eq(tasting.id, holder.tastingId))
+			.get();
 		// Also catches the admin's 18:00 / 9:00 button pressed while the page was open.
 		if (!t || getTastingPhase(t.tastingDate, now, t) !== 'entry') {
 			throw new TastingValidationError(
@@ -1509,6 +1819,14 @@ export function saveBottle(
 			throw new TastingValidationError(
 				`save rejected: tasting ${holder.tastingId} has archived bottles`,
 				closed
+			);
+		}
+		// The algorithm never changes; this catches a request built for the other one.
+		const isFacts = 'facts' in bottle;
+		if (isFacts !== (t.algorithm === 'facts')) {
+			throw new TastingValidationError(
+				`save rejected: bottle doesn't fit the ${t.algorithm} algorithm of tasting ${holder.tastingId}`,
+				WRONG_FIELDS_MESSAGE
 			);
 		}
 		// Number.isInteger also catches NaN from a tampered form field.
@@ -1555,24 +1873,50 @@ export function saveBottle(
 				)
 		);
 
-		tx.insert(tastingBottle)
+		// Picked explicitly: no facts into tasting_bottle, no sliders for a facts bottle.
+		const columns = {
+			alias: bottle.alias,
+			distillery: bottle.distillery,
+			bottler: bottle.bottler,
+			bottling: bottle.bottling,
+			age: bottle.age,
+			whiskybaseUrl: bottle.whiskybaseUrl,
+			abv: bottle.abv,
+			smoke: isFacts ? null : bottle.smoke,
+			cask: isFacts ? null : bottle.cask,
+			value: isFacts ? null : bottle.value
+		};
+		const saved = tx
+			.insert(tastingBottle)
 			.values({
 				id: randomUUID(),
 				participantId: holder.id,
 				slot,
-				...bottle,
+				...columns,
 				...presentationColumns,
 				updatedAt: now
 			})
 			.onConflictDoUpdate({
 				target: [tastingBottle.participantId, tastingBottle.slot],
-				set: { ...bottle, ...presentationColumns, updatedAt: now }
+				set: { ...columns, ...presentationColumns, updatedAt: now }
 			})
-			.run();
+			.returning({ id: tastingBottle.id })
+			.get();
+		if (isFacts) {
+			const facts = factColumns(bottle.facts);
+			tx.insert(tastingBottleFact)
+				.values({ bottleId: saved.id, ...facts })
+				.onConflictDoUpdate({ target: tastingBottleFact.bottleId, set: facts })
+				.run();
+		}
 
 		return { status: 'saved', fileChanges };
 	});
 }
+
+/** A request with the fields of the other algorithm – an outdated page, never the form itself. */
+export const WRONG_FIELDS_MESSAGE =
+	'Die Angaben passen nicht zu diesem Tasting, sie wurden nicht gespeichert. Lade die Seite neu.';
 
 export type SaveBottleResult =
 	{ status: 'saved'; fileChanges: FileChange[] } | { status: 'alias-taken' };

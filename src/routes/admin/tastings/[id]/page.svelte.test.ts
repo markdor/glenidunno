@@ -13,7 +13,8 @@ const base = {
 		name: 'Herbst-Tasting',
 		motto: null,
 		mottoDescription: null,
-		tastingDate: '2026-10-24'
+		tastingDate: '2026-10-24',
+		algorithm: 'taste'
 	},
 	participants: [
 		{ id: 'p1', name: 'Anna', progress: { entered: 1, total: 2 } },
@@ -42,6 +43,16 @@ describe('Tasting detail page', () => {
 		await expect.element(page.getByText('2 von 2 Flaschen')).toBeVisible();
 		await expect.element(page.getByLabelText('Datum')).toHaveValue('2026-10-24');
 		await expect.element(page.getByLabelText('Datum')).toHaveAttribute('min', '2026-10-20');
+	});
+
+	test('names the algorithm the order follows', async () => {
+		renderDetail({ phase: 'entry' });
+		await expect.element(page.getByText('Reihenfolge nach:')).toHaveTextContent('Geschmack');
+	});
+
+	test('names the facts algorithm of a facts tasting', async () => {
+		renderDetail({ phase: 'order', tasting: { ...base.tasting, algorithm: 'facts' } });
+		await expect.element(page.getByText('Reihenfolge nach:')).toHaveTextContent('Fakten');
 	});
 
 	test.each(['entry', 'order', 'revealed'])(

@@ -11,7 +11,11 @@ import {
 	TASTING_ALIAS_LENGTH,
 	TASTING_BOTTLE_SLOTS,
 	TASTING_BOTTLING_LENGTH,
+	TASTING_CASK_INFLUENCE,
+	TASTING_CASK_LABEL_LENGTH,
 	TASTING_DISTILLERY_LENGTH,
+	TASTING_FINISH_MONTHS,
+	TASTING_PRICE,
 	TASTING_SCALE
 } from '$lib/validation';
 import { runMigrations } from './migrate';
@@ -37,7 +41,8 @@ describe('foreign keys', () => {
 			source: 'tasting_write_throttle',
 			table: schema.tastingWriteThrottle,
 			target: 'tasting_participant'
-		}
+		},
+		{ source: 'tasting_bottle_fact', table: schema.tastingBottleFact, target: 'tasting_bottle' }
 	])(
 		'$source → $target cascades on delete',
 		({ table, target }: { table: SQLiteTable; target: string }) => {
@@ -82,13 +87,29 @@ describe('tasting CHECK constraints', () => {
 		});
 	});
 
-	it('tie the factors to the archive flag: none for archived bottles, all three otherwise', () => {
+	it('tie the factors to the archive flag: none for archived bottles, all three or none otherwise', () => {
 		const archivedFactors = checksOf(schema.tastingBottle).find(
 			(c) => c.name === 'tasting_bottle_archived_factors'
 		);
 		expect(archivedFactors?.sql).toBe(
-			'("tasting_bottle"."archived" = 0 AND "tasting_bottle"."smoke" IS NOT NULL AND "tasting_bottle"."cask" IS NOT NULL AND "tasting_bottle"."value" IS NOT NULL) OR ("tasting_bottle"."archived" = 1 AND "tasting_bottle"."smoke" IS NULL AND "tasting_bottle"."cask" IS NULL AND "tasting_bottle"."value" IS NULL)'
+			'("tasting_bottle"."archived" = 0 AND (("tasting_bottle"."smoke" IS NOT NULL AND "tasting_bottle"."cask" IS NOT NULL AND "tasting_bottle"."value" IS NOT NULL) OR ("tasting_bottle"."smoke" IS NULL AND "tasting_bottle"."cask" IS NULL AND "tasting_bottle"."value" IS NULL))) OR ("tasting_bottle"."archived" = 1 AND "tasting_bottle"."smoke" IS NULL AND "tasting_bottle"."cask" IS NULL AND "tasting_bottle"."value" IS NULL)'
 		);
+	});
+
+	it('derive the bounds of the bottle facts from the shared constants', () => {
+		const checks = checksOf(schema.tastingBottleFact);
+		for (const c of checks) {
+			expect(c.params, c.name).toEqual([]);
+			expect(c.sql, c.name).not.toContain('?');
+		}
+		expect(Object.fromEntries(checks.map((c) => [c.name, c.sql]))).toMatchObject({
+			tasting_bottle_fact_peat: `"tasting_bottle_fact"."peat" IN ('none', 'light', 'heavy')`,
+			tasting_bottle_fact_price_range: `"tasting_bottle_fact"."price_cents" BETWEEN ${TASTING_PRICE.min * 100} AND ${TASTING_PRICE.max * 100}`,
+			tasting_bottle_fact_finish_months_range: `"tasting_bottle_fact"."finish_months" BETWEEN ${TASTING_FINISH_MONTHS.min} AND ${TASTING_FINISH_MONTHS.max}`,
+			tasting_bottle_fact_cask_influence_range: `"tasting_bottle_fact"."cask_influence" BETWEEN ${TASTING_CASK_INFLUENCE.min} AND ${TASTING_CASK_INFLUENCE.max}`,
+			tasting_bottle_fact_cask_label_length: `length("tasting_bottle_fact"."cask_label") BETWEEN 1 AND ${TASTING_CASK_LABEL_LENGTH.max}`,
+			tasting_bottle_fact_finish_kind: `"tasting_bottle_fact"."finish_kind" IN ('none', 'known', 'other', 'unknown')`
+		});
 	});
 
 	it('leave the number of bottles to the participants', () => {
@@ -206,15 +227,113 @@ describe('migrated tasting tables', () => {
 			label: 'an archived bottle with one factor left',
 			overrides: { archived: true, smoke: null, cask: null }
 		},
-		{
-			label: 'a bottle without factors that isn’t archived',
-			overrides: { smoke: null, cask: null, value: null }
-		},
-		{ label: 'a bottle missing one factor', overrides: { cask: null } }
+		{ label: 'a bottle missing one factor', overrides: { cask: null } },
+		{ label: 'a bottle with one factor only', overrides: { smoke: null, cask: null } }
 	])('rejects $label', ({ overrides }) => {
 		expect(() => insertBottle(overrides)).toThrow(
 			/CHECK constraint failed: tasting_bottle_archived_factors/
 		);
+	});
+
+	it('accepts a bottle of a facts tasting: not archived, without smoke, cask and value', () => {
+		insertBottle({ smoke: null, cask: null, value: null });
+		expect(db.select().from(schema.tastingBottle).get()).toMatchObject({
+			archived: false,
+			smoke: null,
+			cask: null,
+			value: null
+		});
+	});
+
+	it('creates a tasting with the taste algorithm unless told otherwise', () => {
+		expect(db.select().from(schema.tasting).get()?.algorithm).toBe('taste');
+	});
+
+	describe('bottle facts', () => {
+		function insertFacts(overrides: Partial<typeof schema.tastingBottleFact.$inferInsert> = {}) {
+			db.insert(schema.tastingBottleFact)
+				.values({
+					bottleId: 'b1',
+					peat: 'none',
+					caskKind: 'known',
+					caskType: 'sherry_px',
+					finishKind: 'none',
+					priceCents: 4990,
+					...overrides
+				})
+				.run();
+		}
+
+		beforeEach(() => insertBottle({ smoke: null, cask: null, value: null }));
+
+		it.each([
+			['a cask of the list with refill and no price', { caskRefill: true, priceCents: null }],
+			[
+				'an other cask with a finish of the list',
+				{
+					caskKind: 'other' as const,
+					caskType: null,
+					caskLabel: 'Tequila',
+					caskInfluence: 4,
+					finishKind: 'known' as const,
+					finishType: 'port' as const,
+					finishRefill: true,
+					finishMonths: 6
+				}
+			],
+			[
+				'unknown casks and an other finish without duration',
+				{
+					caskKind: 'unknown' as const,
+					caskType: null,
+					finishKind: 'other' as const,
+					finishLabel: 'Mizunara',
+					finishInfluence: 10
+				}
+			],
+			['the price bounds', { priceCents: TASTING_PRICE.max * 100 }]
+		])('accepts %s', (_, overrides) => {
+			insertFacts(overrides);
+			expect(db.select().from(schema.tastingBottleFact).all()).toHaveLength(1);
+		});
+
+		it.each([
+			['an unknown peat level', { peat: 'smoky' as 'none' }],
+			['a known cask without type', { caskType: null }],
+			['an unknown cask with type', { caskKind: 'unknown' as const }],
+			['a type outside the list', { caskType: 'tequila' as 'rum' }],
+			[
+				'an other cask without rating',
+				{ caskKind: 'other' as const, caskType: null, caskLabel: 'x' }
+			],
+			['a label on a known cask', { caskLabel: 'x' }],
+			['a refill on virgin oak', { caskType: 'virgin_oak' as const, caskRefill: true }],
+			['a refill on an unknown finish', { finishKind: 'unknown' as const, finishRefill: true }],
+			['months without a finish', { finishMonths: 6 }],
+			['months on an unknown finish', { finishKind: 'unknown' as const, finishMonths: 6 }],
+			[
+				'a finish of 0 months',
+				{ finishKind: 'known' as const, finishType: 'port' as const, finishMonths: 0 }
+			],
+			[
+				'a rating above 10',
+				{ caskKind: 'other' as const, caskType: null, caskLabel: 'x', caskInfluence: 11 }
+			],
+			[
+				'an empty label',
+				{ caskKind: 'other' as const, caskType: null, caskLabel: '', caskInfluence: 1 }
+			],
+			['a price below 10 €', { priceCents: 999 }],
+			['a price above 999 €', { priceCents: 99901 }]
+		])('rejects %s', (_, overrides) => {
+			expect(() => insertFacts(overrides)).toThrow(/CHECK constraint failed/);
+		});
+
+		it('go with the bottle', () => {
+			insertFacts();
+			db.delete(schema.tastingBottle).run();
+			expect(db.select().from(schema.tastingBottleFact).all()).toEqual([]);
+		});
 	});
 
 	it('rejects a second bottle in the same slot', () => {

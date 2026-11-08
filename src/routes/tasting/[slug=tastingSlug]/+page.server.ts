@@ -1,17 +1,7 @@
 import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import type { TastingBottle } from '$lib/tasting';
-import {
-	normalizeWhiskybaseUrl,
-	TASTING_ABV,
-	TASTING_AGE,
-	TASTING_ALIAS_LENGTH,
-	TASTING_BOTTLER_LENGTH,
-	TASTING_BOTTLING_LENGTH,
-	TASTING_DISTILLERY_LENGTH,
-	TASTING_SCALE
-} from '$lib/validation';
 import { db } from '$lib/server/db';
+import { parseBottleForm } from '$lib/server/bottleForm';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
 import { logger } from '$lib/server/logger';
 import {
@@ -28,6 +18,7 @@ import {
 	removeBottle,
 	saveBottle,
 	TastingValidationError,
+	WRONG_FIELDS_MESSAGE,
 	type SaveBottleResult
 } from '$lib/server/tastings';
 
@@ -49,95 +40,6 @@ export const load: PageServerLoad = ({ locals, params }) => {
 	}
 };
 
-/**
- * The only text fields the save action reads (besides slot, the
- * `presentation` file and the `removePresentation` checkbox).
- */
-const BOTTLE_FIELDS = [
-	'alias',
-	'distillery',
-	'bottler',
-	'bottling',
-	'age',
-	'whiskybaseUrl',
-	'smoke',
-	'cask',
-	'abv',
-	'value'
-] as const;
-
-type RawBottle = Record<(typeof BOTTLE_FIELDS)[number], string>;
-
-// One decimal place at most; trailing zeros (46.30) are fine, comma or dot.
-const ABV_RE = /^\d{1,3}(?:\.\d0*)?$/;
-
-function parseBottle(raw: RawBottle): {
-	bottle: TastingBottle | null;
-	fieldErrors: Record<string, string>;
-} {
-	const fieldErrors: Record<string, string> = {};
-
-	function text(field: keyof RawBottle, max: number, required: boolean): string | null {
-		const value = raw[field].trim();
-		if (!value) {
-			if (required) fieldErrors[field] = 'required';
-			return null;
-		}
-		if (value.length > max) fieldErrors[field] = 'invalid';
-		return value;
-	}
-
-	function integer(field: keyof RawBottle, min: number, max: number, required: boolean) {
-		const value = raw[field].trim();
-		if (!value) {
-			if (required) fieldErrors[field] = 'required';
-			return null;
-		}
-		const n = Number(value);
-		if (!/^\d+$/.test(value) || n < min || n > max) fieldErrors[field] = 'invalid';
-		return n;
-	}
-
-	const alias = text('alias', TASTING_ALIAS_LENGTH.max, true);
-	const distillery = text('distillery', TASTING_DISTILLERY_LENGTH.max, true);
-	const bottler = text('bottler', TASTING_BOTTLER_LENGTH.max, false);
-	const bottling = text('bottling', TASTING_BOTTLING_LENGTH.max, false);
-	const age = integer('age', TASTING_AGE.min, TASTING_AGE.max, false);
-	const smoke = integer('smoke', TASTING_SCALE.min, TASTING_SCALE.max, true);
-	const cask = integer('cask', TASTING_SCALE.min, TASTING_SCALE.max, true);
-	const value = integer('value', TASTING_SCALE.min, TASTING_SCALE.max, true);
-
-	const rawAbv = raw.abv.trim().replace(',', '.');
-	const abv = Number(rawAbv);
-	if (!rawAbv) fieldErrors.abv = 'required';
-	else if (!ABV_RE.test(rawAbv) || abv < TASTING_ABV.min || abv > TASTING_ABV.max) {
-		fieldErrors.abv = 'invalid';
-	}
-
-	// Server-side check via new URL(): only https links to whiskybase.com make
-	// it into the reveal, no javascript: or foreign links.
-	const rawUrl = raw.whiskybaseUrl.trim();
-	const whiskybaseUrl = rawUrl ? normalizeWhiskybaseUrl(rawUrl) : null;
-	if (rawUrl && !whiskybaseUrl) fieldErrors.whiskybaseUrl = 'invalid';
-
-	if (Object.keys(fieldErrors).length > 0) return { bottle: null, fieldErrors };
-	return {
-		bottle: {
-			alias: alias!,
-			distillery: distillery!,
-			bottler,
-			bottling,
-			age,
-			whiskybaseUrl,
-			smoke: smoke!,
-			cask: cask!,
-			abv,
-			value: value!
-		},
-		fieldErrors
-	};
-}
-
 // Save and remove share the participant's write limit.
 const WRITE_LIMIT_MESSAGE =
 	'Zu viele Speichervorgänge. Warte ein paar Minuten und versuch es dann erneut.';
@@ -153,10 +55,13 @@ export const actions: Actions = {
 
 		const form = await request.formData();
 		const slot = Number(form.get('slot'));
-		const values = Object.fromEntries(
-			BOTTLE_FIELDS.map((field) => [field, String(form.get(field) ?? '')])
-		) as RawBottle;
-		const { bottle, fieldErrors } = parseBottle(values);
+		// Only the fields of the tasting's algorithm; the other one's mean an
+		// outdated page – reloading shows the right form.
+		const { bottle, values, fieldErrors, foreign } = parseBottleForm(form, holder.tastingAlgorithm);
+		if (foreign) {
+			logger.info({ tastingId: holder.tastingId }, 'tasting save rejected: foreign fields');
+			return fail(422, { action: 'save', slot, userMessage: WRONG_FIELDS_MESSAGE, reload: true });
+		}
 		const { upload, error: uploadError } = checkPresentationUpload(form.get('presentation'));
 		if (uploadError) fieldErrors.presentation = uploadError;
 		if (!bottle || uploadError) return fail(400, { action: 'save', slot, values, fieldErrors });

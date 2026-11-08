@@ -37,7 +37,7 @@ function realMigrationsUpTo(lastTag: string): string {
 
 /**
  * Bottle rows from before migration 0009, as they read after all migrations:
- * the archive flag (0009) off for all of them, no frozen pouring order (0015).
+ * the archive flag (0009) off for all of them, no frozen pouring order (0015, 0016).
  */
 function notArchived(bottles: unknown[]): unknown[] {
 	return bottles.map((bottle) => ({
@@ -48,7 +48,8 @@ function notArchived(bottles: unknown[]): unknown[] {
 		pour_smoke_share: null,
 		pour_cask_share: null,
 		pour_abv_share: null,
-		pour_value_share: null
+		pour_value_share: null,
+		pour_breakdown: null
 	}));
 }
 
@@ -505,5 +506,95 @@ describe('migration 0014: motto description', () => {
 			{ id: 't-autumn', motto: 'Inselhüpfen', motto_description: null },
 			{ id: 't-winter', motto: null, motto_description: null }
 		]);
+	});
+});
+
+describe('migrations 0016–0017: facts tastings', () => {
+	let sqlite: Database.Database;
+
+	function rows(query: string): unknown[] {
+		return sqlite.prepare(query).all();
+	}
+
+	/** Rows as the version with frozen pouring orders (state 0015) wrote them. */
+	function seed() {
+		sqlite
+			.prepare(
+				`INSERT INTO user (id, name, email, email_verified, created_at, updated_at, username, is_admin)
+				 VALUES ('u-anna', 'Anna', 'anna@example.com', 1, 1, 1, 'Anna', 0)`
+			)
+			.run();
+		sqlite
+			.prepare(
+				`INSERT INTO tasting (id, slug, name, tasting_date, created_at, order_opened_at, pour_rules)
+				 VALUES ('t-autumn', 'fluffy-otter', 'Herbst', '2026-10-24', 100, 200, '{"version":1}')`
+			)
+			.run();
+		sqlite
+			.prepare("INSERT INTO tasting_participant VALUES ('p-anna', 't-autumn', 'u-anna', 100)")
+			.run();
+		const bottle = sqlite.prepare(
+			`INSERT INTO tasting_bottle (id, participant_id, slot, alias, distillery, smoke, cask, abv,
+			   value, archived, updated_at, presentation_file, presentation_name, pour_position,
+			   pour_score, pour_smoke_share, pour_cask_share, pour_abv_share, pour_value_share)
+			 VALUES (?, 'p-anna', ?, ?, 'Ardbeg', ?, 2, 46.3, ?, 0, 300, ?, ?, ?, ?, 0.2, 0.4, 0.252, 0.6)`
+		);
+		bottle.run('b-nebel', 1, 'Nebel', 1, 3, null, null, 1, 39.5);
+		bottle.run('b-torf', 2, 'Torf', 5, 5, 'Tasting_2026-10-24_Torf.pptx', 'Vortrag.pptx', 2, 71.2);
+	}
+
+	beforeEach(() => {
+		sqlite = new Database(':memory:');
+		runMigrations(sqlite, realMigrationsUpTo('0015_tasting_frozen_pour_order'));
+		seed();
+	});
+
+	it('keeps every bottle with its frozen order; existing tastings use the taste algorithm', () => {
+		const before = rows('SELECT * FROM tasting_bottle ORDER BY id');
+
+		runMigrations(sqlite, './drizzle');
+
+		expect(rows('SELECT * FROM tasting_bottle ORDER BY id')).toEqual(
+			before.map((bottle) => ({ ...(bottle as object), pour_breakdown: null }))
+		);
+		expect(rows('SELECT id, algorithm, pour_rules FROM tasting')).toEqual([
+			{ id: 't-autumn', algorithm: 'taste', pour_rules: '{"version":1}' }
+		]);
+		expect(rows('SELECT * FROM tasting_bottle_fact')).toEqual([]);
+		expect(sqlite.pragma('foreign_key_check')).toEqual([]);
+		expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
+	});
+
+	it('allows bottles without factors that aren’t archived and keeps slot, cascade and checks', () => {
+		runMigrations(sqlite, './drizzle');
+
+		sqlite
+			.prepare(
+				`INSERT INTO tasting_bottle (id, participant_id, slot, alias, distillery, abv, updated_at)
+				 VALUES ('b-fakt', 'p-anna', 3, 'Fakt', 'Ardbeg', 46, 300)`
+			)
+			.run();
+		sqlite
+			.prepare(
+				`INSERT INTO tasting_bottle_fact (bottle_id, peat, cask_kind, cask_type, finish_kind)
+				 VALUES ('b-fakt', 'heavy', 'known', 'bourbon', 'none')`
+			)
+			.run();
+		expect(() =>
+			sqlite.prepare("UPDATE tasting_bottle SET smoke = NULL WHERE id = 'b-nebel'").run()
+		).toThrow(/CHECK constraint failed: tasting_bottle_archived_factors/);
+		expect(() =>
+			sqlite
+				.prepare(
+					`INSERT INTO tasting_bottle (id, participant_id, slot, alias, distillery, abv, updated_at)
+					 VALUES ('b-twin', 'p-anna', 1, 'Zwilling', 'Ardbeg', 40, 300)`
+				)
+				.run()
+		).toThrow(/UNIQUE constraint failed/);
+		expect(rows("SELECT name FROM sqlite_master WHERE name GLOB '__new_*'")).toEqual([]);
+
+		sqlite.prepare("DELETE FROM tasting WHERE id = 't-autumn'").run();
+		expect(rows('SELECT id FROM tasting_bottle')).toEqual([]);
+		expect(rows('SELECT bottle_id FROM tasting_bottle_fact')).toEqual([]);
 	});
 });

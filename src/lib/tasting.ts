@@ -7,8 +7,11 @@ import {
 	TASTING_SCALE,
 	type DistilleryValueState,
 	type DistilleryVariantKind,
-	type ScottishRegion
+	type ScottishRegion,
+	type TastingAlgorithm
 } from '$lib/validation';
+// Type-only: tastingFacts.ts imports this module at runtime.
+import type { FactsBottle, FactsScoreRules, ScoreRange } from '$lib/tastingFacts';
 
 /**
  * Time zone all tasting phases are computed in. The container runs in UTC
@@ -48,6 +51,15 @@ export const TASTING_PHASE_LABEL: Record<TastingPhase, string> = {
 	entry: 'Eingabe',
 	order: 'Reihenfolge',
 	revealed: 'Aufgelöst'
+};
+
+/** What the pouring order follows, as the admin picks it on creation. */
+export const TASTING_ALGORITHM_LABEL: Record<
+	TastingAlgorithm,
+	{ label: string; description: string }
+> = {
+	taste: { label: 'Geschmack', description: 'Einschätzung der Teilnehmer' },
+	facts: { label: 'Fakten', description: 'Etikett, Preis, Fass' }
 };
 
 /** A bottle as entered by its participant. Empty optional fields are `null`. */
@@ -173,12 +185,33 @@ export type ArchivedRevealedBottle = Omit<TastingBottle, 'smoke' | 'cask' | 'val
 };
 
 /**
+ * The normalized factors (0–1) of a bottle of a `facts` tasting the chart
+ * plots; `price` is `null` for an unknown price (a gap in its line).
+ */
+export type FactsShares = { cask: number; abv: number; price: number | null };
+
+/**
+ * A bottle of a `facts` tasting after the reveal: its facts, the "Wucht" as
+ * `score`, the shares and – with an unknown cask – the range of the score.
+ * Position, score, shares and range as frozen with the order.
+ */
+export type RevealedFactsBottle = FactsBottle & {
+	position: number;
+	broughtBy: string;
+	score: number;
+	shares: FactsShares;
+	range: ScoreRange | null;
+	presentation: PresentationRef | null;
+};
+
+/**
  * The reveal: the bottles in pouring order with the rules they were poured
- * by – or, once a tasting has an archived bottle, all of them without
- * factors, by bringer and slot.
+ * by, per algorithm of the tasting – or, once a tasting has an archived
+ * bottle, all of them without factors, by bringer and slot.
  */
 export type Reveal =
-	| { archived: false; bottles: RevealedBottle[]; rules: ScoreRules }
+	| { archived: false; algorithm: 'taste'; bottles: RevealedBottle[]; rules: TasteScoreRules }
+	| { archived: false; algorithm: 'facts'; bottles: RevealedFactsBottle[]; rules: FactsScoreRules }
 	| { archived: true; bottles: ArchivedRevealedBottle[] };
 
 /**
@@ -327,14 +360,15 @@ export function normalizeScoreFactors(bottle: ScoreInput): NormalizedScoreFactor
 }
 
 /**
- * The rules of the pouring order as the TastingScoreExplainer tile explains
- * them. Frozen with a tasting's order (tasting.pour_rules), so the tile keeps
- * explaining the order a tasting was poured in after the algorithm changed.
- * A change to their structure – not just their numbers – needs a new
- * `version` the tile can tell apart from the frozen ones. The tile assumes
- * the ABV share climbs faster above the kink than below it.
+ * The rules of the taste algorithm's pouring order as the
+ * TastingScoreExplainer tile explains them. Frozen with a tasting's order
+ * (tasting.pour_rules), so the tile keeps explaining the order a tasting was
+ * poured in after the algorithm changed. A change to their structure – not
+ * just their numbers – needs a new `version` the tile can tell apart from the
+ * frozen ones (version 2 is the facts algorithm, FactsScoreRules). The tile
+ * assumes the ABV share climbs faster above the kink than below it.
  */
-export type ScoreRules = {
+export type TasteScoreRules = {
 	version: 1;
 	/**
 	 * Poured in this order, each with the smoke values it covers ("0", "1–3").
@@ -357,8 +391,20 @@ export type ScoreRules = {
 	};
 };
 
-/** The rules as the code computes the order now. */
-export const SCORE_RULES: ScoreRules = {
+/** The rules of either algorithm, told apart by `version`. */
+export type ScoreRules = TasteScoreRules | FactsScoreRules;
+
+/**
+ * The groups an order is poured in, as one word for a sentence – `null`
+ * without groups (taste order with SMOKE_GROUPS_ENABLED off).
+ */
+export function pouringGroupLabel(rules: ScoreRules): string | null {
+	if (rules.version === 2) return rules.peatGroups.length > 0 ? 'Torfgruppe' : null;
+	return rules.smokeGroups.length > 0 ? 'Rauchgruppe' : null;
+}
+
+/** The rules as the code computes the taste order now. */
+export const SCORE_RULES: TasteScoreRules = {
 	version: 1,
 	smokeGroups: SMOKE_GROUPS_ENABLED
 		? SMOKE_GROUPS.map((group, i) => ({ label: group.label, range: formatSmokeGroupRange(i + 1) }))

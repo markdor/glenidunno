@@ -2,6 +2,7 @@ import { describe, test, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import { SCORE_RULES } from '$lib/tasting';
+import { FACTS_RULES } from '$lib/tastingFacts';
 import Page from './+page.svelte';
 
 const user = { id: 'u1', username: 'maxi', isAdmin: false };
@@ -108,5 +109,41 @@ describe('Tasting history detail page', () => {
 		await expect
 			.element(page.getByRole('link', { name: 'Präsentation zu Nebel ansehen' }))
 			.toHaveAttribute('href', '/tasting/fluffy-otter/presentation/b1/view?from=tastings');
+	});
+	test('shows a facts tasting with its facts, its chart and its explainer', async () => {
+		renderDetail({
+			archived: false,
+			algorithm: 'facts',
+			rules: FACTS_RULES,
+			bottles: [
+				{
+					position: 1,
+					alias: 'Rätsel',
+					distillery: 'Aberlour',
+					bottler: null,
+					bottling: null,
+					age: null,
+					whiskybaseUrl: null,
+					abv: 40,
+					facts: {
+						peat: 'none',
+						cask: { kind: 'unknown' },
+						finish: { kind: 'none' },
+						priceCents: 3500
+					},
+					broughtBy: 'Anna',
+					score: 23.8,
+					shares: { cask: 0.4, abv: 0, price: 0.19 },
+					range: { min: 13.8, max: 48.8 },
+					presentation: null
+				}
+			]
+		});
+
+		await expect
+			.element(page.getByRole('list', { name: 'Auflösung' }))
+			.toHaveTextContent(/Spanne\s*13,8–48,8/);
+		await expect.element(page.getByRole('img', { name: /Fass, Alkohol und Preis/ })).toBeVisible();
+		await expect.element(page.getByText(/zuerst nach Torf in drei Gruppen/)).toBeVisible();
 	});
 });

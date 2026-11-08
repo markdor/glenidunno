@@ -46,6 +46,16 @@ sich aus dem Tasting-Datum (Berliner Zeit):
 | ab 18 Uhr am Tasting-Tag | nur die Tastingreihenfolge der Synonyme |
 | ab 9 Uhr am Folgetag | die komplette Auflösung |
 
+Beim Anlegen wählt der Admin außerdem, wonach sich die Reihenfolge richtet,
+danach lässt sich das nicht mehr ändern:
+
+- **Geschmack:** Jeder Teilnehmer schätzt Rauch, Fass und Kaliber seiner
+  Flasche auf Reglern ein, dazu kommt der Alkohol.
+- **Fakten:** Die Teilnehmer tragen ein, was Etikett und Shop angeben: Torf,
+  Haupt- und Nachreifung (mit „Refill“), Alkohol und Listenpreis. Daraus
+  berechnet die App eine „Wucht“. Ist ein Fass unbekannt, zeigt die
+  Auflösung zusätzlich deren Spanne.
+
 Die Admin-Seite eines Tastings zeigt in keiner Phase Inhalte, nur
 Teilnehmer, Eingabefortschritt und Verwaltung. Der Admin verkostet mit
 und sieht Reihenfolge und Auflösung als Teilnehmer des Tastings.

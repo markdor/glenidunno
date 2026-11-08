@@ -113,6 +113,20 @@
 			"when": 1792416451375,
 			"tag": "0015_tasting_frozen_pour_order",
 			"breakpoints": true
+		},
+		{
+			"idx": 16,
+			"version": "6",
+			"when": 1794133354371,
+			"tag": "0016_tasting_facts",
+			"breakpoints": true
+		},
+		{
+			"idx": 17,
+			"version": "6",
+			"when": 1794133366626,
+			"tag": "0017_tasting_bottle_facts_rebuild",
+			"breakpoints": true
 		}
 	]
 }

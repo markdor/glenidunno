@@ -2,6 +2,7 @@
 	import { resolve } from '$app/paths';
 	import SubHeader from '$lib/components/SubHeader.svelte';
 	import TastingReveal from '$lib/components/TastingReveal.svelte';
+	import TastingFactsChart from '$lib/components/TastingFactsChart.svelte';
 	import TastingScoreChart from '$lib/components/TastingScoreChart.svelte';
 	import TastingScoreExplainer from '$lib/components/TastingScoreExplainer.svelte';
 	import { formatTastingDate } from '$lib/tasting';
@@ -59,7 +60,11 @@
 	</section>
 	<!-- Archived bottles have no factors: no score to chart, no order to explain. -->
 	{#if !detail.archived}
-		<TastingScoreChart bottles={detail.bottles} />
+		{#if detail.algorithm === 'facts'}
+			<TastingFactsChart bottles={detail.bottles} />
+		{:else}
+			<TastingScoreChart bottles={detail.bottles} />
+		{/if}
 		<TastingScoreExplainer rules={detail.rules} />
 	{/if}
 </div>

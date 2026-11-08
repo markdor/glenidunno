@@ -5,8 +5,17 @@
 		formatOneDecimal,
 		type ArchivedRevealedBottle,
 		type Reveal,
-		type RevealedBottle
+		type RevealedBottle,
+		type RevealedFactsBottle
 	} from '$lib/tasting';
+	import {
+		formatCask,
+		formatFinish,
+		formatPrice,
+		formatRange,
+		peatLevel,
+		uncertainPositions
+	} from '$lib/tastingFacts';
 
 	let {
 		reveal,
@@ -19,10 +28,26 @@
 		/** The presentation viewer of a bottle – also through the tasting's link. */
 		viewHref: (bottleId: string) => ResolvedPathname;
 	} = $props();
+
+	type AnyBottle = RevealedBottle | RevealedFactsBottle | ArchivedRevealedBottle;
+
+	// Facts tasting: bottles whose range overlaps a neighbor of the same peat group.
+	const uncertain = $derived(
+		!reveal.archived && reveal.algorithm === 'facts'
+			? uncertainPositions(
+					reveal.bottles.map((b) => ({
+						position: b.position,
+						peat: b.facts.peat,
+						score: b.score,
+						range: b.range
+					}))
+				)
+			: new Set<number>()
+	);
 </script>
 
 <!-- Everything a bottle shows with or without its factors. -->
-{#snippet details(b: RevealedBottle | ArchivedRevealedBottle)}
+{#snippet details(b: AnyBottle)}
 	<dt class="text-slate-500">Distillery</dt>
 	<dd class="break-words">{b.distillery}</dd>
 	{#if b.bottling}
@@ -37,7 +62,7 @@
 	<dd class="break-words">{b.broughtBy}</dd>
 {/snippet}
 
-{#snippet links(b: RevealedBottle | ArchivedRevealedBottle)}
+{#snippet links(b: AnyBottle)}
 	{#if b.whiskybaseUrl}
 		<!-- rel="external": required by svelte/no-navigation-without-resolve for
 		     a dynamic external href (also makes SvelteKit skip client routing). -->
@@ -94,6 +119,64 @@
 			</li>
 		{/each}
 	</ul>
+{:else if reveal.algorithm === 'facts'}
+	<!-- Facts instead of the sliders, "Wucht" instead of the score. Labels of
+	     other casks are plain text, never {@html}. -->
+	<ol class="space-y-3" aria-label="Auflösung">
+		{#each reveal.bottles as b (b.position)}
+			<li class="rounded-xl border border-slate-200 bg-white p-4">
+				<div class="flex items-start gap-3">
+					<span
+						class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand text-sm font-semibold text-white"
+						aria-hidden="true"
+					>
+						{b.position}
+					</span>
+					<div class="min-w-0 flex-1 space-y-3">
+						<div class="flex items-baseline justify-between gap-3">
+							<h3 class="min-w-0 text-lg font-semibold break-words">
+								<span class="sr-only">{b.position}.</span>
+								{b.alias}
+							</h3>
+							<p class="shrink-0 text-sm text-slate-500">
+								Wucht
+								<span class="font-semibold text-slate-900">
+									{#if b.range}<span aria-hidden="true">~</span><span class="sr-only">ungefähr</span
+										>{/if}{formatOneDecimal(b.score)}
+								</span>
+							</p>
+						</div>
+
+						<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+							{@render details(b)}
+							<dt class="text-slate-500">Torf</dt>
+							<dd>{peatLevel(b.facts.peat).group}</dd>
+							<dt class="text-slate-500">Fass</dt>
+							<dd class="break-words">{formatCask(b.facts.cask)}</dd>
+							<dt class="text-slate-500">Nachreifung</dt>
+							<dd class="break-words">{formatFinish(b.facts.finish)}</dd>
+							<dt class="text-slate-500">Alkohol</dt>
+							<dd>{formatOneDecimal(b.abv)} % vol.</dd>
+							<dt class="text-slate-500">Preis</dt>
+							<dd>{formatPrice(b.facts.priceCents)}</dd>
+							{#if b.range}
+								<dt class="text-slate-500">Spanne</dt>
+								<dd>{formatRange(b.range)} (Fass unbekannt)</dd>
+							{/if}
+						</dl>
+
+						{#if uncertain.has(b.position)}
+							<p class="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+								Reihenfolge unsicher: Die Spanne überschneidet sich mit der Nachbarflasche.
+							</p>
+						{/if}
+
+						{@render links(b)}
+					</div>
+				</div>
+			</li>
+		{/each}
+	</ol>
 {:else}
 	<ol class="space-y-3" aria-label="Auflösung">
 		{#each reveal.bottles as b (b.position)}
