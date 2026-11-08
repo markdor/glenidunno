@@ -86,10 +86,14 @@ describe('TastingFactsFields', () => {
 
 		await expect.element(page.getByRole('radio', { name: 'leicht' })).toBeChecked();
 		await expect.element(page.getByLabelText('Hauptreifung *')).toHaveValue('sherry_oloroso');
-		await expect.element(page.getByRole('checkbox', { name: 'Refill' })).toBeChecked();
+		await expect
+			.element(page.getByRole('checkbox', { name: 'Refill (Hauptreifung)' }))
+			.toBeChecked();
 		await expect.element(page.getByLabelText('Nachreifung *')).toHaveValue('other');
-		await expect.element(page.getByLabelText('Bezeichnung *')).toHaveValue('Tequila');
-		await expect.element(page.getByRole('slider', { name: 'Fass-Einfluss *' })).toHaveValue('3');
+		await expect.element(page.getByLabelText('Bezeichnung (Nachreifung) *')).toHaveValue('Tequila');
+		await expect
+			.element(page.getByRole('slider', { name: 'Fass-Einfluss (Nachreifung) *' }))
+			.toHaveValue('3');
 		await expect.element(page.getByLabelText('Dauer in Monaten')).toHaveValue(9);
 		await expect.element(page.getByLabelText(/Preis in €/)).toHaveValue(59.9);
 		expect(sent()).toMatchObject({
@@ -108,7 +112,7 @@ describe('TastingFactsFields', () => {
 		renderFacts(null);
 		await page.getByLabelText('Hauptreifung *').selectOptions('bourbon');
 
-		const refill = page.getByRole('checkbox', { name: 'Refill' });
+		const refill = page.getByRole('checkbox', { name: 'Refill (Hauptreifung)' });
 		await expect.element(refill).not.toBeChecked();
 		await expect
 			.element(refill)
@@ -125,14 +129,43 @@ describe('TastingFactsFields', () => {
 		expect(page.getByRole('checkbox', { name: 'Refill' }).elements()).toHaveLength(0);
 
 		await cask.selectOptions('other');
-		await expect.element(page.getByLabelText('Bezeichnung *')).toHaveAttribute('maxlength', '40');
-		const rating = page.getByRole('slider', { name: 'Fass-Einfluss *' });
+		await expect
+			.element(page.getByLabelText('Bezeichnung (Hauptreifung) *'))
+			.toHaveAttribute('maxlength', '40');
+		const rating = page.getByRole('slider', { name: 'Fass-Einfluss (Hauptreifung) *' });
 		await expect.element(rating).toHaveValue('5');
 		await expect
 			.element(rating)
 			.toHaveAccessibleDescription(/2 = zart, 5 = deutlich, 8 = dominant/);
 		await rating.fill('8');
 		await expect.element(page.getByText('8', { exact: true })).toBeVisible();
+	});
+
+	test('tells the fields of main maturation and finish apart', async () => {
+		renderFacts(null);
+		const cask = page.getByLabelText('Hauptreifung *');
+		const finish = page.getByLabelText('Nachreifung *');
+
+		await cask.selectOptions('sherry');
+		await finish.selectOptions('port');
+		await userEvent.click(page.getByRole('checkbox', { name: 'Refill (Nachreifung)' }));
+		await expect
+			.element(page.getByRole('checkbox', { name: 'Refill (Hauptreifung)' }))
+			.not.toBeChecked();
+		expect(sent()).toMatchObject({ finishRefill: 'on' });
+		expect(sent()).not.toHaveProperty('mainCaskRefill');
+
+		await cask.selectOptions('other');
+		await finish.selectOptions('other');
+		await page.getByLabelText('Bezeichnung (Hauptreifung) *').fill('Tequila');
+		await page.getByLabelText('Bezeichnung (Nachreifung) *').fill('Mizunara');
+		await page.getByRole('slider', { name: 'Fass-Einfluss (Nachreifung) *' }).fill('7');
+		expect(sent()).toMatchObject({
+			mainCaskLabel: 'Tequila',
+			mainCaskInfluence: '5',
+			finishLabel: 'Mizunara',
+			finishInfluence: '7'
+		});
 	});
 
 	test('explains an unknown cask and finish', async () => {

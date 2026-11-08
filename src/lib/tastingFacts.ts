@@ -78,6 +78,14 @@ export const CASK_GROUPS = [
 type CaskGroup = (typeof CASK_GROUPS)[number]['key'];
 
 /**
+ * The select values besides the cask types, shared by the form and the save
+ * action's parser: the kinds of Cask and Finish that aren't one of the list.
+ */
+export const OTHER_CASK = 'other' satisfies Cask['kind'];
+export const UNKNOWN_CASK = 'unknown' satisfies Cask['kind'];
+export const NO_FINISH = 'none' satisfies Finish['kind'];
+
+/**
  * The cask table: the typical base value of each cask of the list (0–10).
  * Without "Refill" this value counts, with it REFILL_PENALTY less.
  */

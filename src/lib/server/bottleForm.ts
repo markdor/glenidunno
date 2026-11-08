@@ -1,6 +1,9 @@
 import type { TastingBottle } from '$lib/tasting';
 import {
 	isRefillable,
+	NO_FINISH,
+	OTHER_CASK,
+	UNKNOWN_CASK,
 	type BottleFacts,
 	type Cask,
 	type FactsBottle,
@@ -42,10 +45,10 @@ const COMMON_FIELDS = [
 ] as const;
 
 /** The sliders of a `taste` tasting. */
-export const TASTE_FIELDS = ['smoke', 'cask', 'value'] as const;
+const TASTE_FIELDS = ['smoke', 'cask', 'value'] as const;
 
 /** The facts of a `facts` tasting (checkboxes are sent as "on" only when ticked). */
-export const FACTS_FIELDS = [
+const FACTS_FIELDS = [
 	'peat',
 	'mainCask',
 	'mainCaskRefill',
@@ -59,11 +62,6 @@ export const FACTS_FIELDS = [
 	'price',
 	'priceUnknown'
 ] as const;
-
-/** Select values besides the cask types. */
-export const OTHER_CASK = 'other';
-export const UNKNOWN_CASK = 'unknown';
-export const NO_FINISH = 'none';
 
 export type BottleFormResult = {
 	/** `null` while there are field errors. */

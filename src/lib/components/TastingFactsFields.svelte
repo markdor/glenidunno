@@ -3,7 +3,10 @@
 		CASK_GROUPS,
 		CASKS,
 		isRefillable,
+		NO_FINISH,
+		OTHER_CASK,
 		PEAT_LEVELS,
+		UNKNOWN_CASK,
 		type BottleFacts,
 		type Cask,
 		type Finish
@@ -48,7 +51,7 @@
 		const sent = values?.[field];
 		if (sent !== undefined) return sent;
 		const saved = facts;
-		if (!saved) return field === 'finish' ? 'none' : '';
+		if (!saved) return field === 'finish' ? NO_FINISH : '';
 		const caskOf = (prefix: Prefix) => (prefix === 'mainCask' ? saved.cask : saved.finish);
 		switch (field) {
 			case 'peat':
@@ -126,6 +129,8 @@
 
 {#snippet caskFields(prefix: Prefix, label: string)}
 	{@const value = current(prefix)}
+	<!-- Main maturation and finish show the same fields: the sr-only suffix
+	     tells them apart for screen readers ("Refill (Nachreifung)"). -->
 	<div class="space-y-2">
 		<div class="space-y-1">
 			<label for={id(prefix)} class="block text-sm font-medium text-slate-700">{label} *</label>
@@ -140,7 +145,7 @@
 				{#if prefix === 'mainCask'}
 					<option value="" disabled>Bitte wählen</option>
 				{:else}
-					<option value="none">Keine</option>
+					<option value={NO_FINISH}>Keine</option>
 				{/if}
 				{#each CASK_GROUPS as group (group.key)}
 					<optgroup label={group.label}>
@@ -149,8 +154,8 @@
 						{/each}
 					</optgroup>
 				{/each}
-				<option value="other">Sonstiges …</option>
-				<option value="unknown">Unbekannt</option>
+				<option value={OTHER_CASK}>Sonstiges …</option>
+				<option value={UNKNOWN_CASK}>Unbekannt</option>
 			</select>
 			{#if fieldError(prefix)}
 				<p class="text-xs text-red-600">{fieldError(prefix)}</p>
@@ -168,7 +173,7 @@
 						aria-describedby={id(`${prefix}Refill-hint`)}
 						class="h-5 w-5 shrink-0 rounded border-slate-300"
 					/>
-					Refill
+					<span>Refill <span class="sr-only">({label})</span></span>
 				</label>
 				<p id={id(`${prefix}Refill-hint`)} class="text-xs text-slate-500">
 					Ein Refill-Fass war schon mehrmals mit Whisky belegt und gibt weniger Aroma ab. Mit Haken
@@ -179,10 +184,10 @@
 					<p class="text-xs text-red-600">{fieldError(`${prefix}Refill`)}</p>
 				{/if}
 			</div>
-		{:else if value === 'other'}
+		{:else if value === OTHER_CASK}
 			<div class="space-y-1">
 				<label for={id(`${prefix}Label`)} class="block text-sm font-medium text-slate-700">
-					Bezeichnung *
+					Bezeichnung <span class="sr-only">({label})</span> *
 				</label>
 				<input
 					id={id(`${prefix}Label`)}
@@ -200,7 +205,7 @@
 			<div class="space-y-1">
 				<div class="flex items-baseline justify-between gap-3">
 					<label for={id(`${prefix}Influence`)} class="text-sm font-medium text-slate-700">
-						Fass-Einfluss *
+						Fass-Einfluss <span class="sr-only">({label})</span> *
 					</label>
 					<output for={id(`${prefix}Influence`)} class="text-sm font-semibold text-slate-900">
 						{influence(prefix)}
@@ -226,7 +231,7 @@
 					<p class="text-xs text-red-600">{fieldError(`${prefix}Influence`)}</p>
 				{/if}
 			</div>
-		{:else if value === 'unknown'}
+		{:else if value === UNKNOWN_CASK}
 			<p class="text-xs text-slate-500">
 				{prefix === 'mainCask'
 					? 'Ohne Angabe rechnet die App mit einem Standardwert.'
@@ -234,7 +239,7 @@
 			</p>
 		{/if}
 
-		{#if prefix === 'finish' && (isCaskType(value) || value === 'other')}
+		{#if prefix === 'finish' && (isCaskType(value) || value === OTHER_CASK)}
 			<div class="space-y-1">
 				<label for={id('finishMonths')} class="block text-sm font-medium text-slate-700">
 					Dauer in Monaten
