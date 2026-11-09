@@ -50,7 +50,6 @@ beforeEach(() => {
 	db.delete(tasting).run();
 	insertUsers('Anna', 'Ben', 'Cem');
 	({ slug } = createTasting(db, {
-		name: 'Herbst-Tasting',
 		motto: 'Islay gegen den Rest',
 		mottoDescription: 'Eine Flasche von Islay.',
 		tastingDate: '2026-10-24',
@@ -78,7 +77,7 @@ function expectNoContent(result: unknown) {
 	const serialized = JSON.stringify(result);
 	expect(serialized).not.toContain('Nebel');
 	expect(serialized).not.toContain('Ardbeg');
-	// The cards show the motto heading only.
+	// The cards show the title (the motto) only, never its description.
 	expect(serialized).not.toContain('Eine Flasche von Islay.');
 }
 
@@ -90,7 +89,7 @@ describe('start page load', () => {
 			lastTasting: null,
 			notice: null
 		});
-		expect(JSON.stringify(result)).not.toContain('Herbst');
+		expect(JSON.stringify(result)).not.toContain('Islay');
 		expect(JSON.stringify(result)).not.toContain(slug);
 	});
 
@@ -99,8 +98,8 @@ describe('start page load', () => {
 		expect(result).toEqual({
 			nextTasting: {
 				slug,
-				name: 'Herbst-Tasting',
-				motto: 'Islay gegen den Rest',
+				name: 'Islay gegen den Rest',
+				subtitle: 'Tasting #1',
 				tastingDate: '2026-10-24',
 				phase: 'entry',
 				isToday: true,
@@ -120,8 +119,8 @@ describe('start page load', () => {
 			nextTasting: null,
 			lastTasting: {
 				slug,
-				name: 'Herbst-Tasting',
-				motto: 'Islay gegen den Rest',
+				name: 'Islay gegen den Rest',
+				subtitle: 'Tasting #1',
 				tastingDate: '2026-10-24'
 			},
 			notice: null
@@ -133,7 +132,7 @@ describe('start page load', () => {
 		const result = loadAs({ id: 'a', username: 'admin', isAdmin: true });
 		// That summary is on /admin.
 		expect(result).toEqual({ nextTasting: null, lastTasting: null, notice: null });
-		expect(JSON.stringify(result)).not.toContain('Herbst');
+		expect(JSON.stringify(result)).not.toContain('Islay');
 		expect(JSON.stringify(result)).not.toContain(slug);
 	});
 

@@ -27,7 +27,7 @@ let db: ReturnType<typeof drizzle<typeof schema>>;
 
 function tasting(id: string, date: string, distilleries: string[]) {
 	db.insert(schema.tasting)
-		.values({ id, slug: `slug-${id}`, name: id, tastingDate: date, createdAt: EARLIER })
+		.values({ id, slug: `slug-${id}`, motto: id, tastingDate: date, createdAt: EARLIER })
 		.run();
 	db.insert(schema.tastingParticipant)
 		.values({ id: `${id}-p`, tastingId: id, userId: 'u-anna', createdAt: EARLIER })

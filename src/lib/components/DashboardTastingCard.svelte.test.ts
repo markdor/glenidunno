@@ -6,44 +6,46 @@ import DashboardTastingCard from './DashboardTastingCard.svelte';
 
 const upcoming: DashboardTasting = {
 	slug: 'fluffy-otter',
-	name: 'Herbst-Tasting',
-	motto: 'Islay gegen den Rest',
+	name: 'Islay gegen den Rest',
+	subtitle: 'Tasting #18',
 	tastingDate: '2026-10-24',
 	phase: 'entry',
 	isToday: true,
 	progress: { entered: 1, total: 2 }
 };
 
-/** The line right above the date: the motto, or the name without one. */
+/** The line right above the date: the subtitle, or the title with its badge without one. */
 function lineAboveDate() {
 	return page.getByText('Sa., 24.10.2026', { exact: true }).element().previousElementSibling;
 }
 
 describe('DashboardTastingCard', () => {
-	test('links the next tasting with motto, deadline and own progress during entry', async () => {
+	test('links the next tasting with title, number, deadline and own progress', async () => {
 		render(DashboardTastingCard, { tasting: upcoming });
 
 		const card = page.getByRole('link', { name: /Nächstes Tasting/ });
 		await expect.element(card).toHaveAttribute('href', '/tasting/fluffy-otter');
 		await expect.element(page.getByRole('heading', { name: 'Nächstes Tasting' })).toBeVisible();
-		await expect.element(page.getByText('Herbst-Tasting')).toBeVisible();
-		await expect.element(page.getByText('heute', { exact: true })).toBeVisible();
 		await expect.element(page.getByText('Islay gegen den Rest')).toBeVisible();
+		await expect.element(page.getByText('heute', { exact: true })).toBeVisible();
 		await expect.element(page.getByText('Sa., 24.10.2026', { exact: true })).toBeVisible();
 		await expect.element(page.getByText('Flaschen eintragen bis heute, 18 Uhr')).toBeVisible();
 		await expect.element(page.getByText('1 von 2 Flaschen eingetragen')).toBeVisible();
 		await expect.element(page.getByText('Zum Tasting')).toBeVisible();
-		// Name, then the motto on its own line, then the date.
-		expect(lineAboveDate()?.textContent).toBe('Islay gegen den Rest');
+		// Title, then the number of a tasting with a motto, then the date.
+		expect(lineAboveDate()?.textContent).toBe('Tasting #18');
+		expect(lineAboveDate()?.previousElementSibling?.textContent).toContain('Islay gegen den Rest');
 		// The deadline doesn't repeat the date of the line above.
 		expect(page.getByText(/24\.10\.2026/).elements()).toHaveLength(1);
 	});
 
-	test('goes from the name straight to the date without a motto', async () => {
-		render(DashboardTastingCard, { tasting: { ...upcoming, motto: null } });
+	test('goes from the title straight to the date without a motto', async () => {
+		render(DashboardTastingCard, {
+			tasting: { ...upcoming, name: 'Tasting #18', subtitle: null }
+		});
 
-		await expect.element(page.getByText('Herbst-Tasting')).toBeVisible();
-		expect(lineAboveDate()?.textContent).toContain('Herbst-Tasting');
+		await expect.element(page.getByText('Tasting #18')).toBeVisible();
+		expect(lineAboveDate()?.textContent).toContain('Tasting #18');
 	});
 
 	test('names the deadline relative to the tasting day before it', async () => {

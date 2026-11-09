@@ -127,6 +127,13 @@
 			"when": 1794133366626,
 			"tag": "0017_tasting_bottle_facts_rebuild",
 			"breakpoints": true
+		},
+		{
+			"idx": 18,
+			"version": "6",
+			"when": 1794235124764,
+			"tag": "0018_tasting_drop_name",
+			"breakpoints": true
 		}
 	]
 }

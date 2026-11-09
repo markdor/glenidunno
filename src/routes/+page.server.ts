@@ -4,7 +4,7 @@ import { db } from '$lib/server/db';
 import { requireUser } from '$lib/server/authGuards';
 import { getDashboardTasting } from '$lib/server/tastings';
 
-// All of it is management data only (name, motto, date, phase, progress) –
+// All of it is management data only (title, date, phase, progress) –
 // never aliases or bottle names. The next and the last tasting are the user's
 // own, the only place the slug leaves the server. The admin's summary of all
 // tastings lives on the admin page, not here.

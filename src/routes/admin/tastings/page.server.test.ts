@@ -74,7 +74,6 @@ describe('admin tastings list load', () => {
 	it('lists management data only – no aliases, bottle names or links', () => {
 		insertUsers('Anna', 'Ben');
 		const { slug } = createTasting(db, {
-			name: 'Herbst-Tasting',
 			motto: 'Islay gegen den Rest',
 			mottoDescription: 'Eine Flasche von Islay.',
 			tastingDate: '2026-10-24',
@@ -98,8 +97,8 @@ describe('admin tastings list load', () => {
 		expect(result.tastings).toEqual([
 			{
 				id: expect.any(String),
-				name: 'Herbst-Tasting',
-				motto: 'Islay gegen den Rest',
+				name: 'Islay gegen den Rest',
+				subtitle: 'Tasting #1',
 				tastingDate: '2026-10-24',
 				phase: 'entry',
 				progress: { entered: 1, total: 4 }

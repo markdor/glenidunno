@@ -23,7 +23,7 @@
 					<TastingListCard
 						href={resolve('/tastings/[id]', { id: t.id })}
 						name={t.name}
-						motto={t.motto}
+						subtitle={t.subtitle}
 						tastingDate={t.tastingDate}
 						badge="{t.bottleCount} {t.bottleCount === 1 ? 'Flasche' : 'Flaschen'}"
 					/>

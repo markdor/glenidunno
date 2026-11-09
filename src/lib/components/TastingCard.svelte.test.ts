@@ -5,8 +5,8 @@ import TastingCard from './TastingCard.svelte';
 
 const today = {
 	id: 't1',
-	name: 'Herbst-Tasting',
-	motto: 'Islay gegen den Rest',
+	name: 'Islay gegen den Rest',
+	subtitle: 'Tasting #18',
 	tastingDate: '2026-10-24',
 	phase: 'entry' as const,
 	progress: { entered: 5, total: 6 },
@@ -15,8 +15,8 @@ const today = {
 
 const later = {
 	id: 't2',
-	name: 'Winter-Tasting',
-	motto: null,
+	name: 'Tasting #19',
+	subtitle: null,
 	tastingDate: '2026-12-12',
 	phase: 'entry' as const,
 	progress: { entered: 0, total: 4 },
@@ -32,28 +32,33 @@ describe('TastingCard', () => {
 		await expect.element(page.getByText('2 anstehend')).toBeVisible();
 	});
 
-	test('previews name, date, today marker and entry progress', async () => {
+	test('previews title, date, today marker and entry progress', async () => {
 		render(TastingCard, { summary: { upcomingCount: 2, preview: [today, later] } });
 
-		await expect.element(page.getByText('Herbst-Tasting')).toBeVisible();
+		await expect.element(page.getByText('Islay gegen den Rest')).toBeVisible();
+		await expect.element(page.getByText('Tasting #19')).toBeVisible();
 		await expect.element(page.getByText('heute')).toBeVisible();
 		await expect.element(page.getByText(/Sa\., 24\.10\.2026 · 5\/6 Flaschen/)).toBeVisible();
 		await expect.element(page.getByText(/Sa\., 12\.12\.2026 · 0\/4 Flaschen/)).toBeVisible();
 		expect(page.getByText('heute').elements()).toHaveLength(1);
 	});
 
-	test('shows the motto heading below the name, one line, nothing without one', async () => {
+	test('shows the title in one line, the number below it only with a motto', async () => {
 		render(TastingCard, { summary: { upcomingCount: 2, preview: [today, later] } });
 
 		const items = page.getByRole('listitem').elements();
-		const motto = page.getByText('Islay gegen den Rest');
-		await expect.element(motto).toBeVisible();
-		expect(motto.element().classList).toContain('truncate');
-		expect(items[0].contains(motto.element())).toBe(true);
-		const name = page.getByText('Herbst-Tasting').element();
-		expect(name.compareDocumentPosition(motto.element())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-		// Name, date and progress only: no empty line for the missing motto.
-		expect(items[1].querySelectorAll('.truncate')).toHaveLength(1);
+		const title = page.getByText('Islay gegen den Rest');
+		await expect.element(title).toBeVisible();
+		expect(title.element().classList).toContain('truncate');
+		const subtitle = page.getByText('Tasting #18');
+		await expect.element(subtitle).toBeVisible();
+		expect(items[0].contains(subtitle.element())).toBe(true);
+		expect(title.element().compareDocumentPosition(subtitle.element())).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		// Without a motto the number is the title: no second line.
+		expect(items[1].textContent).not.toMatch(/Tasting #19.*Tasting #19/);
+		expect(page.getByText('Tasting #19').elements()).toHaveLength(1);
 	});
 
 	test('shows no progress once the entry phase is over', async () => {

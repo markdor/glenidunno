@@ -7,11 +7,14 @@
 	import TastingManualNotice from '$lib/components/TastingManualNotice.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
 	import { formatTastingDate, TASTING_ALGORITHM_LABEL, TASTING_PHASE_LABEL } from '$lib/tasting';
+	import { tastingLabel } from '$lib/tastingTitle';
 	import { TASTING_MOTTO_DESCRIPTION_LENGTH, TASTING_MOTTO_LENGTH } from '$lib/validation';
 
 	let { data, form } = $props();
 
 	const detail = $derived(data.detail);
+	// The title without a motto, named in the motto field's hint.
+	const numberTitle = $derived(tastingLabel(detail.tasting.number));
 
 	$effect(() => {
 		if (form?.userMessage) {
@@ -88,6 +91,9 @@
 			backLabel="Alle Tastings"
 			title={detail.tasting.name}
 		/>
+		{#if detail.tasting.subtitle}
+			<p class="text-lg text-slate-700">{detail.tasting.subtitle}</p>
+		{/if}
 		<p class="flex flex-wrap items-center gap-2 text-sm text-slate-500">
 			{formatTastingDate(detail.tasting.tastingDate)}
 			<span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
@@ -109,7 +115,8 @@
 		Teilnehmer des Tastings.
 	</p>
 
-	<!-- In every phase: like name and date the motto is management data. -->
+	<!-- In every phase: like the date the motto is management data. It is the
+	     title, so the heading above changes along. -->
 	<section class="space-y-3">
 		<h2 class="text-lg font-semibold">Motto ändern</h2>
 		<form
@@ -121,15 +128,19 @@
 			class="space-y-4 rounded-xl border border-slate-200 bg-white p-4"
 		>
 			<div class="space-y-1">
-				<label for="m-motto" class="block text-sm font-medium text-slate-700">Überschrift</label>
+				<label for="m-motto" class="block text-sm font-medium text-slate-700">Motto</label>
 				<input
 					id="m-motto"
 					name="motto"
 					maxlength={TASTING_MOTTO_LENGTH.max}
 					placeholder="leer lassen für kein Motto"
+					aria-describedby="m-motto-hint"
 					bind:value={motto}
 					class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 placeholder:text-slate-400"
 				/>
+				<p id="m-motto-hint" class="text-xs text-slate-500">
+					Das Motto ist der Titel des Tastings. Ohne Motto heißt es „{numberTitle}“.
+				</p>
 				{#if mottoError}
 					<p class="text-xs text-red-600">{mottoError}</p>
 				{/if}

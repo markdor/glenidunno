@@ -46,8 +46,8 @@
 			<p class="min-w-0 text-xl font-semibold break-words">{tasting.name}</p>
 			{@render badge?.(tasting)}
 		</div>
-		{#if tasting.motto}
-			<p class="break-words text-slate-700">{tasting.motto}</p>
+		{#if tasting.subtitle}
+			<p class="text-slate-700">{tasting.subtitle}</p>
 		{/if}
 		<p class="text-sm text-slate-500">{formatTastingDate(tasting.tastingDate)}</p>
 		{@render details?.(tasting)}

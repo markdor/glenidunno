@@ -56,7 +56,8 @@ test.describe('Tasting – Ablauf', () => {
 
 		await test.step('Admin wählt die Teilnehmer per Checkbox und landet auf der Detailseite', async () => {
 			await page.goto('/admin/tastings/new');
-			await page.getByLabel('Name *').fill(tastingName);
+			// The motto is the title: the steps below find the tasting by it.
+			await page.getByLabel('Motto', { exact: true }).fill(tastingName);
 			await page.getByLabel('Datum *').fill(dateInDays(7));
 			await page.getByRole('checkbox', { name: 'admin', exact: true }).check();
 			// The whole row is the label: tapping the name ticks the box.
@@ -340,7 +341,8 @@ test.describe('Tasting – Ablauf', () => {
 			await expect(page.getByText('Benutzer angelegt.')).toBeVisible();
 
 			await page.goto('/admin/tastings/new');
-			await page.getByLabel('Name *').fill(tastingName);
+			// The motto is the title: the steps below find the tasting by it.
+			await page.getByLabel('Motto', { exact: true }).fill(tastingName);
 			await page.getByLabel('Datum *').fill(dateInDays(3));
 			// The whole card is the label.
 			await page.getByText('Etikett, Preis, Fass').click();

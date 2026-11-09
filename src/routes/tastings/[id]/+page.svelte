@@ -42,13 +42,14 @@
 			backLabel="Tasting-Historie"
 			title={detail.tasting.name}
 		/>
-		<p class="text-sm text-slate-500">{formatTastingDate(detail.tasting.tastingDate)}</p>
-		<!-- Plain text, never {@html}: line breaks of the description only via CSS. -->
-		{#if detail.tasting.motto}
-			<p class="pt-1 text-lg font-medium break-words text-slate-800">{detail.tasting.motto}</p>
+		{#if detail.tasting.subtitle}
+			<p class="text-lg text-slate-700">{detail.tasting.subtitle}</p>
 		{/if}
+		<p class="text-sm text-slate-500">{formatTastingDate(detail.tasting.tastingDate)}</p>
+		<!-- The motto is the title. Its description as plain text, never {@html}:
+		     line breaks only via CSS. -->
 		{#if detail.tasting.mottoDescription}
-			<p class="break-words whitespace-pre-line text-slate-600">
+			<p class="pt-1 break-words whitespace-pre-line text-slate-600">
 				{detail.tasting.mottoDescription}
 			</p>
 		{/if}

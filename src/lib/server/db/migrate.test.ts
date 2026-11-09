@@ -187,8 +187,8 @@ describe('migrations 0004–0006: tasting participants become users', () => {
 		return sqlite.prepare(query).all();
 	}
 
-	// Without bottles_per_participant: migration 0008 drops it.
-	const TASTING_COLUMNS = 'id, name, tasting_date, created_at, order_opened_at, revealed_at';
+	// Without bottles_per_participant and name: migrations 0008 and 0018 drop them.
+	const TASTING_COLUMNS = 'id, tasting_date, created_at, order_opened_at, revealed_at';
 
 	beforeEach(() => {
 		sqlite = new Database(':memory:');
@@ -293,8 +293,9 @@ describe('migration 0007: tasting motto', () => {
 
 		runMigrations(sqlite, './drizzle');
 
-		expect(sqlite.prepare('SELECT id, name, motto FROM tasting').all()).toEqual([
-			{ id: 't-autumn', name: 'Herbst', motto: null }
+		// The name is gone since 0018.
+		expect(sqlite.prepare('SELECT id, motto FROM tasting').all()).toEqual([
+			{ id: 't-autumn', motto: null }
 		]);
 	});
 });
@@ -307,8 +308,8 @@ describe('migration 0008: no fixed number of bottles per participant', () => {
 	}
 
 	const TABLES = ['tasting_participant', 'tasting_bottle', 'tasting_write_throttle'];
-	const TASTING_COLUMNS =
-		'id, slug, name, tasting_date, created_at, order_opened_at, revealed_at, motto';
+	// Without name: migration 0018 drops it.
+	const TASTING_COLUMNS = 'id, slug, tasting_date, created_at, order_opened_at, revealed_at, motto';
 
 	/** Rows as the version with a fixed number per tasting (state 0007) wrote them. */
 	function seed() {
@@ -366,7 +367,7 @@ describe('migration 0008: no fixed number of bottles per participant', () => {
 		expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
 	});
 
-	it('drops the column, but keeps the name check and the unique slug', () => {
+	it('drops the column, but keeps the unique slug', () => {
 		runMigrations(sqlite, './drizzle');
 
 		const columns = (sqlite.pragma('table_info(tasting)') as Array<{ name: string }>).map(
@@ -374,12 +375,9 @@ describe('migration 0008: no fixed number of bottles per participant', () => {
 		);
 		expect(columns).not.toContain('bottles_per_participant');
 		const insert = sqlite.prepare(
-			"INSERT INTO tasting (id, slug, name, tasting_date, created_at) VALUES (?, ?, ?, '2026-12-12', 1)"
+			"INSERT INTO tasting (id, slug, motto, tasting_date, created_at) VALUES (?, ?, 'Winter', '2026-12-12', 1)"
 		);
-		expect(() => insert.run('t-empty', 'shy-owl', '')).toThrow(/CHECK constraint failed/);
-		expect(() => insert.run('t-twin', 'fluffy-otter', 'Winter')).toThrow(
-			/UNIQUE constraint failed/
-		);
+		expect(() => insert.run('t-twin', 'fluffy-otter')).toThrow(/UNIQUE constraint failed/);
 		expect(rows('SELECT name FROM sqlite_temp_master')).toEqual([]);
 	});
 });
@@ -596,5 +594,85 @@ describe('migrations 0016–0017: facts tastings', () => {
 		sqlite.prepare("DELETE FROM tasting WHERE id = 't-autumn'").run();
 		expect(rows('SELECT id FROM tasting_bottle')).toEqual([]);
 		expect(rows('SELECT bottle_id FROM tasting_bottle_fact')).toEqual([]);
+	});
+});
+
+describe('migration 0018: no name, the title comes from the motto or the number', () => {
+	let sqlite: Database.Database;
+
+	function rows(query: string): unknown[] {
+		return sqlite.prepare(query).all();
+	}
+
+	/** Rows as the version with a free name per tasting (state 0017) wrote them. */
+	function seed() {
+		sqlite
+			.prepare(
+				`INSERT INTO user (id, name, email, email_verified, created_at, updated_at, username, is_admin)
+				 VALUES ('u-anna', 'Anna', 'anna@example.com', 1, 1, 1, 'Anna', 0)`
+			)
+			.run();
+		sqlite
+			.prepare(
+				`INSERT INTO tasting (id, slug, name, motto, motto_description, tasting_date, created_at,
+				   order_opened_at, revealed_at, pour_rules, algorithm)
+				 VALUES ('t-autumn', 'fluffy-otter', 'Herbst', 'Inselhüpfen', 'Nur Inseln.', '2026-10-24',
+				   100, 200, 300, '{"version":1}', 'facts'),
+				        ('t-winter', 'brave-bear', 'Winter', NULL, NULL, '2026-12-12', 100, NULL, NULL, NULL,
+				   'taste')`
+			)
+			.run();
+		sqlite
+			.prepare("INSERT INTO tasting_participant VALUES ('p-anna', 't-autumn', 'u-anna', 100)")
+			.run();
+		sqlite
+			.prepare(
+				`INSERT INTO tasting_bottle (id, participant_id, slot, alias, distillery, smoke, cask, abv,
+				   value, updated_at)
+				 VALUES ('b-nebel', 'p-anna', 1, 'Nebel', 'Ardbeg', 3, 2, 46.3, 3, 300)`
+			)
+			.run();
+	}
+
+	beforeEach(() => {
+		sqlite = new Database(':memory:');
+		runMigrations(sqlite, realMigrationsUpTo('0017_tasting_bottle_facts_rebuild'));
+		seed();
+	});
+
+	it('drops the name and keeps everything else of the tastings', () => {
+		const before = rows('SELECT * FROM tasting ORDER BY id').map((row) => {
+			const { name: _name, ...rest } = row as Record<string, unknown>;
+			return rest;
+		});
+
+		runMigrations(sqlite, './drizzle');
+
+		expect(rows('SELECT * FROM tasting ORDER BY id')).toEqual(before);
+		const columns = (sqlite.pragma('table_info(tasting)') as Array<{ name: string }>).map(
+			(c) => c.name
+		);
+		expect(columns).not.toContain('name');
+	});
+
+	it('keeps participants, bottles, the unique slug and the cascade', () => {
+		runMigrations(sqlite, './drizzle');
+
+		expect(rows('SELECT id FROM tasting_participant')).toEqual([{ id: 'p-anna' }]);
+		expect(rows('SELECT id FROM tasting_bottle')).toEqual([{ id: 'b-nebel' }]);
+		expect(() =>
+			sqlite
+				.prepare(
+					`INSERT INTO tasting (id, slug, tasting_date, created_at)
+					 VALUES ('t-twin', 'brave-bear', '2026-12-12', 1)`
+				)
+				.run()
+		).toThrow(/UNIQUE constraint failed/);
+		expect(rows("SELECT name FROM sqlite_master WHERE name GLOB '__new_*'")).toEqual([]);
+		expect(sqlite.pragma('foreign_key_check')).toEqual([]);
+		expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
+
+		sqlite.prepare("DELETE FROM tasting WHERE id = 't-autumn'").run();
+		expect(rows('SELECT id FROM tasting_bottle')).toEqual([]);
 	});
 });

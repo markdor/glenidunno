@@ -92,12 +92,16 @@
 			Whisky-Tasting · {formatTastingDate(view.tasting.tastingDate)}
 		</p>
 		<h1 class="text-2xl font-semibold tracking-tight break-words">{view.tasting.name}</h1>
-		<!-- Plain text, never {@html}: line breaks of the description only via CSS. -->
-		{#if view.tasting.motto}
-			<p class="pt-1 text-lg font-medium break-words text-slate-800">{view.tasting.motto}</p>
+		<!-- The date line is above the title here, so the number goes right below it. -->
+		{#if view.tasting.subtitle}
+			<p class="text-lg text-slate-700">{view.tasting.subtitle}</p>
 		{/if}
+		<!-- The motto is the title. Its description as plain text, never {@html}:
+		     line breaks only via CSS. -->
 		{#if view.tasting.mottoDescription}
-			<p class="break-words whitespace-pre-line text-slate-600">{view.tasting.mottoDescription}</p>
+			<p class="pt-1 break-words whitespace-pre-line text-slate-600">
+				{view.tasting.mottoDescription}
+			</p>
 		{/if}
 	</header>
 

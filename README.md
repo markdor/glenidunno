@@ -201,8 +201,7 @@ Felder ebenfalls – meist sind es Tippfehler.
 |---|---|---|
 | `version` | ja | `1` oder `2`, `distilleries` nur mit `2` |
 | `tastings[].date` | ja | `YYYY-MM-DD`, spätestens vorgestern (Berliner Zeit), damit das Tasting aufgelöst ist; eindeutig in der Datei und in der DB |
-| `tastings[].name` | ja | 1–60 Zeichen |
-| `tastings[].motto` | nein | 1–120 Zeichen |
+| `tastings[].motto` | nein | 1–120 Zeichen; zugleich der Titel des Tastings, ohne Motto heißt es „Tasting #n“ (laufende Nummer über alle Tastings nach Datum) |
 | `tastings[].bottles` | ja | mindestens eine Flasche; 2–12 verschiedene Teilnehmer (`broughtBy`), höchstens 6 Flaschen pro Teilnehmer, der Slot folgt der Reihenfolge im Array |
 | `broughtBy` | ja | Username eines bestehenden Users (Groß-/Kleinschreibung egal), auch eines deaktivierten |
 | `alias` | ja | Synonym, 1–30 Zeichen, eindeutig im Tasting |

@@ -5,7 +5,7 @@
 	let { tasting }: { tasting: DashboardLastTasting | null } = $props();
 </script>
 
-<!-- Title, motto and date only: the reveal itself stays on the participant page. -->
+<!-- Title and date only: the reveal itself stays on the participant page. -->
 <DashboardTastingShell
 	heading="Letztes Tasting"
 	{tasting}
