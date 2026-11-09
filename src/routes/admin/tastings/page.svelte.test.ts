@@ -6,15 +6,15 @@ import Page from './+page.svelte';
 const user = { id: 'admin-id', username: 'admin', isAdmin: true };
 
 describe('Tasting list page', () => {
-	test('lists name, date, phase and progress per tasting', async () => {
+	test('lists title, date, phase and progress per tasting', async () => {
 		render(Page, {
 			data: {
 				user,
 				tastings: [
 					{
 						id: 't1',
-						name: 'Herbst-Tasting',
-						motto: null,
+						name: 'Tasting #18',
+						subtitle: null,
 						tastingDate: '2026-10-24',
 						phase: 'order',
 						progress: { entered: 5, total: 6 }
@@ -23,24 +23,25 @@ describe('Tasting list page', () => {
 			}
 		});
 
-		const item = page.getByRole('link', { name: /Herbst-Tasting/ });
+		const item = page.getByRole('link', { name: /Tasting #18/ });
 		await expect.element(item).toHaveAttribute('href', '/admin/tastings/t1');
 		await expect.element(item).toHaveTextContent(/Sa\., 24\.10\.2026/);
 		await expect.element(item).toHaveTextContent(/Reihenfolge/);
 		await expect.element(item).toHaveTextContent(/5\/6 Flaschen eingetragen/);
-		// Without a motto: name and date only, no empty line in between.
-		expect(item.element().querySelectorAll('.min-w-0 > p')).toHaveLength(2);
+		// Without a motto the number is the title: no subtitle.
+		const lines = [...item.element().querySelectorAll('.min-w-0 > p')].map((p) => p.textContent);
+		expect(lines).toEqual(['Tasting #18', 'Sa., 24.10.2026']);
 	});
 
-	test('shows the motto heading below the name in one line', async () => {
+	test('names the number of a tasting with a motto between title and date', async () => {
 		render(Page, {
 			data: {
 				user,
 				tastings: [
 					{
 						id: 't1',
-						name: 'Herbst-Tasting',
-						motto: 'Islay gegen den Rest',
+						name: 'Islay gegen den Rest',
+						subtitle: 'Tasting #18',
 						tastingDate: '2026-10-24',
 						phase: 'entry',
 						progress: { entered: 0, total: 4 }
@@ -49,9 +50,9 @@ describe('Tasting list page', () => {
 			}
 		});
 
-		const item = page.getByRole('link', { name: /Herbst-Tasting/ });
+		const item = page.getByRole('link', { name: /Islay gegen den Rest/ });
 		const lines = [...item.element().querySelectorAll('.min-w-0 > p')].map((p) => p.textContent);
-		expect(lines).toEqual(['Herbst-Tasting', 'Islay gegen den Rest', 'Sa., 24.10.2026']);
+		expect(lines).toEqual(['Islay gegen den Rest', 'Tasting #18', 'Sa., 24.10.2026']);
 		expect(page.getByText('Islay gegen den Rest').element().classList).toContain('truncate');
 	});
 

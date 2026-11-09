@@ -67,7 +67,6 @@ import {
 	TASTING_BOTTLING_LENGTH,
 	TASTING_DISTILLERY_LENGTH,
 	TASTING_MOTTO_LENGTH,
-	TASTING_NAME_LENGTH,
 	TASTING_PARTICIPANTS,
 	TASTING_PRESENTATION_MAX_BYTES,
 	TASTING_PRESENTATION_NAME_LENGTH,
@@ -113,7 +112,7 @@ type ImportParticipant = {
 type ImportTasting = {
 	where: string;
 	date: string;
-	name: string;
+	/** The title; without one the app calls it "Tasting #<n>" by its date (tastingTitle). */
 	motto: string | null;
 	/** In the order of their first bottle, which becomes the display order. */
 	participants: ImportParticipant[];
@@ -232,7 +231,7 @@ const DISTILLERY_FIELDS = [
 	'regionSource',
 	'capacitySource'
 ];
-const TASTING_FIELDS = ['date', 'name', 'motto', 'bottles'];
+const TASTING_FIELDS = ['date', 'motto', 'bottles'];
 const BOTTLE_FIELDS = [
 	'broughtBy',
 	'alias',
@@ -420,12 +419,11 @@ function checkTasting(
 		if (first === undefined) dates.set(date, index);
 		else error(where, `date is also used by tastings[${first}]`);
 	}
-	const name = text(where, raw, 'name', true, TASTING_NAME_LENGTH.max) ?? '';
 	const motto = text(where, raw, 'motto', false, TASTING_MOTTO_LENGTH.max);
 
 	if (!Array.isArray(raw.bottles) || raw.bottles.length === 0) {
 		error(where, 'bottles must be a non-empty array');
-		return { where, date, name, motto, participants: [], bottles: [] };
+		return { where, date, motto, participants: [], bottles: [] };
 	}
 
 	// The participants are the distinct broughtBy, each participant's slots
@@ -480,7 +478,7 @@ function checkTasting(
 		);
 	}
 
-	return { where, date, name, motto, participants: [...participants.values()], bottles };
+	return { where, date, motto, participants: [...participants.values()], bottles };
 }
 
 /**
@@ -844,8 +842,8 @@ function writeTastings(
 	// stays at its default `taste` – an archived tasting has no order anyway.
 	const insertTasting = sqlite.prepare(
 		`INSERT INTO tasting
-		   (id, slug, name, motto, tasting_date, created_at, order_opened_at, revealed_at)
-		 VALUES (@id, @slug, @name, @motto, @date, @now, NULL, NULL)`
+		   (id, slug, motto, tasting_date, created_at, order_opened_at, revealed_at)
+		 VALUES (@id, @slug, @motto, @date, @now, NULL, NULL)`
 	);
 	const insertParticipant = sqlite.prepare(
 		`INSERT INTO tasting_participant (id, tasting_id, user_id, created_at)
@@ -893,7 +891,6 @@ function writeTastings(
 			insertTasting.run({
 				id: tastingId,
 				slug,
-				name: tasting.name,
 				motto: tasting.motto,
 				date: tasting.date,
 				now
@@ -982,9 +979,7 @@ function printSummary(
 
 	tastings.forEach((tasting, index) => {
 		const link = slugs ? `  /tasting/${slugs[index]}` : '';
-		console.log(
-			`\n${tasting.date}  ${tasting.name}${tasting.motto ? ` – ${tasting.motto}` : ''}${link}`
-		);
+		console.log(`\n${tasting.date}${tasting.motto ? `  ${tasting.motto}` : ''}${link}`);
 		const participants = tasting.participants.map((participant) => {
 			const user = users.get(participant.key)!;
 			return user.deactivated_at === null ? user.username : `${user.username} (inactive)`;

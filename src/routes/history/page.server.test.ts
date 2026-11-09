@@ -54,7 +54,7 @@ function bottle(alias: string, distillery: string): TastingBottle {
 function tastingWithBottle(tastingDate: string, alias: string, distillery: string) {
 	const { slug } = createTasting(
 		db,
-		{ name: `Tasting ${tastingDate}`, tastingDate, participantUserIds: ['u-Anna', 'u-Ben'] },
+		{ motto: `Tasting ${tastingDate}`, tastingDate, participantUserIds: ['u-Anna', 'u-Ben'] },
 		BEFORE
 	);
 	saveBottle(db, findParticipant(db, slug, 'u-Anna')!, 1, bottle(alias, distillery), BEFORE);

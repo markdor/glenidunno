@@ -121,7 +121,7 @@ beforeEach(() => {
 	db.delete(tasting).run();
 	db.update(user).set({ deactivatedAt: null }).run();
 	const created = createTasting(db, {
-		name: 'Herbst-Tasting',
+		motto: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
 		participantUserIds: ['u-anna', 'u-ben']
 	});
@@ -186,7 +186,9 @@ describe('admin tasting detail – projection per phase', () => {
 			.run();
 		expect(loadAs(ADMIN).detail.tasting).toEqual({
 			id: tastingId,
-			name: 'Herbst-Tasting',
+			name: 'Islay gegen den Rest',
+			subtitle: 'Tasting #1',
+			number: 1,
 			motto: 'Islay gegen den Rest',
 			mottoDescription: 'Eine Flasche von Islay.',
 			tastingDate: '2026-10-24',
@@ -364,6 +366,8 @@ describe('updateMotto', () => {
 		await act('updateMotto', sent);
 		expect(await act('updateMotto', fields)).toEqual({ action: 'updateMotto', updated: true });
 		expect(storedMotto()).toEqual(NO_MOTTO);
+		// Without a motto the number is the title again.
+		expect(loadAs(ADMIN).detail.tasting).toMatchObject({ name: 'Tasting #1' });
 	});
 
 	it('clears only the description when the heading stays', async () => {

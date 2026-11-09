@@ -32,11 +32,10 @@ export const USERNAME_RE = /^[a-zA-Z0-9_.-]{2,40}$/;
 // validation and the CHECK constraints in db/schema.ts. Changing a limit means
 // generating a new migration (`npm run db:generate`).
 
-export const TASTING_NAME_LENGTH = { max: 60 } as const;
 /**
- * Optional motto heading shown next to name and date; empty means none.
- * Deliberately without a CHECK constraint (see `motto` in db/schema.ts), so the
- * server-side validation is the only guard.
+ * Optional motto, with one it is the tasting's title (tastingTitle() in
+ * tastingTitle.ts); empty means none. Deliberately without a CHECK constraint
+ * (see `motto` in db/schema.ts), so the server-side validation is the only guard.
  */
 export const TASTING_MOTTO_LENGTH = { max: 120 } as const;
 /**

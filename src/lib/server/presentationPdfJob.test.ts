@@ -81,7 +81,7 @@ beforeEach(async () => {
 	mockEnv.GOTENBERG_URL = 'http://gotenberg.test';
 	db.delete(schema.tasting).run();
 	const { slug } = createTasting(db, {
-		name: 'Herbst-Tasting',
+		motto: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
 		participantUserIds: ['u-anna', 'u-ben']
 	});

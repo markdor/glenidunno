@@ -21,7 +21,7 @@ const admin = { id: '2', username: 'admin', isAdmin: true };
 const nextTasting: DashboardTasting = {
 	slug: 'fluffy-otter',
 	name: 'Herbst-Tasting',
-	motto: 'Islay gegen den Rest',
+	subtitle: 'Tasting #18',
 	tastingDate: '2026-10-24',
 	phase: 'entry',
 	isToday: true,
@@ -30,7 +30,7 @@ const nextTasting: DashboardTasting = {
 const lastTasting: DashboardLastTasting = {
 	slug: 'sleepy-panda',
 	name: 'Sommer-Tasting',
-	motto: null,
+	subtitle: 'Tasting #17',
 	tastingDate: '2026-07-11'
 };
 const noTastings = { nextTasting: null, lastTasting: null, notice: null };

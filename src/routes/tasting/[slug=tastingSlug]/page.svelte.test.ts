@@ -12,19 +12,21 @@ import { SCORE_RULES } from '$lib/tasting';
 import { FACTS_RULES } from '$lib/tastingFacts';
 
 const tasting = {
-	name: 'Herbst-Tasting',
+	name: 'Tasting #18',
+	subtitle: null,
 	tastingDate: '2026-10-24',
-	motto: null,
 	mottoDescription: null
 };
 
+// With a motto the motto is the title, the number its subtitle.
 const withMotto = {
 	...tasting,
-	motto: 'Inselhüpfen',
+	name: 'Inselhüpfen',
+	subtitle: 'Tasting #18',
 	mottoDescription: 'Eine Insel pro Flasche.\nKeine Blends.'
 };
 
-/** The page head: date line, name and – if set – the motto. */
+/** The page head: date line, title and – with a motto – number and description. */
 function header() {
 	return document.querySelector('header')!;
 }
@@ -71,20 +73,20 @@ describe('Tasting participant page', () => {
 		{ phase: 'entry', extra: { participant: { username: 'Anna' }, bottles: [] } },
 		{ phase: 'order', extra: { order: [] } },
 		{ phase: 'revealed', extra: { archived: true, bottles: [] } }
-	])('shows heading and description of the motto below the name in phase $phase', async (c) => {
+	])('shows the motto as the title, number and description below, in phase $phase', async (c) => {
 		renderView({ phase: c.phase, tasting: withMotto, ...c.extra });
 
-		const name = page.getByRole('heading', { level: 1, name: 'Herbst-Tasting' });
+		const name = page.getByRole('heading', { level: 1, name: 'Inselhüpfen' });
 		await expect.element(name).toBeVisible();
-		const heading = page.getByText('Inselhüpfen', { exact: true });
-		await expect.element(heading).toBeVisible();
 		const description = header().lastElementChild as HTMLElement;
 		// Kept as text with its line break, which only CSS renders.
-		expect(description.textContent).toBe('Eine Insel pro Flasche.\nKeine Blends.');
+		expect(description.textContent?.trim()).toBe('Eine Insel pro Flasche.\nKeine Blends.');
 		expect(description.classList).toContain('whitespace-pre-line');
+		// The motto has no line of its own next to the title, the number follows it.
+		const subtitle = page.getByText('Tasting #18', { exact: true });
 		expect([...header().children].slice(1)).toEqual([
 			name.element(),
-			heading.element(),
+			subtitle.element(),
 			description
 		]);
 		// Only in the page, never in the title.
@@ -101,15 +103,11 @@ describe('Tasting participant page', () => {
 		expect(header().querySelector('b')).toBeNull();
 	});
 
-	test('shows only the heading without a description', async () => {
-		renderView({ phase: 'order', tasting: { ...withMotto, mottoDescription: null }, order: [] });
-		await expect.element(page.getByText('Inselhüpfen', { exact: true })).toBeVisible();
-		expect(header().children).toHaveLength(3);
-	});
-
-	test('leaves no empty line in the head without a motto', async () => {
+	test('leaves no empty line in the head without a description', async () => {
 		renderView({ phase: 'order', tasting, order: [] });
-		await expect.element(page.getByRole('heading', { level: 1 })).toBeVisible();
+		await expect
+			.element(page.getByRole('heading', { level: 1, name: 'Tasting #18' }))
+			.toBeVisible();
 		expect(header().children).toHaveLength(2);
 	});
 

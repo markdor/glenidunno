@@ -113,7 +113,7 @@ describe('tasting CHECK constraints', () => {
 	});
 
 	it('leave the number of bottles to the participants', () => {
-		expect(checksOf(schema.tasting).map((c) => c.name)).toEqual(['tasting_name_length']);
+		expect(checksOf(schema.tasting)).toEqual([]);
 	});
 
 	it('declare the (participant, slot) pair unique', () => {
@@ -154,7 +154,7 @@ describe('migrated tasting tables', () => {
 			.values({
 				id: 't1',
 				slug: 'fluffy-otter',
-				name: 'Herbst',
+				motto: 'Herbst',
 				tastingDate: '2026-10-24',
 				createdAt: new Date()
 			})
@@ -368,7 +368,7 @@ describe('migrated tasting tables', () => {
 				.values({
 					id: 't2',
 					slug: 'fluffy-otter',
-					name: 'Winter',
+					motto: 'Winter',
 					tastingDate: '2026-12-12',
 					createdAt: new Date()
 				})

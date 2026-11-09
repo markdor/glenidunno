@@ -108,7 +108,7 @@ beforeEach(async () => {
 	vi.setSystemTime(ENTRY);
 	db.delete(tasting).run();
 	slug = createTasting(db, {
-		name: 'Herbst-Tasting',
+		motto: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
 		participantUserIds: [ANNA, BEN]
 	}).slug;
@@ -197,7 +197,7 @@ describe('presentation PDF for the viewer', () => {
 
 	it('does not hand out another tasting’s presentation', async () => {
 		const other = createTasting(db, {
-			name: 'Anderes',
+			motto: 'Anderes',
 			tastingDate: '2026-10-24',
 			participantUserIds: [DORA, EMIL]
 		});

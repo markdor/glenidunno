@@ -95,7 +95,6 @@ function insertUser(id: string, username: string, deactivatedAt: Date | null = n
 
 function newTasting(overrides: Partial<NewTasting> = {}): NewTasting {
 	return {
-		name: 'Herbst-Tasting',
 		tastingDate: TASTING_DATE,
 		participantUserIds: PARTICIPANT_IDS,
 		...overrides
@@ -220,7 +219,7 @@ describe('createTasting', () => {
 		expect(getAdminTastingDetail(db, id, ENTRY)?.participants).toHaveLength(2);
 	});
 
-	it('stores heading and description of the motto, none if left out', () => {
+	it('stores heading and description of the motto as the title, none if left out', () => {
 		const withMotto = createTasting(
 			db,
 			newTasting({ motto: 'Inselhüpfen', mottoDescription: 'Bringt Inseln mit.\nKeine Blends.' }),
@@ -229,13 +228,46 @@ describe('createTasting', () => {
 		const without = createTasting(db, newTasting(), ENTRY);
 		const motto = (id: string) => {
 			const t = getAdminTastingDetail(db, id, ENTRY)?.tasting;
-			return { motto: t?.motto, mottoDescription: t?.mottoDescription };
+			return { name: t?.name, motto: t?.motto, mottoDescription: t?.mottoDescription };
 		};
 		expect(motto(withMotto.id)).toEqual({
+			name: 'Inselhüpfen',
 			motto: 'Inselhüpfen',
 			mottoDescription: 'Bringt Inseln mit.\nKeine Blends.'
 		});
-		expect(motto(without.id)).toEqual({ motto: null, mottoDescription: null });
+		expect(motto(without.id)).toEqual({
+			name: 'Tasting #2',
+			motto: null,
+			mottoDescription: null
+		});
+	});
+
+	it('numbers all tastings from the first one on, by date, those with a motto too', () => {
+		const create = (tastingDate: string, motto?: string) =>
+			createTasting(db, newTasting({ tastingDate, motto }), ENTRY).id;
+		const first = create('2026-10-24');
+		const withMotto = create('2026-10-24', 'Islay gegen den Rest');
+		const earlierDay = create('2026-10-21');
+		const november = create('2026-11-07');
+
+		const titles = new Map(listTastings(db, ENTRY).map((t) => [t.id, [t.name, t.subtitle]]));
+		// Same date: by creation.
+		expect([earlierDay, first, withMotto, november].map((id) => titles.get(id))).toEqual([
+			['Tasting #1', null],
+			['Tasting #2', null],
+			['Islay gegen den Rest', 'Tasting #3'],
+			['Tasting #4', null]
+		]);
+	});
+
+	it('renumbers the tastings after a deleted one, without a gap', () => {
+		const first = createTasting(db, newTasting({ tastingDate: '2026-10-21' }), ENTRY).id;
+		const second = createTasting(db, newTasting(), ENTRY).id;
+		const third = createTasting(db, newTasting({ tastingDate: '2026-10-31' }), ENTRY).id;
+		deleteTasting(db, second);
+
+		const titles = new Map(listTastings(db, ENTRY).map((t) => [t.id, t.name]));
+		expect([first, third].map((id) => titles.get(id))).toEqual(['Tasting #1', 'Tasting #2']);
 	});
 });
 
@@ -259,7 +291,6 @@ describe('findParticipant', () => {
 		expect(anna).toMatchObject({
 			username: 'Anna',
 			tastingId: id,
-			tastingName: 'Herbst-Tasting',
 			tastingDate: TASTING_DATE,
 			tastingMotto: null,
 			tastingMottoDescription: null,
@@ -508,7 +539,7 @@ describe('getParticipantView', () => {
 		expect(view).toMatchObject({
 			phase: 'entry',
 			participant: { username: 'Anna' },
-			tasting: { name: 'Herbst-Tasting', tastingDate: TASTING_DATE }
+			tasting: { name: 'Tasting #1', tastingDate: TASTING_DATE }
 		});
 		const serialized = JSON.stringify(view);
 		expect(serialized).toContain('Nebel');
@@ -521,16 +552,23 @@ describe('getParticipantView', () => {
 		{ phase: 'entry', now: ENTRY },
 		{ phase: 'order', now: ORDER },
 		{ phase: 'revealed', now: REVEALED }
-	])('shows heading and description of the motto in phase $phase', ({ phase, now }) => {
+	])('shows the motto as the title, with its description, in phase $phase', ({ phase, now }) => {
 		const ctx = setup();
 		fill(ctx);
-		const motto = { motto: 'Inselhüpfen', mottoDescription: 'Eine Insel pro Flasche.\nDanke!' };
-		updateTastingMotto(db, ctx.id, motto);
+		updateTastingMotto(db, ctx.id, {
+			motto: 'Inselhüpfen',
+			mottoDescription: 'Eine Insel pro Flasche.\nDanke!'
+		});
 		const holder = findParticipant(db, ctx.slug, 'u-anna')!;
 
 		const view = getParticipantView(db, holder, now);
 		expect(view.phase).toBe(phase);
-		expect(view.tasting).toEqual({ name: 'Herbst-Tasting', tastingDate: TASTING_DATE, ...motto });
+		expect(view.tasting).toEqual({
+			name: 'Inselhüpfen',
+			subtitle: 'Tasting #1',
+			tastingDate: TASTING_DATE,
+			mottoDescription: 'Eine Insel pro Flasche.\nDanke!'
+		});
 	});
 
 	it('offers the distilleries of revealed tastings during entry: one spelling each, no placeholder', () => {
@@ -562,9 +600,9 @@ describe('getParticipantView', () => {
 		expect(view).toEqual({
 			phase: 'order',
 			tasting: {
-				name: 'Herbst-Tasting',
+				name: 'Tasting #1',
+				subtitle: null,
 				tastingDate: TASTING_DATE,
-				motto: null,
 				mottoDescription: null
 			},
 			manual: { orderOpenedAt: null, revealedAt: null },
@@ -727,7 +765,9 @@ describe('getAdminTastingDetail', () => {
 		);
 		expect(getAdminTastingDetail(db, id, ENTRY)?.tasting).toEqual({
 			id,
-			name: 'Herbst-Tasting',
+			name: 'Sherry',
+			subtitle: 'Tasting #1',
+			number: 1,
 			motto: 'Sherry',
 			mottoDescription: 'Nur Sherryfässer.',
 			tastingDate: TASTING_DATE,
@@ -809,20 +849,20 @@ describe('listTastings and getTastingSummary', () => {
 		expect(JSON.stringify(list)).not.toContain('Nebel');
 	});
 
-	it('lists the motto heading, never its description, also in the admin page preview', () => {
+	it('lists the title, never the motto’s description, also in the admin page preview', () => {
 		const ctx = setup();
 		updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: 'Nur Inseln.' });
 		const plain = setup('2026-11-14');
 
 		const list = listTastings(db, ENTRY);
-		expect(list.map((t) => [t.id, t.motto])).toEqual([
-			[plain.id, null],
-			[ctx.id, 'Inselhüpfen']
+		expect(list.map((t) => [t.id, t.name, t.subtitle])).toEqual([
+			[plain.id, 'Tasting #2', null],
+			[ctx.id, 'Inselhüpfen', 'Tasting #1']
 		]);
 		const preview = getTastingSummary(db, ENTRY).preview;
-		expect(preview.map((t) => [t.id, t.motto])).toEqual([
-			[ctx.id, 'Inselhüpfen'],
-			[plain.id, null]
+		expect(preview.map((t) => [t.id, t.name, t.subtitle])).toEqual([
+			[ctx.id, 'Inselhüpfen', 'Tasting #1'],
+			[plain.id, 'Tasting #2', null]
 		]);
 		expect(JSON.stringify([list, preview])).not.toContain('Nur Inseln.');
 	});
@@ -846,7 +886,7 @@ describe('listTastings and getTastingSummary', () => {
 			.values({
 				id: 't-empty',
 				slug: 'shy-owl',
-				name: 'Leer',
+				motto: 'Leer',
 				tastingDate: TASTING_DATE,
 				createdAt: ENTRY
 			})
@@ -887,7 +927,7 @@ describe('getDashboardTasting', () => {
 
 	it('shows the own next tasting with management data and the own progress only', () => {
 		const ctx = setup();
-		// The cards show the heading only, the description stays on the server.
+		// The cards show the title (the motto) only, the description stays on the server.
 		updateTastingMotto(db, ctx.id, {
 			motto: 'Islay gegen den Rest',
 			mottoDescription: 'Eine Flasche von Islay.'
@@ -899,8 +939,8 @@ describe('getDashboardTasting', () => {
 		expect(getDashboardTasting(db, 'u-anna', ENTRY)).toEqual({
 			next: {
 				slug: ctx.slug,
-				name: 'Herbst-Tasting',
-				motto: 'Islay gegen den Rest',
+				name: 'Islay gegen den Rest',
+				subtitle: 'Tasting #1',
 				tastingDate: TASTING_DATE,
 				phase: 'entry',
 				isToday: false,
@@ -925,14 +965,14 @@ describe('getDashboardTasting', () => {
 		});
 	});
 
-	it('shows the own last revealed tasting with title, motto and date only', () => {
+	it('shows the own last revealed tasting with title and date only', () => {
 		const ctx = setup();
 		updateTastingMotto(db, ctx.id, { motto: 'Sherry', mottoDescription: 'Nur Sherryfässer.' });
 		saveBottle(db, ctx.anna, 1, bottle(), ENTRY);
 
 		expect(getDashboardTasting(db, 'u-anna', REVEALED)).toEqual({
 			next: null,
-			last: { slug: ctx.slug, name: 'Herbst-Tasting', motto: 'Sherry', tastingDate: TASTING_DATE }
+			last: { slug: ctx.slug, name: 'Sherry', subtitle: 'Tasting #1', tastingDate: TASTING_DATE }
 		});
 	});
 
@@ -1066,6 +1106,16 @@ describe('updateTastingDate', () => {
 		const { id } = setup();
 		expect(() => updateTastingDate(db, id, '2026-11-07', ORDER)).toThrow(TastingValidationError);
 	});
+
+	it('renumbers the tastings it passes on its new date', () => {
+		const first = setup('2026-10-21').id;
+		const second = setup().id;
+
+		updateTastingDate(db, first, '2026-10-31', ENTRY);
+
+		const titles = new Map(listTastings(db, ENTRY).map((t) => [t.id, t.name]));
+		expect([second, first].map((id) => titles.get(id))).toEqual(['Tasting #1', 'Tasting #2']);
+	});
 });
 
 describe('validateTastingMotto', () => {
@@ -1155,6 +1205,18 @@ describe('updateTastingMotto', () => {
 		expect(mottoOf(id)).toEqual({ motto: 'Sherry', mottoDescription: null });
 		expect(updateTastingMotto(db, id, NO_MOTTO)).toBe(true);
 		expect(mottoOf(id)).toEqual(NO_MOTTO);
+	});
+
+	it('makes the motto the title, cleared the number is the title again', () => {
+		setup('2026-10-21');
+		const { id } = setup();
+		const title = () => getAdminTastingDetail(db, id, ENTRY)!.tasting.name;
+		expect(title()).toBe('Tasting #2');
+
+		updateTastingMotto(db, id, MOTTO);
+		expect(title()).toBe('Inselhüpfen');
+		updateTastingMotto(db, id, NO_MOTTO);
+		expect(title()).toBe('Tasting #2');
 	});
 
 	it('changes the motto of an archived tasting too', () => {
@@ -2009,7 +2071,7 @@ describe('listTastingHistory', () => {
 		expect(listTastingHistory(db, ENTRY).map((t) => [t.id, t.bottleCount])).toEqual([[ctx.id, 0]]);
 	});
 
-	it('carries management data only: the motto heading, neither description nor slug', () => {
+	it('carries management data only: the title, neither the motto’s description nor slug', () => {
 		const ctx = setupWithBottles();
 		updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: 'Nur Inseln.' });
 
@@ -2017,8 +2079,8 @@ describe('listTastingHistory', () => {
 		expect(list).toEqual([
 			{
 				id: ctx.id,
-				name: 'Herbst-Tasting',
-				motto: 'Inselhüpfen',
+				name: 'Inselhüpfen',
+				subtitle: 'Tasting #1',
 				tastingDate: TASTING_DATE,
 				bottleCount: 2
 			}
@@ -2050,9 +2112,9 @@ describe('getTastingHistoryDetail', () => {
 		const detail = getTastingHistoryDetail(db, ctx.id, 'u-ben', REVEALED)!;
 		expect(detail).toMatchObject({
 			tasting: {
-				name: 'Herbst-Tasting',
+				name: 'Inselhüpfen',
+				subtitle: 'Tasting #1',
 				tastingDate: TASTING_DATE,
-				motto: 'Inselhüpfen',
 				mottoDescription: 'Nur Inseln.'
 			},
 			slug: ctx.slug,

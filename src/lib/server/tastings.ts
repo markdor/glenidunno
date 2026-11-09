@@ -45,6 +45,7 @@ import {
 } from '$lib/validation';
 import type { WorldMapData } from '$lib/worldMap';
 import { distinctDistilleryNames, nameKey } from '$lib/distilleryNames';
+import { tastingSubtitle, tastingTitle } from '$lib/tastingTitle';
 import type * as Schema from './db/schema';
 import {
 	distillery,
@@ -687,6 +688,29 @@ const phaseColumns = {
 };
 
 /**
+ * The running number of every tasting, the "#<n>" of "Tasting #<n>": counted
+ * from the first tasting on, archived ones included, by date – same date: by
+ * creation (created_at only has second precision, the rowid keeps the order).
+ * Computed on every read, never stored, so it has no gaps: a tasting deleted
+ * or entered for an earlier date renumbers the ones after it.
+ */
+function tastingNumbers(db: Executor): Map<string, number> {
+	return new Map(
+		db
+			.select({ id: tasting.id })
+			.from(tasting)
+			.orderBy(asc(tasting.tastingDate), asc(tasting.createdAt), sql`${tasting}.rowid`)
+			.all()
+			.map((t, index) => [t.id, index + 1])
+	);
+}
+
+/** What tastingTitle() and tastingSubtitle() take, with the number from tastingNumbers(). */
+function numbered(numbers: Map<string, number>, t: { id: string; motto: string | null }) {
+	return { motto: t.motto, number: numbers.get(t.id)! };
+}
+
+/**
  * Entry progress of one participant: every participant brings at least the
  * base number of bottles, a further one raises only their own target.
  */
@@ -744,8 +768,7 @@ function takenFileNames(
 // ── Admin ───────────────────────────────────────────────────────────────────
 
 export type NewTasting = {
-	name: string;
-	/** Optional, `null` (or missing) means no motto. */
+	/** Optional, `null` (or missing) means no motto: the title is "Tasting #<n>" (tastingTitle). */
 	motto?: string | null;
 	/** Optional explanation of the motto, only with a motto (validateTastingMotto). */
 	mottoDescription?: string | null;
@@ -827,7 +850,6 @@ export function createTasting(
 			.values({
 				id,
 				slug,
-				name: input.name,
 				motto: input.motto ?? null,
 				mottoDescription: input.mottoDescription ?? null,
 				tastingDate: input.tastingDate,
@@ -860,16 +882,17 @@ export function listSelectableUsers(db: Db): SelectableUser[] {
 
 export type TastingListItem = {
 	id: string;
+	/** The title (tastingTitle): the motto without its description, or "Tasting #<n>". */
 	name: string;
-	/** The motto heading only, never its description. */
-	motto: string | null;
+	/** "Tasting #<n>" between title and date, only with a motto (tastingSubtitle). */
+	subtitle: string | null;
 	tastingDate: string;
 	phase: TastingPhase;
 	progress: Progress;
 };
 
 /**
- * Management data only: name, motto heading, date, phase and entry progress. The progress
+ * Management data only: title, date, phase and entry progress. The progress
  * adds up the participants' own targets, so a participant's third bottle
  * doesn't raise the target of the others.
  */
@@ -890,6 +913,7 @@ export function listTastings(db: Db, now: Date = new Date()): TastingListItem[] 
 		progress.set(tastingId, { entered: sum.entered + own.entered, total: sum.total + own.total });
 	}
 
+	const numbers = tastingNumbers(db);
 	return db
 		.select()
 		.from(tasting)
@@ -897,8 +921,8 @@ export function listTastings(db: Db, now: Date = new Date()): TastingListItem[] 
 		.all()
 		.map((t) => ({
 			id: t.id,
-			name: t.name,
-			motto: t.motto,
+			name: tastingTitle(numbered(numbers, t)),
+			subtitle: tastingSubtitle(numbered(numbers, t)),
 			tastingDate: t.tastingDate,
 			phase: getTastingPhase(t.tastingDate, now, t),
 			progress: progress.get(t.id) ?? { entered: 0, total: 0 }
@@ -941,8 +965,8 @@ export function getDashboardTasting(
 ): { next: DashboardTasting | null; last: DashboardLastTasting | null } {
 	const own = db
 		.select({
+			id: tasting.id,
 			slug: tasting.slug,
-			name: tasting.name,
 			motto: tasting.motto,
 			...phaseColumns,
 			entered: count(tastingBottle.id)
@@ -960,18 +984,21 @@ export function getDashboardTasting(
 	// The admin's buttons can reveal a tasting ahead of an earlier one, so the
 	// phase decides per tasting instead of the date alone.
 	const today = getBerlinToday(now);
+	const numbers = tastingNumbers(db);
 	let next: DashboardTasting | null = null;
 	let last: DashboardLastTasting | null = null;
 	for (const t of own) {
 		const phase = getTastingPhase(t.tastingDate, now, t);
+		const name = tastingTitle(numbered(numbers, t));
+		const subtitle = tastingSubtitle(numbered(numbers, t));
 		if (phase === 'revealed') {
 			// Sorted by date, so the latest revealed one is the last to get here.
-			last = { slug: t.slug, name: t.name, motto: t.motto, tastingDate: t.tastingDate };
+			last = { slug: t.slug, name, subtitle, tastingDate: t.tastingDate };
 		} else {
 			next ??= {
 				slug: t.slug,
-				name: t.name,
-				motto: t.motto,
+				name,
+				subtitle,
 				tastingDate: t.tastingDate,
 				phase,
 				isToday: t.tastingDate === today,
@@ -1255,7 +1282,7 @@ export function getHistory(db: Db, userId: string, now: Date = new Date()): Hist
  */
 export function listTastingHistory(db: Db, now: Date = new Date()): TastingHistoryItem[] {
 	const revealed = db
-		.select({ id: tasting.id, name: tasting.name, motto: tasting.motto, ...phaseColumns })
+		.select({ id: tasting.id, motto: tasting.motto, ...phaseColumns })
 		.from(tasting)
 		// created_at only has second precision: see getDashboardTasting.
 		.orderBy(desc(tasting.tastingDate), desc(tasting.createdAt), desc(sql`${tasting}.rowid`))
@@ -1274,10 +1301,11 @@ export function listTastingHistory(db: Db, now: Date = new Date()): TastingHisto
 			.all()
 			.map((row) => [row.tastingId, row.bottles])
 	);
+	const numbers = tastingNumbers(db);
 	return revealed.map((t) => ({
 		id: t.id,
-		name: t.name,
-		motto: t.motto,
+		name: tastingTitle(numbered(numbers, t)),
+		subtitle: tastingSubtitle(numbered(numbers, t)),
 		tastingDate: t.tastingDate,
 		bottleCount: bottleCounts.get(t.id) ?? 0
 	}));
@@ -1298,8 +1326,8 @@ export function getTastingHistoryDetail(
 ): TastingHistoryDetail | null {
 	const t = db
 		.select({
+			id: tasting.id,
 			slug: tasting.slug,
-			name: tasting.name,
 			motto: tasting.motto,
 			mottoDescription: tasting.mottoDescription,
 			...phaseColumns
@@ -1315,10 +1343,11 @@ export function getTastingHistoryDetail(
 			.from(tastingParticipant)
 			.where(and(eq(tastingParticipant.tastingId, id), eq(tastingParticipant.userId, userId)))
 			.get() !== undefined;
+	const title = numbered(tastingNumbers(db), t);
 	const head = {
-		name: t.name,
+		name: tastingTitle(title),
+		subtitle: tastingSubtitle(title),
 		tastingDate: t.tastingDate,
-		motto: t.motto,
 		mottoDescription: t.mottoDescription
 	};
 	const slug = own ? t.slug : null;
@@ -1349,7 +1378,12 @@ export type AdminParticipant = { id: string; name: string; progress: Progress };
 export type AdminTastingDetail = {
 	tasting: {
 		id: string;
+		/** The title (tastingTitle); `motto` fills the motto form. */
 		name: string;
+		/** "Tasting #<n>" between title and date, only with a motto (tastingSubtitle). */
+		subtitle: string | null;
+		/** The running number, "Tasting #<n>" without a motto. */
+		number: number;
 		motto: string | null;
 		mottoDescription: string | null;
 		tastingDate: string;
@@ -1394,10 +1428,13 @@ export function getAdminTastingDetail(
 			progress: participantProgress(p.entered)
 		}));
 
+	const title = numbered(tastingNumbers(db), t);
 	return {
 		tasting: {
 			id: t.id,
-			name: t.name,
+			name: tastingTitle(title),
+			subtitle: tastingSubtitle(title),
+			number: title.number,
 			motto: t.motto,
 			mottoDescription: t.mottoDescription,
 			tastingDate: t.tastingDate,
@@ -1472,10 +1509,11 @@ export function updateTastingDate(
 }
 
 /**
- * Sets or clears (`null`) heading and description of the motto together – in
- * every phase, archived tastings included: like name and date it is
- * management data the admin sets blind. Expects validateTastingMotto's
- * output. Returns false if the tasting doesn't exist.
+ * Sets or clears (`null`) motto and description together – in every phase,
+ * archived tastings included: like the date it is management data the admin
+ * sets blind. The motto is the title, cleared the title is "Tasting #<n>".
+ * Expects validateTastingMotto's output. Returns false if the tasting doesn't
+ * exist.
  */
 export function updateTastingMotto(
 	db: Db,
@@ -1601,7 +1639,6 @@ export type Participant = ManualPhaseChanges & {
 	id: string;
 	username: string;
 	tastingId: string;
-	tastingName: string;
 	tastingDate: string;
 	tastingMotto: string | null;
 	tastingMottoDescription: string | null;
@@ -1620,7 +1657,6 @@ export function findParticipant(db: Db, slug: string, userId: string): Participa
 				id: tastingParticipant.id,
 				username: user.username,
 				tastingId: tasting.id,
-				tastingName: tasting.name,
 				tastingDate: tasting.tastingDate,
 				tastingMotto: tasting.motto,
 				tastingMottoDescription: tasting.mottoDescription,
@@ -1646,13 +1682,15 @@ export type OwnBottle = (TastingBottle | FactsBottle) & {
 };
 
 /**
- * The page head in every phase. The motto is management data the admin sets
- * blind, no whisky content, so it shows before the reveal too.
+ * The page head in every phase: the title (tastingTitle, i.e. the motto if
+ * there is one) and the motto's description. The motto is management data the
+ * admin sets blind, no whisky content, so it shows before the reveal too.
  */
 export type ParticipantTasting = {
 	name: string;
+	/** "Tasting #<n>" below the title, only with a motto (tastingSubtitle). */
+	subtitle: string | null;
 	tastingDate: string;
-	motto: string | null;
 	mottoDescription: string | null;
 };
 
@@ -1706,10 +1744,11 @@ export function getParticipantView(
 	holder: Participant,
 	now: Date = new Date()
 ): ParticipantView {
+	const title = numbered(tastingNumbers(db), { id: holder.tastingId, motto: holder.tastingMotto });
 	const tastingInfo: ParticipantTasting = {
-		name: holder.tastingName,
+		name: tastingTitle(title),
+		subtitle: tastingSubtitle(title),
 		tastingDate: holder.tastingDate,
-		motto: holder.tastingMotto,
 		mottoDescription: holder.tastingMottoDescription
 	};
 	// When the admin pressed the 18:00 / 9:00 button – every participant sees it.

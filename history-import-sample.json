@@ -3,7 +3,6 @@
 	"tastings": [
 		{
 			"date": "2020-11-06",
-			"name": "Tasting November 2020",
 			"motto": null,
 			"bottles": [
 				{
@@ -43,7 +42,6 @@
 		},
 		{
 			"date": "2021-03-12",
-			"name": "Tasting März 2021",
 			"motto": "Inselhüpfen",
 			"bottles": [
 				{

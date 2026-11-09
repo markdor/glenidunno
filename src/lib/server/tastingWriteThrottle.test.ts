@@ -37,7 +37,7 @@ beforeEach(() => {
 		.values({
 			id: 't1',
 			slug: 'fluffy-otter',
-			name: 'Herbst',
+			motto: 'Herbst',
 			tastingDate: '2026-10-24',
 			createdAt: START
 		})

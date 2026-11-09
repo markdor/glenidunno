@@ -10,7 +10,9 @@ const user = { id: 'admin-id', username: 'admin', isAdmin: true };
 const base = {
 	tasting: {
 		id: 't1',
-		name: 'Herbst-Tasting',
+		name: 'Tasting #18',
+		subtitle: null,
+		number: 18,
 		motto: null,
 		mottoDescription: null,
 		tastingDate: '2026-10-24',
@@ -38,7 +40,7 @@ describe('Tasting detail page', () => {
 	test('shows participants with progress and the date form during entry', async () => {
 		renderDetail({ phase: 'entry' });
 
-		await expect.element(page.getByRole('heading', { name: 'Herbst-Tasting' })).toBeVisible();
+		await expect.element(page.getByRole('heading', { name: 'Tasting #18' })).toBeVisible();
 		await expect.element(page.getByText('1 von 2 Flaschen')).toBeVisible();
 		await expect.element(page.getByText('2 von 2 Flaschen')).toBeVisible();
 		await expect.element(page.getByLabelText('Datum')).toHaveValue('2026-10-24');
@@ -78,12 +80,26 @@ describe('Tasting detail page', () => {
 				phase,
 				tasting: {
 					...base.tasting,
+					name: 'Islay gegen den Rest',
+					subtitle: 'Tasting #18',
 					motto: 'Islay gegen den Rest',
 					mottoDescription: 'Eine Flasche von Islay.\nKeine Blends.'
 				}
 			});
-			const motto = page.getByLabelText('Überschrift');
+			await expect
+				.element(page.getByRole('heading', { level: 1, name: 'Islay gegen den Rest' }))
+				.toBeVisible();
+			// The number between title and date.
+			const subtitle = page.getByText('Tasting #18', { exact: true });
+			await expect.element(subtitle).toBeVisible();
+			expect(subtitle.element().nextElementSibling?.textContent).toContain('Sa., 24.10.2026');
+			const motto = page.getByLabelText('Motto', { exact: true });
 			await expect.element(motto).toHaveValue('Islay gegen den Rest');
+			await expect
+				.element(motto)
+				.toHaveAccessibleDescription(
+					'Das Motto ist der Titel des Tastings. Ohne Motto heißt es „Tasting #18“.'
+				);
 			await expect.element(motto).toHaveAttribute('maxlength', '120');
 			await expect.element(motto).not.toBeRequired();
 			const description = page.getByLabelText('Erklärung');
@@ -101,14 +117,14 @@ describe('Tasting detail page', () => {
 
 	test('leaves both motto fields empty without a motto, the description disabled', async () => {
 		renderDetail({ phase: 'entry' });
-		await expect.element(page.getByLabelText('Überschrift')).toHaveValue('');
+		await expect.element(page.getByLabelText('Motto', { exact: true })).toHaveValue('');
 		await expect.element(page.getByLabelText('Erklärung')).toHaveValue('');
 		await expect.element(page.getByLabelText('Erklärung')).toBeDisabled();
 	});
 
 	test('enables the description only once a heading is typed', async () => {
 		renderDetail({ phase: 'order' });
-		const motto = page.getByLabelText('Überschrift');
+		const motto = page.getByLabelText('Motto', { exact: true });
 		const description = page.getByLabelText('Erklärung');
 
 		await motto.fill('   ');
@@ -125,7 +141,7 @@ describe('Tasting detail page', () => {
 		const description = page.getByLabelText('Erklärung');
 		await expect.element(description).toBeEnabled();
 
-		await page.getByLabelText('Überschrift').fill('');
+		await page.getByLabelText('Motto', { exact: true }).fill('');
 
 		await expect.element(description).toBeDisabled();
 		await expect.element(description).toHaveValue('Nur Sherryfässer.');
@@ -147,7 +163,7 @@ describe('Tasting detail page', () => {
 		);
 		await expect.element(page.getByText('Höchstens 120 Zeichen')).toBeVisible();
 		await expect.element(page.getByText('Höchstens 1000 Zeichen')).toBeVisible();
-		await expect.element(page.getByLabelText('Überschrift')).toHaveValue(heading);
+		await expect.element(page.getByLabelText('Motto', { exact: true })).toHaveValue(heading);
 		await expect.element(page.getByLabelText('Erklärung')).toHaveValue(description);
 	});
 
@@ -163,7 +179,7 @@ describe('Tasting detail page', () => {
 			}
 		);
 		await expect.element(page.getByText('Pflichtfeld', { exact: true })).toBeVisible();
-		await expect.element(page.getByLabelText('Überschrift')).toHaveValue('');
+		await expect.element(page.getByLabelText('Motto', { exact: true })).toHaveValue('');
 		await expect.element(page.getByLabelText('Erklärung')).toBeDisabled();
 		expect(page.getByText(/Höchstens/).elements()).toHaveLength(0);
 	});
@@ -276,7 +292,7 @@ describe('Tasting detail page', () => {
 		});
 
 		test.each([
-			{ button: 'Tasting löschen', question: 'Herbst-Tasting', phase: 'entry' },
+			{ button: 'Tasting löschen', question: 'Tasting #18', phase: 'entry' },
 			{ button: 'Reihenfolge jetzt freigeben', question: 'Reihenfolge jetzt', phase: 'entry' },
 			{ button: 'Jetzt auflösen', question: 'komplett auflösen', phase: 'order' }
 		])('sends nothing when "$button" is not confirmed', async ({ button, question, phase }) => {

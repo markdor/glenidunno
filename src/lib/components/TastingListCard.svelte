@@ -4,19 +4,20 @@
 	import { formatTastingDate } from '$lib/tasting';
 
 	// One tasting in a list: the admin's tasting management and the tasting
-	// history look the same. Management data only, the motto heading without
-	// its description.
+	// history look the same. Management data only: the title (tastingTitle),
+	// never the motto's description.
 	let {
 		href,
 		name,
-		motto,
+		subtitle,
 		tastingDate,
 		badge,
 		children
 	}: {
 		href: ResolvedPathname;
 		name: string;
-		motto: string | null;
+		/** "Tasting #<n>" between title and date for a tasting with a motto. */
+		subtitle: string | null;
 		tastingDate: string;
 		badge: string;
 		/** An optional line below, e.g. the entry progress. */
@@ -28,8 +29,8 @@
 	<div class="flex items-start justify-between gap-3">
 		<div class="min-w-0">
 			<p class="truncate font-medium">{name}</p>
-			{#if motto}
-				<p class="truncate text-sm text-slate-700">{motto}</p>
+			{#if subtitle}
+				<p class="text-sm text-slate-700">{subtitle}</p>
 			{/if}
 			<p class="text-sm text-slate-500">{formatTastingDate(tastingDate)}</p>
 		</div>

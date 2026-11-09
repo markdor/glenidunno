@@ -63,7 +63,7 @@ function tasting(
 	manual: { revealedAt?: Date; orderOpenedAt?: Date } = {}
 ) {
 	db.insert(schema.tasting)
-		.values({ id, slug: `slug-${id}`, name: id, tastingDate: date, createdAt: EARLIER, ...manual })
+		.values({ id, slug: `slug-${id}`, motto: id, tastingDate: date, createdAt: EARLIER, ...manual })
 		.run();
 	for (const userId of new Set(bottles.map(([user]) => user))) {
 		db.insert(schema.tastingParticipant)

@@ -163,7 +163,7 @@ beforeEach(async () => {
 	vi.setSystemTime(ENTRY);
 	db.delete(tasting).run();
 	const created = createTasting(db, {
-		name: 'Herbst-Tasting',
+		motto: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
 		participantUserIds: [ANNA, BEN]
 	});
@@ -195,7 +195,7 @@ describe('participant page load', () => {
 		{ phase: 'entry', now: ENTRY },
 		{ phase: 'order', now: ORDER },
 		{ phase: 'revealed', now: REVEALED }
-	])('shows heading and description of the motto in phase $phase', ({ phase, now }) => {
+	])('shows the motto as the title, with its description, in phase $phase', ({ phase, now }) => {
 		const motto = { motto: 'Inselhüpfen', mottoDescription: 'Eine Insel pro Flasche.\nDanke!' };
 		db.update(tasting).set(motto).where(eq(tasting.id, tastingId)).run();
 
@@ -203,15 +203,16 @@ describe('participant page load', () => {
 		const { view } = loadFor(ANNA);
 		expect(view.phase).toBe(phase);
 		expect(view.tasting).toEqual({
-			name: 'Herbst-Tasting',
+			name: 'Inselhüpfen',
+			subtitle: 'Tasting #1',
 			tastingDate: '2026-10-24',
-			...motto
+			mottoDescription: 'Eine Insel pro Flasche.\nDanke!'
 		});
 	});
 
 	it('offers only distilleries of revealed tastings as input help, and only during entry', async () => {
 		const tastingOf = (date: string) =>
-			createTasting(db, { name: date, tastingDate: date, participantUserIds: [ANNA, BEN] });
+			createTasting(db, { motto: date, tastingDate: date, participantUserIds: [ANNA, BEN] });
 		// Revealed early by the admin, the other one not even with its order open.
 		const past = tastingOf('2026-10-21');
 		await save(BEN, { ...validBottle, alias: 'Alt', distillery: 'Lagavulin' }, past.slug);
@@ -242,8 +243,8 @@ describe('participant page load', () => {
 			phase: 'order',
 			tasting: {
 				name: 'Herbst-Tasting',
+				subtitle: 'Tasting #1',
 				tastingDate: '2026-10-24',
-				motto: null,
 				mottoDescription: null
 			},
 			manual: { orderOpenedAt: null, revealedAt: null },
@@ -813,8 +814,8 @@ describe('participant page with archived bottles', () => {
 			phase: 'revealed',
 			tasting: {
 				name: 'Herbst-Tasting',
+				subtitle: 'Tasting #1',
 				tastingDate: '2026-10-24',
-				motto: null,
 				mottoDescription: null
 			},
 			manual: { orderOpenedAt: null, revealedAt: null },
@@ -901,7 +902,7 @@ describe('facts tasting', () => {
 
 	beforeEach(() => {
 		factsSlug = createTasting(db, {
-			name: 'Fakten-Tasting',
+			motto: 'Fakten-Tasting',
 			tastingDate: '2026-10-24',
 			participantUserIds: [ANNA, BEN],
 			algorithm: 'facts'

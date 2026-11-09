@@ -34,7 +34,6 @@ import {
 	TASTING_DISTILLERY_LENGTH,
 	TASTING_FINISH_KINDS,
 	TASTING_FINISH_MONTHS,
-	TASTING_NAME_LENGTH,
 	TASTING_PEAT_LEVELS,
 	TASTING_PRICE,
 	TASTING_SCALE,
@@ -148,39 +147,37 @@ function factorsMatchArchived(archived: SQLiteColumn, factors: SQLiteColumn[]): 
 
 // The tasting date is a calendar date (YYYY-MM-DD), not a timestamp: the
 // phases hang on Berlin local time, not on an instant.
-export const tasting = sqliteTable(
-	'tasting',
-	{
-		id: text('id').primaryKey(),
-		// The tasting's one link /tasting/<adjective>-<animal>, picked at random
-		// from the free combinations on creation and never changed. Not a
-		// secret: login plus participation protect the page.
-		slug: text('slug').notNull().unique(),
-		name: text('name').notNull(),
-		tastingDate: text('tasting_date').notNull(),
-		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-		// Admin overrides of the 18:00 / 9:00 rules; null = the clock decides.
-		// Every participant sees when the admin pressed the button.
-		orderOpenedAt: integer('order_opened_at', { mode: 'timestamp' }),
-		revealedAt: integer('revealed_at', { mode: 'timestamp' }),
-		// Optional, null = no motto. Deliberately no CHECK on its length (the
-		// actions validate it), for the same reason as presentation_name below:
-		// a CHECK on an existing table makes drizzle-kit rebuild it.
-		motto: text('motto'),
-		// Optional multi-line explanation of the motto, only with a motto.
-		// Plain text, line breaks stored as \n. No CHECK, same reason.
-		mottoDescription: text('motto_description'),
-		// The rules of the pouring order (ScoreRules as JSON) as frozen with the
-		// order, see freezePouringOrder in tastings.ts: the explainer tile keeps
-		// explaining them after the algorithm changed. NULL before that.
-		pourRules: text('pour_rules'),
-		// How the pouring order is computed (TASTING_ALGORITHMS), chosen on
-		// creation and never changed. No CHECK, same reason as the motto: the
-		// create action validates it.
-		algorithm: text('algorithm', { enum: TASTING_ALGORITHMS }).notNull().default('taste')
-	},
-	(t) => [check('tasting_name_length', lengthUpTo(t.name, TASTING_NAME_LENGTH.max))]
-);
+export const tasting = sqliteTable('tasting', {
+	id: text('id').primaryKey(),
+	// The tasting's one link /tasting/<adjective>-<animal>, picked at random
+	// from the free combinations on creation and never changed. Not a
+	// secret: login plus participation protect the page.
+	slug: text('slug').notNull().unique(),
+	tastingDate: text('tasting_date').notNull(),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+	// Admin overrides of the 18:00 / 9:00 rules; null = the clock decides.
+	// Every participant sees when the admin pressed the button.
+	orderOpenedAt: integer('order_opened_at', { mode: 'timestamp' }),
+	revealedAt: integer('revealed_at', { mode: 'timestamp' }),
+	// Optional, null = no motto. With a motto it is the tasting's title,
+	// without one "Tasting #<n>" (tastingTitle() in src/lib/tastingTitle.ts,
+	// the number is computed, not stored). Deliberately no CHECK on its
+	// length (the actions validate it), for the same reason as
+	// presentation_name below: a CHECK on an existing table makes
+	// drizzle-kit rebuild it.
+	motto: text('motto'),
+	// Optional multi-line explanation of the motto, only with a motto.
+	// Plain text, line breaks stored as \n. No CHECK, same reason.
+	mottoDescription: text('motto_description'),
+	// The rules of the pouring order (ScoreRules as JSON) as frozen with the
+	// order, see freezePouringOrder in tastings.ts: the explainer tile keeps
+	// explaining them after the algorithm changed. NULL before that.
+	pourRules: text('pour_rules'),
+	// How the pouring order is computed (TASTING_ALGORITHMS), chosen on
+	// creation and never changed. No CHECK, same reason as the motto: the
+	// create action validates it.
+	algorithm: text('algorithm', { enum: TASTING_ALGORITHMS }).notNull().default('taste')
+});
 
 // Word lists for the tasting links /tasting/<adjective>-<animal>, seeded by a
 // migration (drizzle/0005_*.sql). Lower-case a–z only, so the hyphen is an

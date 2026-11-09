@@ -5,9 +5,10 @@
 
 	type PreviewItem = {
 		id: string;
+		/** The title (tastingTitle), never the motto's description. */
 		name: string;
-		/** The motto heading, never its description. */
-		motto: string | null;
+		/** "Tasting #<n>" below the title, only with a motto (tastingSubtitle). */
+		subtitle: string | null;
 		tastingDate: string;
 		phase: TastingPhase;
 		progress: Progress;
@@ -52,8 +53,8 @@
 								</span>
 							{/if}
 						</span>
-						{#if t.motto}
-							<span class="block truncate text-slate-700">{t.motto}</span>
+						{#if t.subtitle}
+							<span class="block text-slate-700">{t.subtitle}</span>
 						{/if}
 					</span>
 					<span class="shrink-0 text-slate-500">

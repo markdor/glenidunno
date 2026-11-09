@@ -34,7 +34,7 @@
 					<TastingListCard
 						href={resolve('/admin/tastings/[id]', { id: t.id })}
 						name={t.name}
-						motto={t.motto}
+						subtitle={t.subtitle}
 						tastingDate={t.tastingDate}
 						badge={TASTING_PHASE_LABEL[t.phase]}
 					>

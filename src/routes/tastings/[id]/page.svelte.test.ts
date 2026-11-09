@@ -7,10 +7,11 @@ import Page from './+page.svelte';
 
 const user = { id: 'u1', username: 'maxi', isAdmin: false };
 
+// With a motto the motto is the title, the number its subtitle.
 const tasting = {
-	name: 'Herbst-Tasting',
+	name: 'Inselhüpfen',
+	subtitle: 'Tasting #18',
 	tastingDate: '2026-10-24',
-	motto: 'Inselhüpfen',
 	mottoDescription: 'Eine Insel pro Flasche.\nKeine Blends.'
 };
 
@@ -39,14 +40,18 @@ function renderDetail(detail: Record<string, unknown>) {
 }
 
 describe('Tasting history detail page', () => {
-	test('shows name, date and the whole motto, and leads back to the tasting history', async () => {
+	test('shows title, number, date and the motto’s description, and leads back', async () => {
 		renderDetail({ archived: false, bottles: [nebel] });
 
 		await expect
-			.element(page.getByRole('heading', { level: 1, name: 'Herbst-Tasting' }))
+			.element(page.getByRole('heading', { level: 1, name: 'Inselhüpfen' }))
 			.toBeVisible();
 		await expect.element(page.getByText('Sa., 24.10.2026')).toBeVisible();
-		await expect.element(page.getByText('Inselhüpfen')).toBeVisible();
+		// The motto is the title: no line of its own. The number between title and date.
+		expect(page.getByText('Inselhüpfen', { exact: true }).elements()).toHaveLength(1);
+		const subtitle = page.getByText('Tasting #18', { exact: true });
+		await expect.element(subtitle).toBeVisible();
+		expect(subtitle.element().nextElementSibling?.textContent).toBe('Sa., 24.10.2026');
 		await expect.element(page.getByText(/Eine Insel pro Flasche/)).toBeVisible();
 		await expect
 			.element(page.getByRole('link', { name: 'Tasting-Historie' }))

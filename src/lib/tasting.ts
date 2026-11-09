@@ -95,8 +95,10 @@ export type Progress = { entered: number; total: number };
  */
 export type DashboardTasting = {
 	slug: string;
+	/** The title (tastingTitle): the motto without its description, or "Tasting #<n>". */
 	name: string;
-	motto: string | null;
+	/** "Tasting #<n>" between title and date, only with a motto (tastingSubtitle). */
+	subtitle: string | null;
 	tastingDate: string;
 	phase: Exclude<TastingPhase, 'revealed'>;
 	isToday: boolean;
@@ -105,11 +107,11 @@ export type DashboardTasting = {
 
 /**
  * The start page's "Letztes Tasting": the user's own last revealed tasting.
- * Title, motto and date only – the reveal itself stays on the participant page.
+ * Title and date only – the reveal itself stays on the participant page.
  */
 export type DashboardLastTasting = Pick<
 	DashboardTasting,
-	'slug' | 'name' | 'motto' | 'tastingDate'
+	'slug' | 'name' | 'subtitle' | 'tastingDate'
 >;
 
 /**
@@ -216,13 +218,14 @@ export type Reveal =
 
 /**
  * A revealed tasting in the list of the tasting history (/tastings), for
- * every user: management data (the motto heading only) plus the number of
- * bottles.
+ * every user: management data (the title, never the motto's description)
+ * plus the number of bottles.
  */
 export type TastingHistoryItem = {
 	id: string;
 	name: string;
-	motto: string | null;
+	/** "Tasting #<n>" between title and date, only with a motto (tastingSubtitle). */
+	subtitle: string | null;
 	tastingDate: string;
 	bottleCount: number;
 };
@@ -235,9 +238,11 @@ export type TastingHistoryItem = {
  */
 export type TastingHistoryDetail = {
 	tasting: {
+		/** The title (tastingTitle), with a motto the motto itself. */
 		name: string;
+		/** "Tasting #<n>" between title and date, only with a motto (tastingSubtitle). */
+		subtitle: string | null;
 		tastingDate: string;
-		motto: string | null;
 		mottoDescription: string | null;
 	};
 	slug: string | null;
@@ -686,7 +691,10 @@ export type HistoryBottle = {
 	 */
 	number: number;
 	tastingDate: string;
-	/** The tasting's motto heading (never its description), searchable. */
+	/**
+	 * The tasting's motto – its title if it has one, never the description –,
+	 * searchable. Without one, nothing: the table has no column for the title.
+	 */
 	motto: string | null;
 	/** Link to the participant page: only for the viewer's own tastings. */
 	slug: string | null;

@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { isTastingAlgorithm, TASTING_NAME_LENGTH, TASTING_PARTICIPANTS } from '$lib/validation';
+import { isTastingAlgorithm, TASTING_PARTICIPANTS } from '$lib/validation';
 import { db } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/authGuards';
 import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
@@ -26,7 +26,6 @@ export const load: PageServerLoad = ({ locals }) => {
 };
 
 type Values = {
-	name: string;
 	motto: string;
 	mottoDescription: string;
 	tastingDate: string;
@@ -37,10 +36,7 @@ type Values = {
 function validate(values: Values, now: Date) {
 	const fieldErrors: Record<string, string> = {};
 
-	const name = values.name.trim();
-	if (!name) fieldErrors.name = 'required';
-	else if (name.length > TASTING_NAME_LENGTH.max) fieldErrors.name = 'invalid';
-
+	// Optional: with a motto it is the title, without one the title follows the date.
 	const motto = validateTastingMotto(values.motto, values.mottoDescription);
 	Object.assign(fieldErrors, motto.fieldErrors);
 
@@ -64,7 +60,6 @@ function validate(values: Values, now: Date) {
 	return {
 		input: {
 			algorithm: isTastingAlgorithm(algorithm) ? algorithm : 'taste',
-			name,
 			motto: motto.motto,
 			mottoDescription: motto.mottoDescription,
 			tastingDate: date.tastingDate,
@@ -79,7 +74,6 @@ export const actions: Actions = {
 		requireAdmin(locals);
 		const form = await request.formData();
 		const values: Values = {
-			name: String(form.get('name') ?? ''),
 			motto: String(form.get('motto') ?? ''),
 			mottoDescription: String(form.get('mottoDescription') ?? ''),
 			tastingDate: String(form.get('tastingDate') ?? ''),

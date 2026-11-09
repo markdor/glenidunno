@@ -44,7 +44,7 @@ const BEFORE = new Date('2026-10-10T08:00:00Z');
 function tastingWithBottle(tastingDate: string, alias: string, distillery: string) {
 	const created = createTasting(
 		db,
-		{ name: `Tasting ${tastingDate}`, tastingDate, participantUserIds: ['u-Anna', 'u-Ben'] },
+		{ motto: `Tasting ${tastingDate}`, tastingDate, participantUserIds: ['u-Anna', 'u-Ben'] },
 		BEFORE
 	);
 	saveBottle(

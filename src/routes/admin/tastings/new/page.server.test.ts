@@ -47,7 +47,6 @@ function create(fields: Record<string, string | string[]>, currentUser: unknown 
 }
 
 const valid = {
-	name: 'Herbst-Tasting',
 	tastingDate: '2026-10-24',
 	participant: ['u-anna', 'u-ben', 'u-cem']
 };
@@ -118,7 +117,6 @@ describe('create tasting', () => {
 
 		const created = db.select().from(tasting).get()!;
 		expect(created).toMatchObject({
-			name: 'Herbst-Tasting',
 			motto: null,
 			mottoDescription: null,
 			tastingDate: '2026-10-24'
@@ -211,8 +209,6 @@ describe('create tasting', () => {
 	});
 
 	it.each([
-		{ field: 'name', value: '', code: 'required' },
-		{ field: 'name', value: 'x'.repeat(61), code: 'invalid' },
 		{ field: 'motto', value: 'x'.repeat(121), code: 'invalid' },
 		{ field: 'mottoDescription', value: 'x'.repeat(1001), code: 'invalid' },
 		{ field: 'tastingDate', value: '', code: 'required' },
@@ -263,7 +259,7 @@ describe('create tasting', () => {
 	it('echoes the raw values on a validation error', async () => {
 		const result = await create({
 			...valid,
-			name: '',
+			tastingDate: '',
 			motto: ' Sherry ',
 			mottoDescription: 'Nur\r\nSherry ',
 			participant: ['u-anna', 'u-ben']
@@ -271,10 +267,9 @@ describe('create tasting', () => {
 		expect(result).toMatchObject({
 			data: {
 				values: {
-					name: '',
 					motto: ' Sherry ',
 					mottoDescription: 'Nur\r\nSherry ',
-					tastingDate: '2026-10-24',
+					tastingDate: '',
 					participants: ['u-anna', 'u-ben']
 				}
 			}

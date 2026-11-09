@@ -86,7 +86,7 @@ beforeEach(async () => {
 	vi.setSystemTime(ENTRY);
 	db.delete(tasting).run();
 	slug = createTasting(db, {
-		name: 'Herbst-Tasting',
+		motto: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
 		participantUserIds: [ANNA, BEN]
 	}).slug;

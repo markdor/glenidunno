@@ -211,14 +211,15 @@ const tastingId = randomUUID();
 sqlite
 	.prepare(
 		`INSERT INTO tasting
-		   (id, slug, name, tasting_date, created_at, order_opened_at, revealed_at)
+		   (id, slug, motto, tasting_date, created_at, order_opened_at, revealed_at)
 		 VALUES
-		   (@id, @slug, @name, @tastingDate, @createdAt, @orderOpenedAt, @revealedAt)`
+		   (@id, @slug, @motto, @tastingDate, @createdAt, @orderOpenedAt, @revealedAt)`
 	)
 	.run({
 		id: tastingId,
 		slug,
-		name: 'Testitest',
+		// The motto is the title, without one it would be "Tasting #<n>".
+		motto: 'Testitest',
 		tastingDate,
 		createdAt: toUnixSeconds(now),
 		// No manual override: with tastingDate a week out, getTastingPhase()

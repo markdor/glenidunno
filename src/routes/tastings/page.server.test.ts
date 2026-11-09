@@ -39,7 +39,6 @@ function tastingWithBottle(tastingDate: string, alias: string, distillery: strin
 	const created = createTasting(
 		db,
 		{
-			name: `Tasting ${tastingDate}`,
 			motto: `Motto ${tastingDate}`,
 			mottoDescription: `Erklärung ${tastingDate}`,
 			tastingDate,
@@ -103,8 +102,8 @@ describe('tasting history load', () => {
 			tastings: [
 				{
 					id: revealed.id,
-					name: 'Tasting 2026-10-17',
-					motto: 'Motto 2026-10-17',
+					name: 'Motto 2026-10-17',
+					subtitle: 'Tasting #1',
 					tastingDate: '2026-10-17',
 					bottleCount: 1
 				}

@@ -108,7 +108,7 @@ function insertUser(opts: { id?: string; email: string; username: string; isAdmi
 /** Makes the user a participant of a fresh tasting (together with the admin). */
 function takePart(userId: string) {
 	createTasting(db, {
-		name: 'Herbst-Tasting',
+		motto: 'Herbst-Tasting',
 		tastingDate: '2026-10-24',
 		participantUserIds: [ADMIN.id, userId]
 	});
@@ -162,7 +162,6 @@ describe('admin load', () => {
 	it('summarizes the upcoming tastings for the card, without any bottle content', () => {
 		const anna = insertUser({ email: 'anna@glenidunno.de', username: 'anna' });
 		const { slug } = createTasting(db, {
-			name: 'Herbst-Tasting',
 			motto: 'Islay gegen den Rest',
 			mottoDescription: 'Eine Flasche von Islay.',
 			tastingDate: '2999-10-24',
@@ -187,8 +186,8 @@ describe('admin load', () => {
 			preview: [
 				{
 					id: expect.any(String),
-					name: 'Herbst-Tasting',
-					motto: 'Islay gegen den Rest',
+					name: 'Islay gegen den Rest',
+					subtitle: 'Tasting #1',
 					tastingDate: '2999-10-24',
 					phase: 'entry',
 					progress: { entered: 1, total: 4 },
@@ -196,7 +195,7 @@ describe('admin load', () => {
 				}
 			]
 		});
-		// Blind for the admin too; the card shows the motto heading only and no link.
+		// Blind for the admin too; the card shows the title (the motto) only and no link.
 		const serialized = JSON.stringify(tastingSummary);
 		for (const secret of ['Nebel', 'Ardbeg', 'Eine Flasche von Islay.', slug]) {
 			expect(serialized).not.toContain(secret);
@@ -620,7 +619,7 @@ describe('admin guards on actions', () => {
 /** A tasting with the admin's bottles of these distilleries, inserted directly. */
 function tastingWith(id: string, date: string, distilleries: string[]) {
 	db.insert(tasting)
-		.values({ id, slug: `slug-${id}`, name: id, tastingDate: date, createdAt: new Date() })
+		.values({ id, slug: `slug-${id}`, motto: id, tastingDate: date, createdAt: new Date() })
 		.run();
 	db.insert(tastingParticipant)
 		.values({ id: `${id}-p`, tastingId: id, userId: ADMIN.id, createdAt: new Date() })

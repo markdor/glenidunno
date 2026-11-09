@@ -9,7 +9,6 @@
 		TASTING_ALGORITHMS,
 		TASTING_MOTTO_DESCRIPTION_LENGTH,
 		TASTING_MOTTO_LENGTH,
-		TASTING_NAME_LENGTH,
 		TASTING_PARTICIPANTS
 	} from '$lib/validation';
 
@@ -63,33 +62,20 @@
 		class="space-y-5 rounded-xl border border-slate-200 bg-white p-4"
 	>
 		<div class="space-y-1">
-			<label for="t-name" class="block text-sm font-medium text-slate-700">Name *</label>
-			<input
-				id="t-name"
-				name="name"
-				required
-				maxlength={TASTING_NAME_LENGTH.max}
-				placeholder="z. B. Herbst-Tasting"
-				value={form?.values?.name ?? ''}
-				class="{inputClass} placeholder:text-slate-400"
-			/>
-			{#if fieldError('name')}
-				<p class="text-xs text-red-600">{fieldError('name')}</p>
-			{/if}
-		</div>
-
-		<div class="space-y-1">
-			<label for="t-motto" class="block text-sm font-medium text-slate-700">
-				Motto (Überschrift)
-			</label>
+			<label for="t-motto" class="block text-sm font-medium text-slate-700">Motto</label>
 			<input
 				id="t-motto"
 				name="motto"
 				maxlength={TASTING_MOTTO_LENGTH.max}
 				placeholder="optional, z. B. Islay gegen den Rest"
+				aria-describedby="t-motto-hint"
 				bind:value={motto}
 				class="{inputClass} placeholder:text-slate-400"
 			/>
+			<p id="t-motto-hint" class="text-xs text-slate-500">
+				Das Motto ist der Titel des Tastings. Ohne Motto heißt es nach seiner laufenden Nummer, z.
+				B. „Tasting #18“.
+			</p>
 			{#if fieldError('motto')}
 				<p class="text-xs text-red-600">{fieldError('motto')}</p>
 			{/if}
