@@ -127,7 +127,7 @@
 								</p>
 							{:else}
 								<p class="mt-0.5 text-slate-600">
-									Listenpreis pro 0,7 l, logarithmisch von 0 bei {rules.price.floor} € bis 1 bei {rules
+									Preis pro 0,7 l, logarithmisch von 0 bei {rules.price.floor} € bis 1 bei {rules
 										.price.ceiling} € – jede Verdopplung des Preises zählt gleich viel. Ist der Preis
 									unbekannt, entfällt er, und die übrigen Faktoren zählen anteilig mehr.
 								</p>

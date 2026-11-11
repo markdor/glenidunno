@@ -52,7 +52,7 @@ danach lässt sich das nicht mehr ändern:
 - **Geschmack:** Jeder Teilnehmer schätzt Rauch, Fass und Kaliber seiner
   Flasche auf Reglern ein, dazu kommt der Alkohol.
 - **Fakten:** Die Teilnehmer tragen ein, was Etikett und Shop angeben: Torf,
-  Haupt- und Nachreifung (mit „Refill“), Alkohol und Listenpreis. Daraus
+  Haupt- und Nachreifung (mit „Refill“), Alkohol und Preis. Daraus
   berechnet die App eine „Wucht“. Ist ein Fass unbekannt, zeigt die
   Auflösung zusätzlich deren Spanne.
 
