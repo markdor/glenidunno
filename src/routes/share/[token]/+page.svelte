@@ -5,7 +5,6 @@
 	import mark from '$lib/assets/glen-idunno-mark.svg';
 	import PresentationViewer from '$lib/components/PresentationViewer.svelte';
 	import SharedBottle from '$lib/components/SharedBottle.svelte';
-	import TastingScoreExplainer from '$lib/components/TastingScoreExplainer.svelte';
 	import { formatBottleName, formatTastingDate } from '$lib/tasting';
 
 	let { data } = $props();
@@ -42,11 +41,8 @@
 		</p>
 	</header>
 
+	<!-- Nothing about how the order came about: no score, no explainer tile. -->
 	<SharedBottle {view} />
-
-	{#if !view.archived}
-		<TastingScoreExplainer rules={view.rules} />
-	{/if}
 
 	{#if view.presentation}
 		<section class="space-y-3" aria-labelledby="shared-presentation">

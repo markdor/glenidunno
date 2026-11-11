@@ -34,7 +34,6 @@ import {
 } from '$lib/tasting';
 import {
 	FACTS_RULES,
-	uncertainPositions,
 	type BottleFacts,
 	type Cask,
 	type FactsBottle,
@@ -1745,11 +1744,10 @@ function sharedFields(b: SharedBottleFields): SharedBottleFields {
 
 /**
  * The public page of a shared bottle: the tasting's head, the bottle with its
- * position, score and factor shares, the rules of the explainer tile. Never
+ * details and position. Never its score, factor shares or the rules, never
  * the bringer, the presentation's file name, the bottle id or anything of the
- * other bottles – only their count and, for a facts tasting, whether the
- * bottle's range overlaps a neighbor's (computed here, the neighbors stay on
- * the server). `null` for every token that doesn't show a bottle.
+ * other bottles – only their count. `null` for every token that doesn't show
+ * a bottle.
  */
 export function getSharedBottle(
 	db: Db,
@@ -1780,29 +1778,13 @@ export function getSharedBottle(
 
 	if (poured.algorithm === 'facts') {
 		const b = poured.bottles[index];
-		const uncertain = uncertainPositions(
-			poured.bottles.map((other, i) => ({
-				position: i + 1,
-				peat: other.facts.peat,
-				score: other.score,
-				range: other.range
-			}))
-		);
 		return {
 			...head,
 			...position,
 			archived: false,
 			algorithm: 'facts',
-			rules: poured.rules,
-			bottle: {
-				...sharedFields(b),
-				// Built field by field from the row in toFacts().
-				facts: b.facts,
-				score: b.score,
-				shares: { cask: b.shares.cask, abv: b.shares.abv, price: b.shares.price },
-				range: b.range && { min: b.range.min, max: b.range.max },
-				uncertain: uncertain.has(position.position)
-			}
+			// Built field by field from the row in toFacts().
+			bottle: { ...sharedFields(b), facts: b.facts }
 		};
 	}
 
@@ -1812,20 +1794,7 @@ export function getSharedBottle(
 		...position,
 		archived: false,
 		algorithm: 'taste',
-		rules: poured.rules,
-		bottle: {
-			...sharedFields(b),
-			smoke: b.smoke,
-			cask: b.cask,
-			value: b.value,
-			score: b.score,
-			shares: {
-				smoke: b.shares.smoke,
-				cask: b.shares.cask,
-				abv: b.shares.abv,
-				value: b.shares.value
-			}
-		}
+		bottle: { ...sharedFields(b), smoke: b.smoke, cask: b.cask, value: b.value }
 	};
 }
 

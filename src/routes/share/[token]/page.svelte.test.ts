@@ -6,7 +6,7 @@ const TOKEN = 'a'.repeat(43);
 // The page builds the PDF link from the token of its own URL.
 vi.mock('$app/state', () => ({ page: { params: { token: 'a'.repeat(43) } } }));
 
-import { SCORE_RULES, type SharedBottleView } from '$lib/tasting';
+import type { SharedBottleView } from '$lib/tasting';
 import Page from './+page.svelte';
 
 // Never answered: the viewer stays in its loading state.
@@ -27,7 +27,6 @@ const view: SharedBottleView = {
 	algorithm: 'taste',
 	position: 1,
 	total: 2,
-	rules: SCORE_RULES,
 	bottle: {
 		alias: 'Nebel',
 		distillery: 'Ardbeg',
@@ -38,16 +37,14 @@ const view: SharedBottleView = {
 		whiskybaseUrl: null,
 		smoke: 5,
 		cask: 3,
-		value: 4,
-		score: 78.6,
-		shares: { smoke: 1, cask: 0.6, abv: 0.48, value: 0.8 }
+		value: 4
 	}
 };
 
 const pdfHref = `/share/${TOKEN}/pdf`;
 
 describe('/share/[token]', () => {
-	test('shows the bottle, its tasting, the explainer tile and the presentation', async () => {
+	test('shows the bottle, its tasting and the presentation', async () => {
 		render(Page, { data: { user: null, view } });
 
 		await expect.element(page.getByRole('heading', { level: 1, name: 'Nebel' })).toBeVisible();
@@ -63,8 +60,8 @@ describe('/share/[token]', () => {
 		await expect.poll(() => fetchPdf.mock.calls.map((call) => String(call[0]))).toContain(pdfHref);
 		// No animations in the downloaded PDF either.
 		expect(document.body.textContent).not.toContain('Animationen');
-		// The explainer tile of the frozen rules.
-		expect(document.body.textContent).toContain('Rauch');
+		// Nothing about how the order came about: no score, no explainer tile.
+		expect(document.body.textContent).not.toMatch(/Score|Faktoren|Reihenfolge zustande/);
 	});
 
 	test('shows the brand without a login, not next to the app header', async () => {
@@ -85,7 +82,7 @@ describe('/share/[token]', () => {
 		);
 	});
 
-	test('leaves out the presentation and, for an archived bottle, the explainer tile', async () => {
+	test('leaves out a presentation it can not show', async () => {
 		render(Page, {
 			data: {
 				user: null,

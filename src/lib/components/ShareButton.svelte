@@ -169,9 +169,9 @@
 			{:else}
 				<p class="text-slate-700">
 					Jeder, der den Link kennt, sieht alle Details zu dieser Flasche, auch ohne Anmeldung:
-					Destillerie, Abfüllung, Score samt Erklärung, die Position in der Reihenfolge, Titel und
-					Datum des Tastings und – falls vorhanden – die zum PDF umgewandelte Präsentation. Wer die
-					Flasche mitgebracht hat, steht nicht dabei.
+					Destillerie, Abfüllung, die Position in der Reihenfolge, Titel und Datum des Tastings und
+					– falls vorhanden – die zum PDF umgewandelte Präsentation. Wer die Flasche mitgebracht
+					hat, steht nicht dabei.
 				</p>
 				<p class="text-slate-500">Du kannst den Link jederzeit widerrufen.</p>
 				<form method="POST" action="?/share" use:enhance={submit('Link erzeugt.')}>

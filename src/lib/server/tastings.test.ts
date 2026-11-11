@@ -2666,17 +2666,17 @@ describe('facts tastings', () => {
 		expect(() => getParticipantView(db, anna, ORDER)).toThrow(/frozen rules of version 1/);
 	});
 
-	it('shares a bottle with its facts, Wucht, shares, range and uncertainty', () => {
+	it('shares a bottle with its facts and position – no Wucht, shares or range', () => {
 		setupFacts();
 		const token = createShare(db, bottleIdOf('Rätsel'), 'u-anna', REVEALED)!;
-		expect(getSharedBottle(db, token, REVEALED)).toEqual({
+		const view = getSharedBottle(db, token, REVEALED);
+		expect(view).toEqual({
 			tasting: { name: 'Tasting #1', subtitle: null, tastingDate: TASTING_DATE },
 			presentation: false,
 			archived: false,
 			algorithm: 'facts',
 			position: 2,
 			total: 4,
-			rules: FACTS_RULES,
 			bottle: {
 				alias: 'Rätsel',
 				distillery: 'Glenfarclas',
@@ -2690,35 +2690,11 @@ describe('facts tastings', () => {
 					cask: { kind: 'unknown' },
 					finish: { kind: 'other', label: 'Tequila', influence: 4, months: 6 },
 					priceCents: 3500
-				},
-				score: 28.8,
-				shares: expect.objectContaining({ price: expect.any(Number) }),
-				range: { min: 18.8, max: 53.8 },
-				// Neither Nebel (13,8) nor Bernstein (55,0) lies in the range.
-				uncertain: false
+				}
 			}
 		});
-
-		// A wider range (frozen with the order) reaches both neighbors.
-		freezeDueOrders(db, ORDER);
-		const row = db
-			.select({ pourBreakdown: schema.tastingBottle.pourBreakdown })
-			.from(schema.tastingBottle)
-			.where(eq(schema.tastingBottle.id, bottleIdOf('Rätsel')))
-			.get()!;
-		const breakdown = JSON.parse(row.pourBreakdown!);
-		db.update(schema.tastingBottle)
-			.set({ pourBreakdown: JSON.stringify({ ...breakdown, range: { min: 10, max: 60 } }) })
-			.where(eq(schema.tastingBottle.id, bottleIdOf('Rätsel')))
-			.run();
-		expect(getSharedBottle(db, token, REVEALED)).toMatchObject({
-			bottle: { range: { min: 10, max: 60 }, uncertain: true }
-		});
-		// The neighbor's own link knows it too – without seeing Rätsel.
-		const nebel = createShare(db, bottleIdOf('Nebel'), 'u-ben', REVEALED)!;
-		const view = getSharedBottle(db, nebel, REVEALED);
-		expect(view).toMatchObject({ position: 1, bottle: { alias: 'Nebel', uncertain: true } });
-		expect(JSON.stringify(view)).not.toContain('Rätsel');
+		// Nothing about the other bottles.
+		expect(JSON.stringify(view)).not.toMatch(/Nebel|Bernstein/);
 	});
 });
 
@@ -2799,7 +2775,7 @@ describe('share links', () => {
 	});
 
 	describe('getSharedBottle', () => {
-		it('shows the bottle with position, score, shares and rules – nothing about the bringer', () => {
+		it('shows the bottle with its position – no score, shares or rules, no bringer', () => {
 			const ctx = setupWithBottles();
 			updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: 'Nur Inseln.' });
 			addPresentation(ctx.ben.id);
@@ -2813,7 +2789,6 @@ describe('share links', () => {
 				algorithm: 'taste',
 				position: 2,
 				total: 2,
-				rules: SCORE_RULES,
 				bottle: {
 					alias: BEN_ALIAS,
 					distillery: 'Ardbeg',
@@ -2824,14 +2799,7 @@ describe('share links', () => {
 					whiskybaseUrl: 'https://www.whiskybase.com/whiskies/whisky/1',
 					smoke: 5,
 					cask: 3,
-					value: 4,
-					score: expect.any(Number),
-					shares: {
-						smoke: expect.any(Number),
-						cask: expect.any(Number),
-						abv: expect.any(Number),
-						value: expect.any(Number)
-					}
+					value: 4
 				}
 			});
 			// Neither bringer, bottle id, file names, motto description nor the other bottle.
@@ -2851,7 +2819,7 @@ describe('share links', () => {
 			}
 		});
 
-		it('shows an archived bottle without score, position and rules', () => {
+		it('shows an archived bottle without position', () => {
 			const ctx = setup();
 			insertArchivedBottle(ctx.ben.id, 1, 'Ahorn', { bottling: 'Sherry Cask' });
 			insertArchivedBottle(ctx.anna.id, 1, 'Birke');

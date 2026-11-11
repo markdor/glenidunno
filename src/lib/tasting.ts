@@ -280,11 +280,11 @@ export type SharedPosition = { position: number; total: number };
 /**
  * The public page of a shared bottle (/share/<token>, issue #58), also for
  * visitors without a login: the tasting's head (no motto description), the
- * bottle with its score and factor shares, the rules of the explainer tile –
- * nothing about the other bottles, so no chart. A tasting with archived
- * bottles has neither score nor position. `presentation` tells whether the
- * viewer can show one: only presentations that convert to a PDF, the original
- * file never leaves the server.
+ * bottle with its details and its position – no score, no factor shares, no
+ * rules (taken out after the first version, wished so) and nothing about the
+ * other bottles. A tasting with archived bottles has no position.
+ * `presentation` tells whether the viewer can show one: only presentations
+ * that convert to a PDF, the original file never leaves the server.
  */
 export type SharedBottleView = {
 	tasting: { name: string; subtitle: string | null; tastingDate: string };
@@ -294,25 +294,12 @@ export type SharedBottleView = {
 	| (SharedPosition & {
 			archived: false;
 			algorithm: 'taste';
-			rules: TasteScoreRules;
-			bottle: SharedBottleFields &
-				Pick<TastingBottle, 'smoke' | 'cask' | 'value'> & {
-					score: number;
-					shares: NormalizedScoreFactors;
-				};
+			bottle: SharedBottleFields & Pick<TastingBottle, 'smoke' | 'cask' | 'value'>;
 	  })
 	| (SharedPosition & {
 			archived: false;
 			algorithm: 'facts';
-			rules: FactsScoreRules;
-			bottle: SharedBottleFields &
-				Pick<FactsBottle, 'facts'> & {
-					score: number;
-					shares: FactsShares;
-					range: ScoreRange | null;
-					/** The range overlaps a neighbor of the same peat group (uncertainPositions). */
-					uncertain: boolean;
-				};
+			bottle: SharedBottleFields & Pick<FactsBottle, 'facts'>;
 	  })
 );
 
