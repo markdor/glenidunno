@@ -7,12 +7,15 @@
 
 	let {
 		pdfHref,
-		downloadHref
+		downloadHref,
+		animationsHint = true
 	}: {
 		/** The presentation as PDF – an office file is converted on the first request. */
 		pdfHref: ResolvedPathname;
-		/** The original file, offered when the viewer fails. */
+		/** The file offered when the viewer fails: the original, or the PDF on a share link. */
 		downloadHref: ResolvedPathname;
+		/** Whether to point to the downloaded file for animations – only where it is the original. */
+		animationsHint?: boolean;
 	} = $props();
 
 	/** Zoom steps of the − / + buttons; 100 % is the slide as wide as the page. */
@@ -409,7 +412,9 @@
 		</p>
 	{/if}
 
-	<p class="text-xs text-slate-500">
-		Animationen und Videos funktionieren nur in der heruntergeladenen Datei.
-	</p>
+	{#if animationsHint}
+		<p class="text-xs text-slate-500">
+			Animationen und Videos funktionieren nur in der heruntergeladenen Datei.
+		</p>
+	{/if}
 </div>

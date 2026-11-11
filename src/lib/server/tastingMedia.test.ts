@@ -21,8 +21,10 @@ import { convertInBackground } from './presentationPdf';
 import {
 	applyFileChanges,
 	checkPresentationUpload,
+	hasReadyPdf,
 	presentationPdfResponse,
 	presentationResponse,
+	readyPdfResponse,
 	stageUpload
 } from './tastingMedia';
 
@@ -239,5 +241,66 @@ describe('presentationPdfResponse', () => {
 		expect(await presentationPdfResponse('../etc/passwd.pdf')).toBeNull();
 		expect(await presentationPdfResponse(ORIGINAL_PDF)).toBeNull();
 		expect(await presentationPdfResponse(NAME)).toBeNull();
+	});
+});
+
+describe('readyPdfResponse and hasReadyPdf', () => {
+	const ORIGINAL_PDF = 'Tasting_2026-10-24_Nebel.pdf';
+	const fetchMock = vi.fn();
+
+	beforeEach(async () => {
+		await mkdir(mediaDir, { recursive: true });
+		// A conversion would reach Gotenberg through this – it must never happen.
+		mockEnv.GOTENBERG_URL = 'http://gotenberg.test';
+		vi.stubGlobal('fetch', fetchMock);
+	});
+
+	afterEach(() => {
+		delete mockEnv.GOTENBERG_URL;
+		vi.unstubAllGlobals();
+	});
+
+	it('serves an original PDF on disk like the viewer does', async () => {
+		await writeFile(join(mediaDir, ORIGINAL_PDF), '%PDF original');
+
+		expect(await hasReadyPdf(ORIGINAL_PDF)).toBe(true);
+		const response = (await readyPdfResponse(ORIGINAL_PDF))!;
+		expect(response.headers.get('content-type')).toBe('application/pdf');
+		expect(response.headers.get('content-disposition')).toContain(
+			'attachment; filename="Tasting_2026-10-24_Nebel.pdf"'
+		);
+		expect(await response.text()).toBe('%PDF original');
+	});
+
+	it('serves an office file only once its PDF is in the cache, never converting it', async () => {
+		await writeFile(join(mediaDir, NAME), 'deck');
+		expect(await hasReadyPdf(NAME)).toBe(false);
+		expect(await readyPdfResponse(NAME)).toBeNull();
+		expect(existsSync(join(mediaDir, 'pdf-cache'))).toBe(false);
+
+		await mkdir(join(mediaDir, 'pdf-cache'));
+		await writeFile(join(mediaDir, 'pdf-cache', `${NAME}.pdf`), '%PDF converted');
+		expect(await hasReadyPdf(NAME)).toBe(true);
+		const response = (await readyPdfResponse(NAME))!;
+		expect(response.headers.get('content-disposition')).toContain(
+			'filename="Tasting_2026-10-24_Nebel.pdf"'
+		);
+		expect(await response.text()).toBe('%PDF converted');
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('quietly has nothing for files that are gone or the viewer can not show', async () => {
+		// The cached PDF of an office file that is gone from disk doesn't count.
+		await mkdir(join(mediaDir, 'pdf-cache'));
+		await writeFile(join(mediaDir, 'pdf-cache', `${NAME}.pdf`), '%PDF converted');
+		await writeFile(join(mediaDir, 'Tasting_2026-10-24_Nebel.zip'), 'zip');
+
+		for (const file of [NAME, ORIGINAL_PDF, 'Tasting_2026-10-24_Nebel.zip', '../etc/passwd.pdf']) {
+			expect(await hasReadyPdf(file)).toBe(false);
+			expect(await readyPdfResponse(file)).toBeNull();
+		}
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(logger.warn).not.toHaveBeenCalled();
+		expect(logger.error).not.toHaveBeenCalled();
 	});
 });

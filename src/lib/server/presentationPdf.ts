@@ -72,10 +72,15 @@ async function exists(path: string): Promise<boolean> {
 	}
 }
 
+/** Path of the office file's cached PDF, `null` while there is none – never converts. */
+export async function cachedPdf(file: string): Promise<string | null> {
+	const cached = cachePath(file);
+	return cached !== null && (await exists(cached)) ? cached : null;
+}
+
 /** Whether the cache holds the office file's PDF already. */
 export async function hasPdf(file: string): Promise<boolean> {
-	const cached = cachePath(file);
-	return cached !== null && (await exists(cached));
+	return (await cachedPdf(file)) !== null;
 }
 
 /**

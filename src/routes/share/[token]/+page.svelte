@@ -63,7 +63,8 @@
 					PDF herunterladen
 				</a>
 			</div>
-			<PresentationViewer {pdfHref} downloadHref={pdfHref} />
+			<!-- No hint about animations: the download is the PDF, not the original. -->
+			<PresentationViewer {pdfHref} downloadHref={pdfHref} animationsHint={false} />
 		</section>
 	{/if}
 </div>

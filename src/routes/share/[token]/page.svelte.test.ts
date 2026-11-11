@@ -61,6 +61,8 @@ describe('/share/[token]', () => {
 		await expect.element(download).toHaveAttribute('download');
 		// The viewer fetches the shared PDF after its mount.
 		await expect.poll(() => fetchPdf.mock.calls.map((call) => String(call[0]))).toContain(pdfHref);
+		// No animations in the downloaded PDF either.
+		expect(document.body.textContent).not.toContain('Animationen');
 		// The explainer tile of the frozen rules.
 		expect(document.body.textContent).toContain('Rauch');
 	});

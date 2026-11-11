@@ -17,8 +17,14 @@ vi.mock('$lib/server/logger', () => ({
 
 const mockEnv = vi.hoisted((): Record<string, string | undefined> => ({}));
 vi.mock('$env/dynamic/private', () => ({ env: mockEnv }));
+// Saving the PowerPoint would convert it in the background – a stray
+// conversion would blur that the route itself never starts one.
+vi.mock('$lib/server/presentationPdf', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/presentationPdf')>()),
+	convertInBackground: vi.fn()
+}));
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
@@ -132,26 +138,25 @@ describe('shared presentation PDF', () => {
 		expect(await response.text()).toBe('%PDF-1.7 Ardbeg');
 	});
 
-	it('serves an office file converted to PDF, never the file itself', async () => {
-		mockEnv.GOTENBERG_URL = 'http://gotenberg.test';
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(
-				async () =>
-					new Response('%PDF converted', { headers: { 'content-type': 'application/pdf' } })
-			)
+	it('serves an office file’s PDF from the cache, never the file itself', async () => {
+		await mkdir(join(mediaDir, 'pdf-cache'), { recursive: true });
+		await writeFile(
+			join(mediaDir, 'pdf-cache', 'Tasting_2026-10-24_Torf.pptx.pdf'),
+			'%PDF converted'
 		);
 		const response = await pdf(deckToken);
 		expect(response.headers.get('content-disposition')).toContain('Tasting_2026-10-24_Torf.pdf');
 		expect(await response.text()).toBe('%PDF converted');
 	});
 
-	it('answers 503 if the office file can not be converted', async () => {
-		await expect(pdf(deckToken)).rejects.toEqual(expect.objectContaining({ status: 503 }));
-		expect(logger.error).toHaveBeenCalledWith(
-			expect.objectContaining({ file: 'Tasting_2026-10-24_Torf.pptx' }),
-			'shared presentation pdf unavailable'
-		);
+	it('never starts a conversion: 404 without a log entry while no PDF is ready', async () => {
+		mockEnv.GOTENBERG_URL = 'http://gotenberg.test';
+		const gotenberg = vi.fn();
+		vi.stubGlobal('fetch', gotenberg);
+		await expect(pdf(deckToken)).rejects.toEqual(notFound);
+		expect(gotenberg).not.toHaveBeenCalled();
+		expect(logger.warn).not.toHaveBeenCalled();
+		expect(logger.error).not.toHaveBeenCalled();
 	});
 
 	it('answers malformed, unknown and revoked tokens, other formats and missing files with the same 404', async () => {
