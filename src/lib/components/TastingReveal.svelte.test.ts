@@ -31,7 +31,8 @@ const nas = {
 	broughtBy: 'Ben',
 	score: 12,
 	shares: { smoke: 0, cask: 0.2, abv: 0.075, value: 0.4 },
-	presentation: null
+	presentation: null,
+	share: null
 };
 
 const independent = {
@@ -112,6 +113,20 @@ describe('TastingReveal', () => {
 		).toHaveLength(0);
 	});
 
+	test('offers the share button only for bottles with a share link (the own ones)', async () => {
+		renderPoured([{ ...nas, share: { bottleId: 'b1', token: null } }, independent]);
+		const buttons = page.getByRole('button', { name: /teilen|Geteilt/ });
+		expect(buttons.elements()).toHaveLength(1);
+		await expect.element(page.getByRole('button', { name: 'Blume teilen' })).toBeVisible();
+	});
+
+	test('names a shared bottle as shared', async () => {
+		renderPoured([{ ...nas, share: { bottleId: 'b1', token: 'a'.repeat(43) } }]);
+		await expect
+			.element(page.getByRole('button', { name: 'Geteilt: Link zu Blume verwalten' }))
+			.toHaveTextContent('Geteilt');
+	});
+
 	test('says so when nobody entered a bottle', async () => {
 		renderPoured([]);
 		await expect.element(page.getByText('Es wurden keine Flaschen eingetragen.')).toBeVisible();
@@ -128,7 +143,8 @@ describe('TastingReveal', () => {
 			whiskybaseUrl: 'https://www.whiskybase.com/whiskies/whisky/3',
 			abv: 46,
 			broughtBy: 'Josh',
-			presentation: { bottleId: 'b3', viewable: true, name: 'Josh.pptx' }
+			presentation: { bottleId: 'b3', viewable: true, name: 'Josh.pptx' },
+			share: null
 		};
 
 		test('show the ABV instead of the values, without score and position', async () => {
@@ -170,6 +186,15 @@ describe('TastingReveal', () => {
 				.element(page.getByRole('link', { name: 'Präsentation zu Nebelhorn ansehen' }))
 				.toHaveAttribute('href', viewHref('b3'));
 		});
+
+		test('offer the share button for the own bottle', async () => {
+			renderArchived([
+				archived,
+				{ ...archived, id: 'b4', alias: 'Moor', share: { bottleId: 'b4', token: null } }
+			]);
+			await expect.element(page.getByRole('button', { name: 'Moor teilen' })).toBeVisible();
+			expect(page.getByRole('button', { name: 'Nebelhorn teilen' }).elements()).toHaveLength(0);
+		});
 	});
 });
 
@@ -183,7 +208,8 @@ describe('TastingReveal – facts tasting', () => {
 		abv: 46,
 		broughtBy: 'Anna',
 		shares: { cask: 0.7, abv: 0.3, price: null },
-		presentation: null
+		presentation: null,
+		share: null
 	};
 
 	const certain: RevealedFactsBottle = {
@@ -279,6 +305,12 @@ describe('TastingReveal – facts tasting', () => {
 			.getByRole('listitem')
 			.filter({ has: page.getByRole('heading', { name: 'Torf' }) });
 		await expect.element(torf).not.toHaveTextContent(/Reihenfolge unsicher/);
+	});
+
+	test('offers the share button for the own bottle', async () => {
+		renderFacts([certain, { ...unsure, share: { bottleId: 'b2', token: null } }]);
+		await expect.element(page.getByRole('button', { name: 'Rätsel teilen' })).toBeVisible();
+		expect(page.getByRole('button', { name: 'Bernstein teilen' }).elements()).toHaveLength(0);
 	});
 
 	test('calls nothing uncertain without overlapping ranges', async () => {

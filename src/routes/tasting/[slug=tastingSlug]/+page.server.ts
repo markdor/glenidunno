@@ -10,6 +10,7 @@ import {
 	stageUpload,
 	type PendingUpload
 } from '$lib/server/tastingMedia';
+import { shareActions } from '$lib/server/shareActions';
 import { requireParticipant } from '$lib/server/tastingGuards';
 import { consumeTastingWriteLimit } from '$lib/server/tastingWriteThrottle';
 import type { FileChange } from '$lib/server/presentationFiles';
@@ -125,5 +126,8 @@ export const actions: Actions = {
 		// Only after the commit: a refused request deletes nothing.
 		await applyFileChanges(fileChanges);
 		return { action: 'remove', slot, removed: true };
-	}
+	},
+
+	// The share button of the user's own bottles after the reveal.
+	...shareActions
 };

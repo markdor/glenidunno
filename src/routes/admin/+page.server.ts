@@ -5,6 +5,7 @@ import {
 	checkDistilleryFacts,
 	DISTILLERY_PROMPT_LENGTH,
 	isValidEmail,
+	SHARE_TOKEN_RE,
 	TASTING_DISTILLERY_LENGTH,
 	USERNAME_RE,
 	type DistilleryFacts
@@ -34,7 +35,8 @@ import { UNEXPECTED_ERROR_MESSAGE } from '$lib/errorMessages';
 import { logger } from '$lib/server/logger';
 import { STARTUP_JOBS } from '$lib/server/startupJobList';
 import { getStartupJobOverview, isStartupJobRunning, runStartupJob } from '$lib/server/startupJobs';
-import { getTastingSummary } from '$lib/server/tastings';
+import { getTastingSummary, listShares } from '$lib/server/tastings';
+import { revokeShareByToken, revokeSharesOfUser } from '$lib/server/bottleShares';
 import { STARTUP_JOBS_DEPENDENCY } from '$lib/startupJobs';
 
 export const load: ServerLoad = ({ locals, depends }) => {
@@ -77,7 +79,9 @@ export const load: ServerLoad = ({ locals, depends }) => {
 		researchPrompt: getResearchRules(db),
 		variantSuggestions: getVariantSuggestions(db),
 		// Polled like a running job: a search started before a reload keeps the button off.
-		variantSearchRunning: isVariantSearchRunning()
+		variantSearchRunning: isVariantSearchRunning(),
+		// Share links of revealed tastings only, like the distilleries.
+		shares: listShares(db)
 	};
 };
 
@@ -311,6 +315,9 @@ export const actions: Actions = {
 					.where(eq(user.id, id))
 					.run();
 				tx.delete(session).where(eq(session.userId, id)).run();
+				// Their share links stop working too: a deactivated user can't revoke
+				// them any more.
+				revokeSharesOfUser(tx, id);
 				return 'deactivated';
 			});
 		} catch (err) {
@@ -328,6 +335,24 @@ export const actions: Actions = {
 		return outcome === 'deleted'
 			? { action: 'delete', deleted: true }
 			: { action: 'delete', deactivated: true };
+	},
+
+	// Revokes any user's share link (see bottleShares.ts). A link that is gone
+	// already counts as revoked (a second tab).
+	revokeShare: async ({ request, locals }) => {
+		requireAdmin(locals);
+		const form = await request.formData();
+		const token = String(form.get('token') ?? '');
+		if (!SHARE_TOKEN_RE.test(token)) {
+			return fail(400, { action: 'revokeShare', userMessage: 'Dieser Link ist ungültig.' });
+		}
+		try {
+			revokeShareByToken(db, token);
+		} catch (err) {
+			logger.error({ err }, 'admin revoke share failed');
+			return fail(500, { action: 'revokeShare', userMessage: UNEXPECTED_ERROR_MESSAGE });
+		}
+		return { action: 'revokeShare', revoked: true };
 	},
 
 	// Runs a startup job again (see startupJobs.ts) – not awaited: the page

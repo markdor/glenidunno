@@ -7,7 +7,11 @@ import type { HistoryBottle } from '$lib/tasting';
 // real goto() needs a running SvelteKit client.
 const mockPage = vi.hoisted(() => ({ url: new URL('http://localhost/history') }));
 vi.mock('$app/state', () => ({ page: mockPage }));
-vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
+// The share button's enhance ($app/forms) needs the rest of the module.
+vi.mock('$app/navigation', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$app/navigation')>()),
+	goto: vi.fn()
+}));
 
 import Page from './+page.svelte';
 
@@ -26,7 +30,8 @@ const BOTTLE: HistoryBottle = {
 	abv: 54.1,
 	whiskybaseUrl: null,
 	broughtBy: 'Anna',
-	presentation: null
+	presentation: null,
+	share: null
 };
 
 describe('/history', () => {

@@ -1,13 +1,17 @@
-import type { PageServerLoad } from './$types';
+import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { requireUser } from '$lib/server/authGuards';
+import { shareActions } from '$lib/server/shareActions';
 import { getHistory } from '$lib/server/tastings';
 
 // All revealed tastings for every user, slug and download link only for the
-// own ones (see getHistory). Reads no query parameters on purpose: search,
-// filters and sorting of the table run in the browser, so changing them
-// doesn't run this load again.
+// own ones, the share link only for the own bottles (see getHistory). Reads no
+// query parameters on purpose: search, filters and sorting of the table run in
+// the browser, so changing them doesn't run this load again.
 export const load: PageServerLoad = ({ locals }) => {
 	const user = requireUser(locals);
 	return { bottles: getHistory(db, user.id) };
 };
+
+// The share button of the user's own bottles.
+export const actions: Actions = { ...shareActions };

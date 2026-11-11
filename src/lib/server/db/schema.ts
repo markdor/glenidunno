@@ -20,6 +20,7 @@ import {
 	CASK_TYPE_WITHOUT_REFILL,
 	SCOTLAND,
 	SCOTTISH_REGIONS,
+	SHARE_TOKEN_LENGTH,
 	TASTING_ABV,
 	TASTING_AGE,
 	TASTING_ALGORITHMS,
@@ -382,6 +383,28 @@ export const tastingBottleFact = sqliteTable(
 		check(
 			'tasting_bottle_fact_price_range',
 			inRange(t.priceCents, TASTING_PRICE.min * 100, TASTING_PRICE.max * 100)
+		)
+	]
+);
+
+// The public share link of a bottle (/share/<token>, issue #58): at most one
+// per bottle, created and revoked by its bringer (or revoked by the admin)
+// after the reveal. A revoked link is deleted; sharing again creates a new
+// token. Cascades with the bottle, so deleting a tasting removes its links.
+export const tastingBottleShare = sqliteTable(
+	'tasting_bottle_share',
+	{
+		token: text('token').primaryKey(),
+		bottleId: text('bottle_id')
+			.notNull()
+			.unique()
+			.references(() => tastingBottle.id, { onDelete: 'cascade' }),
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
+	},
+	(t) => [
+		check(
+			'tasting_bottle_share_token_length',
+			sql`length(${t.token}) = ${sql.raw(String(SHARE_TOKEN_LENGTH))}`
 		)
 	]
 );

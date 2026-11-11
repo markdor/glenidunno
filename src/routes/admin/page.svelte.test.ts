@@ -17,7 +17,7 @@ import {
 	STARTUP_JOBS_POLL_MS,
 	type StartupJobOverview
 } from '$lib/startupJobs';
-import type { AdminDistillery, DistilleryVariantSuggestion } from '$lib/tasting';
+import type { AdminDistillery, AdminShare, DistilleryVariantSuggestion } from '$lib/tasting';
 
 beforeEach(() => {
 	for (const t of [...toast.toasts]) toast.dismiss(t.id);
@@ -56,6 +56,7 @@ function makeData(over: Partial<Record<string, unknown>> = {}) {
 		researchPrompt: { text: 'Regeln', custom: false },
 		variantSuggestions: [] as DistilleryVariantSuggestion[],
 		variantSearchRunning: false,
+		shares: [] as AdminShare[],
 		...over
 	};
 }

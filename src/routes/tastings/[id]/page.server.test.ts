@@ -14,7 +14,8 @@ vi.mock('$lib/server/db', async () => {
 import { db } from '$lib/server/db';
 import { tasting, user } from '$lib/server/db/schema';
 import { createTasting, findParticipant, saveBottle } from '$lib/server/tastings';
-import { load } from './+page.server';
+import { shareActions } from '$lib/server/shareActions';
+import { actions, load } from './+page.server';
 
 /** Every missing page gets exactly this response. */
 const NOT_FOUND_REDIRECT = { status: 303, location: '/?notice=not-found' };
@@ -123,5 +124,11 @@ describe('tasting history detail load', () => {
 
 	it('refuses requests without a user', () => {
 		expect(() => loadAs(null, revealed.id)).toThrow(expect.objectContaining({ status: 401 }));
+	});
+});
+
+describe('share actions', () => {
+	it('offers the share button’s actions for the own bottles', () => {
+		expect(actions).toEqual(shareActions);
 	});
 });

@@ -7,7 +7,11 @@ import type { HistoryBottle } from '$lib/tasting';
 // real goto() needs a running SvelteKit client.
 const mockPage = vi.hoisted(() => ({ url: new URL('http://localhost/history') }));
 vi.mock('$app/state', () => ({ page: mockPage }));
-vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
+// The share button's enhance ($app/forms) needs the rest of the module.
+vi.mock('$app/navigation', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$app/navigation')>()),
+	goto: vi.fn()
+}));
 
 import { goto } from '$app/navigation';
 import HistoryBottleTable from './HistoryBottleTable.svelte';
@@ -29,6 +33,7 @@ function bottle(number: number, overrides: Partial<HistoryBottle> = {}): History
 		whiskybaseUrl: null,
 		broughtBy: 'Anna',
 		presentation: null,
+		share: null,
 		...overrides
 	};
 }
@@ -280,6 +285,20 @@ describe('HistoryBottleTable – cells and links', () => {
 		).toHaveLength(2);
 		expect(page.getByRole('link', { name: 'Präsentation zu P4 ansehen' }).elements()).toHaveLength(
 			0
+		);
+	});
+
+	test('offers the share button only for the own bottles, in row and tile', async () => {
+		mockPage.url = new URL('http://localhost/history');
+		render(HistoryBottleTable, {
+			bottles: [bottle(4, { share: { bottleId: 'b-4', token: null } }), bottle(3)]
+		});
+		// Row and tile – CSS hides one of them, the component tests load none.
+		expect(page.getByRole('button', { name: 'P4 teilen' }).elements()).toHaveLength(2);
+		expect(page.getByRole('button', { name: 'P3 teilen' }).elements()).toHaveLength(0);
+		// The tile shows its links line for the share button alone (plus the column heading).
+		expect(document.querySelectorAll('dt')).toSatisfy((dts: NodeListOf<Element>) =>
+			[...dts].some((dt) => dt.textContent?.trim() === 'Links')
 		);
 	});
 
