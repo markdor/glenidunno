@@ -301,7 +301,7 @@
 		</label>
 	</div>
 	<p id={id('price-hint')} class="text-xs text-slate-500">
-		Listenpreis pro 0,7 l ({TASTING_PRICE.min} bis {TASTING_PRICE.max} €), nicht der eigene Kaufpreis.
+		Preis pro 0,7 l ({TASTING_PRICE.min} bis {TASTING_PRICE.max} €).
 	</p>
 	{#if fieldError('price')}
 		<p class="text-xs text-red-600">{fieldError('price')}</p>
