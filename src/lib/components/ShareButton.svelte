@@ -101,7 +101,7 @@
 	onclick={() => (open = true)}
 	aria-haspopup="dialog"
 	aria-label={share.token ? `Geteilt: Link zu ${alias} verwalten` : `${alias} teilen`}
-	class="inline-flex items-center gap-1 py-1 font-medium text-brand underline hover:text-brand-hover"
+	class="inline-flex cursor-pointer items-center gap-1 py-1 font-medium text-brand underline hover:text-brand-hover"
 >
 	<Share2 size={16} strokeWidth={2} aria-hidden="true" />
 	{share.token ? 'Geteilt' : 'Teilen'}
