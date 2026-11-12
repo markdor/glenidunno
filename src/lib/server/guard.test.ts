@@ -23,6 +23,14 @@ describe('evaluateGuard', () => {
 		it('treats the bare /auth path as public', () => {
 			expect(evaluateGuard('/auth', anonymous)).toEqual({ action: 'resolve' });
 		});
+
+		// A bottle's share link: its token is the only protection (issue #58).
+		it.each(['/share', `/share/${'a'.repeat(43)}`, `/share/${'a'.repeat(43)}/pdf`])(
+			'lets anonymous requests reach the share link %s',
+			(path) => {
+				expect(evaluateGuard(path, anonymous)).toEqual({ action: 'resolve' });
+			}
+		);
 	});
 
 	describe('prefix matching does not leak (fail-open) to sibling paths', () => {
@@ -33,6 +41,16 @@ describe('evaluateGuard', () => {
 				location: '/login'
 			});
 		});
+
+		it.each(['/shared', '/sharex', '/shares/abc'])(
+			'does not treat %s as a public share link',
+			(path) => {
+				expect(evaluateGuard(path, anonymous)).toEqual({
+					action: 'redirect',
+					location: '/login'
+				});
+			}
+		);
 
 		it('does not treat /healthcheck as the public /health path', () => {
 			expect(evaluateGuard('/healthcheck', anonymous)).toEqual({

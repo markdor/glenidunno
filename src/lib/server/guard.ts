@@ -18,11 +18,16 @@ export function underPrefix(pathname: string, prefix: string): boolean {
  * Pure decision for the global auth guard (see hooks.server.ts). Closed app,
  * nothing is usable anonymously:
  *   - /login, /health, /auth/* → public (login page, container healthcheck + Better Auth endpoints)
+ *   - /share/*                 → public: a bottle's share link (issue #58), its
+ *                                unguessable token is the only protection
  *   - everything else          → requires a session, else redirect to /login
  */
 export function evaluateGuard(pathname: string, ctx: GuardContext): GuardDecision {
 	const isPublic =
-		pathname === '/login' || pathname === '/health' || underPrefix(pathname, '/auth');
+		pathname === '/login' ||
+		pathname === '/health' ||
+		underPrefix(pathname, '/auth') ||
+		underPrefix(pathname, '/share');
 	if (!isPublic && !ctx.authenticated) {
 		return { action: 'redirect', location: '/login' };
 	}

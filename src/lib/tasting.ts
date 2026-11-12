@@ -162,6 +162,16 @@ export type OrderEntry = {
 export type PresentationRef = PresentationLink & { name: string };
 
 /**
+ * The share link of one of the viewer's own bottles after the reveal (issue
+ * #58): the bottle id addresses the share actions, `token` is the existing
+ * link (`/share/<token>`), `null` while there is none. The server only sets
+ * it for the viewer's own bottles – the token is a secret, and `data` ends up
+ * in the HTML in full, so comparing the bringer's name on the client would
+ * hand every user everybody's links.
+ */
+export type OwnShare = { bottleId: string; token: string | null };
+
+/**
  * A bottle after the reveal: all fields plus bringer, score, the factor
  * shares the score-development chart plots and presentation. Position, score
  * and shares as frozen with the order.
@@ -172,6 +182,8 @@ export type RevealedBottle = TastingBottle & {
 	score: number;
 	shares: NormalizedScoreFactors;
 	presentation: PresentationRef | null;
+	/** Only for the viewer's own bottles (see OwnShare). */
+	share: OwnShare | null;
 };
 
 /**
@@ -184,6 +196,8 @@ export type ArchivedRevealedBottle = Omit<TastingBottle, 'smoke' | 'cask' | 'val
 	id: string;
 	broughtBy: string;
 	presentation: PresentationRef | null;
+	/** Only for the viewer's own bottles (see OwnShare). */
+	share: OwnShare | null;
 };
 
 /**
@@ -204,6 +218,8 @@ export type RevealedFactsBottle = FactsBottle & {
 	shares: FactsShares;
 	range: ScoreRange | null;
 	presentation: PresentationRef | null;
+	/** Only for the viewer's own bottles (see OwnShare). */
+	share: OwnShare | null;
 };
 
 /**
@@ -247,6 +263,58 @@ export type TastingHistoryDetail = {
 	};
 	slug: string | null;
 } & Reveal;
+
+/**
+ * What a shared bottle shows on every kind of tasting: its name fields, ABV
+ * and Whiskybase link – never the bringer, the presentation's file name or
+ * the bottle id.
+ */
+export type SharedBottleFields = Pick<
+	TastingBottle,
+	'alias' | 'distillery' | 'bottler' | 'bottling' | 'age' | 'abv' | 'whiskybaseUrl'
+>;
+
+/** Position in the pouring order, out of how many bottles. */
+export type SharedPosition = { position: number; total: number };
+
+/**
+ * The public page of a shared bottle (/share/<token>, issue #58), also for
+ * visitors without a login: the tasting's head (no motto description), the
+ * bottle with its details and its position – no score, no factor shares, no
+ * rules (taken out after the first version, wished so) and nothing about the
+ * other bottles. A tasting with archived bottles has no position.
+ * `presentation` tells whether the viewer can show one: only presentations
+ * that convert to a PDF, the original file never leaves the server.
+ */
+export type SharedBottleView = {
+	tasting: { name: string; subtitle: string | null; tastingDate: string };
+	presentation: boolean;
+} & (
+	| { archived: true; bottle: SharedBottleFields }
+	| (SharedPosition & {
+			archived: false;
+			algorithm: 'taste';
+			bottle: SharedBottleFields & Pick<TastingBottle, 'smoke' | 'cask' | 'value'>;
+	  })
+	| (SharedPosition & {
+			archived: false;
+			algorithm: 'facts';
+			bottle: SharedBottleFields & Pick<FactsBottle, 'facts'>;
+	  })
+);
+
+/** A share link as the admin's list shows it, only of revealed tastings. */
+export type AdminShare = {
+	token: string;
+	/** formatBottleName() of the bottle. */
+	bottle: string;
+	alias: string;
+	tastingName: string;
+	tastingDate: string;
+	/** participantLabel() of the bringer. */
+	owner: string;
+	createdAt: Date;
+};
 
 /** Points each factor contributes to the score (they add up to it). */
 export type ScoreBreakdown = { smoke: number; cask: number; abv: number; value: number };
@@ -709,6 +777,8 @@ export type HistoryBottle = {
 	broughtBy: string;
 	/** Like the slug only for the viewer's own tastings – without the file name. */
 	presentation: PresentationLink | null;
+	/** Only for the viewer's own bottles (see OwnShare). */
+	share: OwnShare | null;
 };
 
 /**

@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import { invalidate } from '$app/navigation';
 	import AdminDistilleryTable from '$lib/components/AdminDistilleryTable.svelte';
+	import AdminShareList from '$lib/components/AdminShareList.svelte';
 	import TastingCard from '$lib/components/TastingCard.svelte';
 	import { confirmDialog } from '$lib/components/confirmDialogStore.svelte';
 	import { toast } from '$lib/components/toastStore.svelte';
@@ -66,7 +67,7 @@
 	// bottles stay in the tasting) – the dialog says so up front.
 	function confirmDelete(event: MouseEvent, u: { username: string; hasParticipation: boolean }) {
 		const message = u.hasParticipation
-			? `Benutzer „${u.username}" hat an Tastings teilgenommen und wird deshalb deaktiviert statt gelöscht: Er kann sich nicht mehr anmelden, bleibt in seinen Tastings aber als „${u.username} (inaktiv)" sichtbar.`
+			? `Benutzer „${u.username}" hat an Tastings teilgenommen und wird deshalb deaktiviert statt gelöscht: Er kann sich nicht mehr anmelden, bleibt in seinen Tastings aber als „${u.username} (inaktiv)" sichtbar. Seine geteilten Links werden widerrufen.`
 			: `Benutzer „${u.username}" wirklich löschen?`;
 		const confirmLabel = u.hasParticipation ? 'Deaktivieren' : 'Löschen';
 		confirmDialog.submit(event, message, { variant: 'danger', confirmLabel });
@@ -261,6 +262,9 @@
 			{/each}
 		</ul>
 	</section>
+
+	<!-- ── Share links ───────────────────────────────────────────── -->
+	<AdminShareList shares={data.shares} />
 
 	<!-- ── Startup jobs ──────────────────────────────────────────── -->
 	<section class="space-y-4" aria-labelledby="startup-jobs">

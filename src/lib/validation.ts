@@ -142,6 +142,15 @@ export const TASTING_PRESENTATION_NAME_LENGTH = { max: 255 } as const;
  */
 export const TASTING_SLUG_RE = /^[a-z]+-[a-z]+$/;
 
+/**
+ * A bottle's public share link `/share/<token>`: 32 random bytes as base64url
+ * (43 characters, no padding) – not guessable, unlike slug and alias. The
+ * length is also the CHECK on tasting_bottle_share.token.
+ */
+export const SHARE_TOKEN_BYTES = 32;
+export const SHARE_TOKEN_LENGTH = 43;
+export const SHARE_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+
 /** Checks for a real calendar date in `YYYY-MM-DD` form (no 2026-02-30). */
 export function isValidTastingDate(value: string): boolean {
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;

@@ -109,6 +109,17 @@ describe('PresentationViewer', () => {
 			.toBeVisible();
 	});
 
+	test('leaves out the animations hint where the download is no original', async () => {
+		render(PresentationViewer, {
+			pdfHref: slidesUrl as ResolvedPathname,
+			downloadHref: slidesUrl as ResolvedPathname,
+			animationsHint: false
+		});
+
+		await expectSlide(1, RED);
+		expect(document.body.textContent).not.toContain('Animationen');
+	});
+
 	test('renders in the device pixel ratio, sharp on dense screens', async () => {
 		vi.stubGlobal('devicePixelRatio', 2);
 		show();

@@ -46,6 +46,7 @@ import {
 	revealEarly,
 	type ParticipantView
 } from '$lib/server/tastings';
+import { shareActions } from '$lib/server/shareActions';
 import { actions, load } from './+page.server';
 
 /** Every missing page and missing admin right gets exactly this response. */
@@ -790,7 +791,7 @@ describe('participant page with archived bottles', () => {
 			.run();
 	}
 
-	const archived = (alias: string, broughtBy: string) => ({
+	const archived = (alias: string, broughtBy: string, own = false) => ({
 		id: `b-${alias}`,
 		alias,
 		distillery: 'Aberlour',
@@ -800,7 +801,9 @@ describe('participant page with archived bottles', () => {
 		whiskybaseUrl: null,
 		abv: 40,
 		broughtBy,
-		presentation: null
+		presentation: null,
+		// Only the viewer's own bottles carry the share link.
+		share: own ? { bottleId: `b-${alias}`, token: null } : null
 	});
 
 	it('reveals them by bringer and slot, without factors, score and position', () => {
@@ -820,7 +823,7 @@ describe('participant page with archived bottles', () => {
 			},
 			manual: { orderOpenedAt: null, revealedAt: null },
 			archived: true,
-			bottles: [archived('Ahorn', 'Anna'), archived('Zeder', 'Anna'), archived('Moor', 'Ben')]
+			bottles: [archived('Ahorn', 'Anna'), archived('Zeder', 'Anna'), archived('Moor', 'Ben', true)]
 		});
 		// What __data.json carries to the browser.
 		const serialized = JSON.stringify(result);
@@ -993,5 +996,11 @@ describe('facts tasting', () => {
 		const revealed = JSON.stringify(loadFor(BEN, factsSlug));
 		expect(revealed).toContain('Tequila');
 		expect(revealed).toContain('sherry_oloroso');
+	});
+});
+
+describe('share actions', () => {
+	it('offers the share button’s actions next to save and remove', () => {
+		expect(actions).toMatchObject(shareActions);
 	});
 });

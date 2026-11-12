@@ -15,7 +15,8 @@ import { db } from '$lib/server/db';
 import { tasting, user } from '$lib/server/db/schema';
 import { createTasting, findParticipant, saveBottle } from '$lib/server/tastings';
 import type { TastingBottle } from '$lib/tasting';
-import { load } from './+page.server';
+import { shareActions } from '$lib/server/shareActions';
+import { actions, load } from './+page.server';
 
 function insertUsers(...usernames: string[]) {
 	for (const username of usernames) {
@@ -117,5 +118,11 @@ describe('history page load', () => {
 
 	it('refuses requests without a user', () => {
 		expect(() => loadAs(null)).toThrow(expect.objectContaining({ status: 401 }));
+	});
+});
+
+describe('share actions', () => {
+	it('offers the share button’s actions for the own bottles', () => {
+		expect(actions).toEqual(shareActions);
 	});
 });

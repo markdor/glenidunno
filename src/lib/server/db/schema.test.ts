@@ -6,6 +6,7 @@ import {
 	DISTILLERY_CAPACITY,
 	DISTILLERY_COUNTRY_LENGTH,
 	DISTILLERY_SOURCE_LENGTH,
+	SHARE_TOKEN_LENGTH,
 	TASTING_ABV,
 	TASTING_AGE,
 	TASTING_ALIAS_LENGTH,
@@ -42,7 +43,8 @@ describe('foreign keys', () => {
 			table: schema.tastingWriteThrottle,
 			target: 'tasting_participant'
 		},
-		{ source: 'tasting_bottle_fact', table: schema.tastingBottleFact, target: 'tasting_bottle' }
+		{ source: 'tasting_bottle_fact', table: schema.tastingBottleFact, target: 'tasting_bottle' },
+		{ source: 'tasting_bottle_share', table: schema.tastingBottleShare, target: 'tasting_bottle' }
 	])(
 		'$source → $target cascades on delete',
 		({ table, target }: { table: SQLiteTable; target: string }) => {
@@ -374,6 +376,25 @@ describe('migrated tasting tables', () => {
 				})
 				.run()
 		).toThrow(/UNIQUE constraint failed/);
+	});
+});
+
+describe('share links', () => {
+	it('inline the token length into their CHECK', () => {
+		expect(checksOf(schema.tastingBottleShare)).toEqual([
+			{
+				name: 'tasting_bottle_share_token_length',
+				sql: `length("tasting_bottle_share"."token") = ${SHARE_TOKEN_LENGTH}`,
+				params: []
+			}
+		]);
+	});
+
+	it('allow one link per bottle', () => {
+		expect(
+			getTableConfig(schema.tastingBottleShare).columns.find((c) => c.name === 'bottle_id')
+				?.isUnique
+		).toBe(true);
 	});
 });
 

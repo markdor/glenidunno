@@ -70,9 +70,10 @@ const sessionHandle: Handle = async ({ event, resolve }) => {
 };
 
 // Closed app: nothing is public except the login page, the health check, the
-// Better Auth endpoints and static assets – tastings need a login too. The
-// decision itself lives in evaluateGuard so it can be unit-tested without a
-// full request.
+// Better Auth endpoints, a bottle's share link (/share/<token>, protected by
+// its token only) and static assets – tastings need a login too. The decision
+// itself lives in evaluateGuard so it can be unit-tested without a full
+// request.
 const guardHandle: Handle = ({ event, resolve }) => {
 	const decision = evaluateGuard(event.url.pathname, {
 		authenticated: Boolean(event.locals.user)

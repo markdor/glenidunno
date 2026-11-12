@@ -134,6 +134,13 @@
 			"when": 1794235124764,
 			"tag": "0018_tasting_drop_name",
 			"breakpoints": true
+		},
+		{
+			"idx": 19,
+			"version": "6",
+			"when": 1794419531411,
+			"tag": "0019_tasting-bottle-share",
+			"breakpoints": true
 		}
 	]
 }

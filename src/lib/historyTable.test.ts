@@ -28,6 +28,7 @@ function bottle(number: number, overrides: Partial<HistoryBottle> = {}): History
 		whiskybaseUrl: null,
 		broughtBy: 'Anna',
 		presentation: null,
+		share: null,
 		...overrides
 	};
 }

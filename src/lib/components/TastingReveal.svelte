@@ -16,6 +16,7 @@
 		peatLevel,
 		uncertainPositions
 	} from '$lib/tastingFacts';
+	import ShareButton from './ShareButton.svelte';
 
 	let {
 		reveal,
@@ -98,6 +99,14 @@
 				</a>
 			{/if}
 		</p>
+	{/if}
+
+	{#if b.share}
+		<!-- Only the viewer's own bottles carry a share link (see OwnShare). A
+		     div, not a p: the popup's <dialog> isn't phrasing content. -->
+		<div class="text-sm">
+			<ShareButton share={b.share} alias={b.alias} />
+		</div>
 	{/if}
 {/snippet}
 

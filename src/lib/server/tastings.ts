@@ -2,10 +2,12 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
+	formatBottleName,
 	isViewablePresentation,
 	normalizeScoreFactors,
 	participantLabel,
 	SCORE_RULES,
+	type AdminShare,
 	type ArchivedRevealedBottle,
 	type DashboardLastTasting,
 	type DashboardTasting,
@@ -13,6 +15,7 @@ import {
 	type ManualPhaseChanges,
 	type NormalizedScoreFactors,
 	type OrderEntry,
+	type OwnShare,
 	type PresentationRef,
 	type Progress,
 	type FactsShares,
@@ -20,6 +23,8 @@ import {
 	type RevealedBottle,
 	type RevealedFactsBottle,
 	type ScoreRules,
+	type SharedBottleFields,
+	type SharedBottleView,
 	type Statistics,
 	type TasteScoreRules,
 	type TastingBottle,
@@ -38,6 +43,7 @@ import {
 } from '$lib/tastingFacts';
 import {
 	isValidTastingDate,
+	SHARE_TOKEN_RE,
 	TASTING_BOTTLE_SLOTS,
 	TASTING_MOTTO_DESCRIPTION_LENGTH,
 	TASTING_MOTTO_LENGTH,
@@ -52,6 +58,7 @@ import {
 	tasting,
 	tastingBottle,
 	tastingBottleFact,
+	tastingBottleShare,
 	tastingParticipant,
 	tastingSlugAdjective,
 	tastingSlugAnimal,
@@ -315,8 +322,19 @@ function toOrder(
 /** Score and factor shares of a bottle in the pouring order. */
 type Pour = { score: number; shares: NormalizedScoreFactors };
 
-type PouredBottle = TastingBottle &
-	Pour & { broughtBy: string; presentation: PresentationRef | null };
+/**
+ * What pouredBottles adds to every bottle: the bringer, the presentation and
+ * the viewer's own share link. The id stays on the server unless a projection
+ * picks it (getSharedBottle finds its bottle by it).
+ */
+type Bringing = {
+	id: string;
+	broughtBy: string;
+	presentation: PresentationRef | null;
+	share: OwnShare | null;
+};
+
+type PouredBottle = TastingBottle & Pour & Bringing;
 
 function toReveal(poured: ReadonlyArray<PouredBottle>) {
 	return poured.map((b, i): RevealedBottle => ({
@@ -339,15 +357,15 @@ function toReveal(poured: ReadonlyArray<PouredBottle>) {
 			abv: b.shares.abv,
 			value: b.shares.value
 		},
-		presentation: b.presentation
+		presentation: b.presentation,
+		share: b.share
 	}));
 }
 
 /** Score (the "Wucht"), shares and range of a bottle in a facts order. */
 type FactsPour = { score: number; shares: FactsShares; range: ScoreRange | null };
 
-type PouredFactsBottle = FactsBottle &
-	FactsPour & { broughtBy: string; presentation: PresentationRef | null };
+type PouredFactsBottle = FactsBottle & FactsPour & Bringing;
 
 function toFactsReveal(poured: ReadonlyArray<PouredFactsBottle>) {
 	return poured.map((b, i): RevealedFactsBottle => ({
@@ -365,11 +383,36 @@ function toFactsReveal(poured: ReadonlyArray<PouredFactsBottle>) {
 		score: b.score,
 		shares: { cask: b.shares.cask, abv: b.shares.abv, price: b.shares.price },
 		range: b.range && { min: b.range.min, max: b.range.max },
-		presentation: b.presentation
+		presentation: b.presentation,
+		share: b.share
 	}));
 }
 
-type BottleWithBringer = { bottle: BottleRow; username: string; deactivatedAt: Date | null };
+type BottleWithBringer = {
+	bottle: BottleRow;
+	username: string;
+	deactivatedAt: Date | null;
+	shareToken: string | null;
+};
+
+/** Which bottles pouredBottles returns with what. */
+type PourOptions = {
+	/**
+	 * Whether the bottles carry their presentation. Not for a viewer who didn't
+	 * take part: the download runs through the participant's link, and the
+	 * original file name stays on the server.
+	 */
+	presentations?: boolean;
+	/** The viewer's participant id: their own bottles carry the share link. */
+	owner?: string | null;
+};
+
+/** The share link of the viewer's own bottle, `null` for everybody else's (see OwnShare). */
+function ownShare(row: BottleWithBringer, owner: string | null): OwnShare | null {
+	return owner !== null && row.bottle.participantId === owner
+		? { bottleId: row.bottle.id, token: row.shareToken }
+		: null;
+}
 
 /**
  * The reveal of a tasting with archived bottles: without smoke, cask and value
@@ -379,22 +422,26 @@ type BottleWithBringer = { bottle: BottleRow; username: string; deactivatedAt: D
  */
 function toArchivedReveal(
 	rows: ReadonlyArray<BottleWithBringer>,
-	presentations: boolean
+	{ presentations, owner }: Required<PourOptions>
 ): ArchivedRevealedBottle[] {
 	return [...rows]
 		.sort((a, b) => a.username.localeCompare(b.username, 'de-DE') || a.bottle.slot - b.bottle.slot)
-		.map(({ bottle, username, deactivatedAt }): ArchivedRevealedBottle => ({
-			id: bottle.id,
-			alias: bottle.alias,
-			distillery: bottle.distillery,
-			bottler: bottle.bottler,
-			bottling: bottle.bottling,
-			age: bottle.age,
-			whiskybaseUrl: bottle.whiskybaseUrl,
-			abv: bottle.abv,
-			broughtBy: participantLabel(username, deactivatedAt),
-			presentation: presentations ? presentationRef(bottle) : null
-		}));
+		.map((row): ArchivedRevealedBottle => {
+			const { bottle, username, deactivatedAt } = row;
+			return {
+				id: bottle.id,
+				alias: bottle.alias,
+				distillery: bottle.distillery,
+				bottler: bottle.bottler,
+				bottling: bottle.bottling,
+				age: bottle.age,
+				whiskybaseUrl: bottle.whiskybaseUrl,
+				abv: bottle.abv,
+				broughtBy: participantLabel(username, deactivatedAt),
+				presentation: presentations ? presentationRef(bottle) : null,
+				share: ownShare(row, owner)
+			};
+		});
 }
 
 type Poured =
@@ -424,12 +471,14 @@ function rulesFor<V extends ScoreRules['version']>(
  * tasting's algorithm. As soon as one of them is archived (imported from the
  * tasting history without smoke, cask and value), there is no order: then
  * all of them come as archived bottles, see toArchivedReveal(). A bottle that
- * doesn't fit the algorithm throws (bottleMismatch). Without `presentations`
- * (a viewer who didn't take part) no bottle carries one: the download runs
- * through the participant's link, and the original file name stays on the
- * server.
+ * doesn't fit the algorithm throws (bottleMismatch). See PourOptions for
+ * presentations and share links.
  */
-function pouredBottles(db: Db, tastingId: string, presentations = true): Poured {
+function pouredBottles(
+	db: Db,
+	tastingId: string,
+	{ presentations = true, owner = null }: PourOptions = {}
+): Poured {
 	const t = db
 		.select({ pourRules: tasting.pourRules, algorithm: tasting.algorithm })
 		.from(tasting)
@@ -440,22 +489,26 @@ function pouredBottles(db: Db, tastingId: string, presentations = true): Poured 
 			bottle: tastingBottle,
 			fact: tastingBottleFact,
 			username: user.username,
-			deactivatedAt: user.deactivatedAt
+			deactivatedAt: user.deactivatedAt,
+			shareToken: tastingBottleShare.token
 		})
 		.from(tastingBottle)
 		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
 		.innerJoin(user, eq(user.id, tastingParticipant.userId))
 		.leftJoin(tastingBottleFact, eq(tastingBottleFact.bottleId, tastingBottle.id))
+		.leftJoin(tastingBottleShare, eq(tastingBottleShare.bottleId, tastingBottle.id))
 		.where(eq(tastingParticipant.tastingId, tastingId))
 		.orderBy(asc(tastingBottle.id))
 		.all();
 	if (rows.some((row) => row.bottle.archived)) {
-		return { archived: true, bottles: toArchivedReveal(rows, presentations) };
+		return { archived: true, bottles: toArchivedReveal(rows, { presentations, owner }) };
 	}
 	const pourRules = t?.pourRules ?? null;
-	const withBringer = ({ bottle, username, deactivatedAt }: (typeof rows)[number]) => ({
-		broughtBy: participantLabel(username, deactivatedAt),
-		presentation: presentations ? presentationRef(bottle) : null
+	const withBringer = (row: (typeof rows)[number]): Bringing => ({
+		id: row.bottle.id,
+		broughtBy: participantLabel(row.username, row.deactivatedAt),
+		presentation: presentations ? presentationRef(row.bottle) : null,
+		share: ownShare(row, owner)
 	});
 
 	if (t?.algorithm === 'facts') {
@@ -1054,12 +1107,15 @@ function revealedBottles(db: Db, userId: string, now: Date) {
 			whiskybaseUrl: tastingBottle.whiskybaseUrl,
 			presentationFile: tastingBottle.presentationFile,
 			presentationName: tastingBottle.presentationName,
+			userId: tastingParticipant.userId,
 			username: user.username,
-			deactivatedAt: user.deactivatedAt
+			deactivatedAt: user.deactivatedAt,
+			shareToken: tastingBottleShare.token
 		})
 		.from(tastingBottle)
 		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
 		.innerJoin(user, eq(user.id, tastingParticipant.userId))
+		.leftJoin(tastingBottleShare, eq(tastingBottleShare.bottleId, tastingBottle.id))
 		.where(inArray(tastingParticipant.tastingId, ids))
 		.all();
 
@@ -1239,7 +1295,8 @@ export function getWorldMap(db: Db, userId: string, now: Date = new Date()): Wor
  * revealedBottles), newest tasting first, within one by bringer and slot.
  * Slug and presentation link only for the user's own tastings, like
  * getDashboardTasting; the file names only tell whether there is a
- * presentation, they don't leave the server. `null` while nothing is revealed.
+ * presentation, they don't leave the server. The share link only for the
+ * user's own bottles. `null` while nothing is revealed.
  */
 export function getHistory(db: Db, userId: string, now: Date = new Date()): HistoryBottle[] | null {
 	const revealed = revealedBottles(db, userId, now);
@@ -1268,7 +1325,9 @@ export function getHistory(db: Db, userId: string, now: Date = new Date()): Hist
 				presentation:
 					isOwn && b.presentationFile && b.presentationName
 						? { bottleId: b.id, viewable: isViewablePresentation(b.presentationFile) }
-						: null
+						: null,
+				// The user's own bottles only, the token is a secret (see OwnShare).
+				share: b.userId === userId ? { bottleId: b.id, token: b.shareToken } : null
 			};
 		});
 }
@@ -1337,12 +1396,11 @@ export function getTastingHistoryDetail(
 		.get();
 	if (!t || getTastingPhase(t.tastingDate, now, t) !== 'revealed') return null;
 
-	const own =
-		db
-			.select({ id: tastingParticipant.id })
-			.from(tastingParticipant)
-			.where(and(eq(tastingParticipant.tastingId, id), eq(tastingParticipant.userId, userId)))
-			.get() !== undefined;
+	const participation = db
+		.select({ id: tastingParticipant.id })
+		.from(tastingParticipant)
+		.where(and(eq(tastingParticipant.tastingId, id), eq(tastingParticipant.userId, userId)))
+		.get();
 	const title = numbered(tastingNumbers(db), t);
 	const head = {
 		name: tastingTitle(title),
@@ -1350,8 +1408,12 @@ export function getTastingHistoryDetail(
 		tastingDate: t.tastingDate,
 		mottoDescription: t.mottoDescription
 	};
-	const slug = own ? t.slug : null;
-	return { tasting: head, slug, ...revealOf(pouredBottles(db, id, own)) };
+	const slug = participation ? t.slug : null;
+	const poured = pouredBottles(db, id, {
+		presentations: participation !== undefined,
+		owner: participation?.id ?? null
+	});
+	return { tasting: head, slug, ...revealOf(poured) };
 }
 
 /** The reveal of poured bottles, picked explicitly per algorithm. */
@@ -1632,6 +1694,167 @@ export function getPresentationForParticipant(
 	return { file: found.file, name: phase === 'revealed' ? found.name : found.file };
 }
 
+// ── Share links ─────────────────────────────────────────────────────────────
+// The public page of a shared bottle (/share/<token>, issue #58) is reachable
+// without a login: the token is the only protection. Writing is in
+// bottleShares.ts.
+
+/**
+ * The share behind a token, only while its tasting is revealed (fail closed –
+ * a tasting can't go back, but the link must never show a bottle before the
+ * reveal). `null` for a malformed, unknown or revoked token alike.
+ */
+function findRevealedShare(db: Db, token: string, now: Date) {
+	if (!SHARE_TOKEN_RE.test(token)) return null;
+	const share = db
+		.select({
+			bottleId: tastingBottle.id,
+			file: tastingBottle.presentationFile,
+			name: tastingBottle.presentationName,
+			tastingId: tasting.id,
+			motto: tasting.motto,
+			...phaseColumns
+		})
+		.from(tastingBottleShare)
+		.innerJoin(tastingBottle, eq(tastingBottle.id, tastingBottleShare.bottleId))
+		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+		.innerJoin(tasting, eq(tasting.id, tastingParticipant.tastingId))
+		.where(eq(tastingBottleShare.token, token))
+		.get();
+	return share && getTastingPhase(share.tastingDate, now, share) === 'revealed' ? share : null;
+}
+
+/** Whether a bottle's presentation can be shared: only as the PDF the viewer shows. */
+function sharedPresentationFile(share: { file: string | null; name: string | null }) {
+	return share.file && share.name && isViewablePresentation(share.file) ? share.file : null;
+}
+
+/** The fields every shared bottle shows, picked explicitly (see SharedBottleFields). */
+function sharedFields(b: SharedBottleFields): SharedBottleFields {
+	return {
+		alias: b.alias,
+		distillery: b.distillery,
+		bottler: b.bottler,
+		bottling: b.bottling,
+		age: b.age,
+		abv: b.abv,
+		whiskybaseUrl: b.whiskybaseUrl
+	};
+}
+
+/**
+ * The public page of a shared bottle: the tasting's head, the bottle with its
+ * details and position. Never its score, factor shares or the rules, never
+ * the bringer, the presentation's file name, the bottle id or anything of the
+ * other bottles – only their count. `null` for every token that doesn't show
+ * a bottle.
+ */
+export function getSharedBottle(
+	db: Db,
+	token: string,
+	now: Date = new Date()
+): SharedBottleView | null {
+	const share = findRevealedShare(db, token, now);
+	if (!share) return null;
+	const title = numbered(tastingNumbers(db), { id: share.tastingId, motto: share.motto });
+	const head = {
+		tasting: {
+			name: tastingTitle(title),
+			subtitle: tastingSubtitle(title),
+			tastingDate: share.tastingDate
+		},
+		presentation: sharedPresentationFile(share) !== null
+	};
+
+	const poured = pouredBottles(db, share.tastingId, { presentations: false });
+	if (poured.archived) {
+		const bottle = poured.bottles.find((b) => b.id === share.bottleId);
+		return bottle ? { ...head, archived: true, bottle: sharedFields(bottle) } : null;
+	}
+
+	const index = poured.bottles.findIndex((b) => b.id === share.bottleId);
+	if (index < 0) return null;
+	const position = { position: index + 1, total: poured.bottles.length };
+
+	if (poured.algorithm === 'facts') {
+		const b = poured.bottles[index];
+		return {
+			...head,
+			...position,
+			archived: false,
+			algorithm: 'facts',
+			// Built field by field from the row in toFacts().
+			bottle: { ...sharedFields(b), facts: b.facts }
+		};
+	}
+
+	const b = poured.bottles[index];
+	return {
+		...head,
+		...position,
+		archived: false,
+		algorithm: 'taste',
+		bottle: { ...sharedFields(b), smoke: b.smoke, cask: b.cask, value: b.value }
+	};
+}
+
+/**
+ * The stored presentation of a shared bottle for its PDF, only if the viewer
+ * can show it – the original file itself is never shared. `null` like
+ * getSharedBottle, so the route answers a uniform 404.
+ */
+export function getSharedPresentation(
+	db: Db,
+	token: string,
+	now: Date = new Date()
+): { file: string } | null {
+	const share = findRevealedShare(db, token, now);
+	const file = share && sharedPresentationFile(share);
+	return file ? { file } : null;
+}
+
+/**
+ * Every share link for the admin's list, newest first, with bottle, tasting
+ * and bringer – only of revealed tastings, like everything else the admin
+ * sees of the bottles.
+ */
+export function listShares(db: Db, now: Date = new Date()): AdminShare[] {
+	const rows = db
+		.select({
+			token: tastingBottleShare.token,
+			createdAt: tastingBottleShare.createdAt,
+			alias: tastingBottle.alias,
+			distillery: tastingBottle.distillery,
+			bottler: tastingBottle.bottler,
+			bottling: tastingBottle.bottling,
+			age: tastingBottle.age,
+			username: user.username,
+			deactivatedAt: user.deactivatedAt,
+			tastingId: tasting.id,
+			motto: tasting.motto,
+			...phaseColumns
+		})
+		.from(tastingBottleShare)
+		.innerJoin(tastingBottle, eq(tastingBottle.id, tastingBottleShare.bottleId))
+		.innerJoin(tastingParticipant, eq(tastingParticipant.id, tastingBottle.participantId))
+		.innerJoin(user, eq(user.id, tastingParticipant.userId))
+		.innerJoin(tasting, eq(tasting.id, tastingParticipant.tastingId))
+		.orderBy(desc(tastingBottleShare.createdAt), asc(tastingBottleShare.token))
+		.all()
+		.filter((row) => getTastingPhase(row.tastingDate, now, row) === 'revealed');
+	if (rows.length === 0) return [];
+	const numbers = tastingNumbers(db);
+	return rows.map((row) => ({
+		token: row.token,
+		bottle: formatBottleName(row),
+		alias: row.alias,
+		tastingName: tastingTitle(numbered(numbers, { id: row.tastingId, motto: row.motto })),
+		tastingDate: row.tastingDate,
+		owner: participantLabel(row.username, row.deactivatedAt),
+		createdAt: row.createdAt
+	}));
+}
+
 // ── Participant page ────────────────────────────────────────────────────────
 
 /** A user's participation in a tasting – `id` is the participant id. */
@@ -1799,7 +2022,7 @@ export function getParticipantView(
 				phase,
 				tasting: tastingInfo,
 				manual,
-				...revealOf(pouredBottles(db, holder.tastingId))
+				...revealOf(pouredBottles(db, holder.tastingId, { owner: holder.id }))
 			};
 	}
 }

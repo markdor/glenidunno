@@ -21,6 +21,7 @@ import { runMigrations } from './db/migrate';
 import * as schema from './db/schema';
 import { presentationExtension } from './presentationFiles';
 import type { PendingUpload } from './tastingMedia';
+import { createShare, revokeSharesOfUser } from './bottleShares';
 import {
 	createTasting,
 	deleteTasting,
@@ -31,12 +32,15 @@ import {
 	getHistory,
 	getParticipantView,
 	getPresentationForParticipant,
+	getSharedBottle,
+	getSharedPresentation,
 	getStatistics,
 	getTastingHistoryDetail,
 	getTastingSummary,
 	getWorldMap,
 	listPresentationFiles,
 	listSelectableUsers,
+	listShares,
 	listTastingHistory,
 	listTastings,
 	openOrderEarly,
@@ -705,7 +709,9 @@ describe('getParticipantView', () => {
 				whiskybaseUrl: 'https://www.whiskybase.com/whiskies/whisky/2',
 				abv: 40,
 				broughtBy: 'Cem',
-				presentation: { bottleId: 'b-Birke', viewable: true, name: 'Birke.pptx' }
+				presentation: { bottleId: 'b-Birke', viewable: true, name: 'Birke.pptx' },
+				// Cem's bottle: no share link for Ben.
+				share: null
 			});
 			const serialized = JSON.stringify(view);
 			for (const hidden of ['smoke', 'cask', '"value"', 'score', 'position', 'breakdown']) {
@@ -1970,6 +1976,7 @@ describe('getHistory', () => {
 			'motto',
 			'number',
 			'presentation',
+			'share',
 			'slug',
 			'tastingDate',
 			'whiskybaseUrl'
@@ -2545,7 +2552,9 @@ describe('facts tastings', () => {
 			score: 55,
 			shares: { cask: 0.7, abv: 0.3, price: null },
 			range: null,
-			presentation: null
+			presentation: null,
+			// Anna's own bottle: the share button, no link yet.
+			share: { bottleId: expect.any(String), token: null }
 		});
 		// The tasting history shows the same reveal to everybody.
 		const detail = getTastingHistoryDetail(db, id, 'u-admin', REVEALED)!;
@@ -2655,5 +2664,266 @@ describe('facts tastings', () => {
 			.where(eq(schema.tasting.id, id))
 			.run();
 		expect(() => getParticipantView(db, anna, ORDER)).toThrow(/frozen rules of version 1/);
+	});
+
+	it('shares a bottle with its facts and position – no Wucht, shares or range', () => {
+		setupFacts();
+		const token = createShare(db, bottleIdOf('Rätsel'), 'u-anna', REVEALED)!;
+		const view = getSharedBottle(db, token, REVEALED);
+		expect(view).toEqual({
+			tasting: { name: 'Tasting #1', subtitle: null, tastingDate: TASTING_DATE },
+			presentation: false,
+			archived: false,
+			algorithm: 'facts',
+			position: 2,
+			total: 4,
+			bottle: {
+				alias: 'Rätsel',
+				distillery: 'Glenfarclas',
+				bottler: null,
+				bottling: null,
+				age: 12,
+				abv: 40,
+				whiskybaseUrl: null,
+				facts: {
+					peat: 'none',
+					cask: { kind: 'unknown' },
+					finish: { kind: 'other', label: 'Tequila', influence: 4, months: 6 },
+					priceCents: 3500
+				}
+			}
+		});
+		// Nothing about the other bottles.
+		expect(JSON.stringify(view)).not.toMatch(/Nebel|Bernstein/);
+	});
+});
+
+/** The id of the bottle with this alias. */
+function bottleIdOf(alias: string): string {
+	return db
+		.select({ id: schema.tastingBottle.id })
+		.from(schema.tastingBottle)
+		.where(eq(schema.tastingBottle.alias, alias))
+		.get()!.id;
+}
+
+describe('share links', () => {
+	const ANNA_ALIAS = `Nebel ${TASTING_DATE}`;
+	const BEN_ALIAS = `Torf ${TASTING_DATE}`;
+
+	describe('the share field of the reveal', () => {
+		it('is set only for the viewer’s own bottles, with the link once there is one', () => {
+			const ctx = setupWithBottles();
+			const annaBottle = bottleIdOf(ANNA_ALIAS);
+			const token = createShare(db, annaBottle, 'u-anna', REVEALED)!;
+
+			const view = getParticipantView(db, ctx.anna, REVEALED);
+			expect(view.phase === 'revealed' && view.bottles.map((b) => [b.alias, b.share])).toEqual([
+				[ANNA_ALIAS, { bottleId: annaBottle, token }],
+				[BEN_ALIAS, null]
+			]);
+			// Ben sees neither Anna's link nor her bottle's id.
+			const ben = JSON.stringify(getParticipantView(db, ctx.ben, REVEALED));
+			expect(ben).not.toContain(token);
+			expect(ben).toContain(`"bottleId":"${bottleIdOf(BEN_ALIAS)}"`);
+			expect(ben).not.toContain(annaBottle);
+		});
+
+		it('is the same on the tasting history’s page – and null for a non-participant', () => {
+			const ctx = setupWithBottles();
+			const token = createShare(db, bottleIdOf(BEN_ALIAS), 'u-ben', REVEALED)!;
+
+			const own = getTastingHistoryDetail(db, ctx.id, 'u-ben', REVEALED)!;
+			expect(own.bottles.map((b) => b.share)).toEqual([
+				null,
+				{ bottleId: bottleIdOf(BEN_ALIAS), token }
+			]);
+			const other = getTastingHistoryDetail(db, ctx.id, 'u-admin', REVEALED)!;
+			expect(other.bottles.map((b) => b.share)).toEqual([null, null]);
+			expect(JSON.stringify(other)).not.toContain(token);
+		});
+
+		it('is set for an own archived bottle', () => {
+			const ctx = setup();
+			insertArchivedBottle(ctx.ben.id, 1, 'Ahorn');
+			insertArchivedBottle(ctx.anna.id, 1, 'Birke');
+			const view = getParticipantView(db, ctx.ben, REVEALED);
+			expect(view.phase === 'revealed' && view.bottles.map((b) => b.share)).toEqual([
+				null,
+				{ bottleId: 'b-Ahorn', token: null }
+			]);
+		});
+
+		it('is set in the bottle database only for the user’s own bottles', () => {
+			setupWithBottles();
+			const token = createShare(db, bottleIdOf(ANNA_ALIAS), 'u-anna', REVEALED)!;
+
+			expect(getHistory(db, 'u-anna', REVEALED)!.map((b) => b.share)).toEqual([
+				{ bottleId: bottleIdOf(ANNA_ALIAS), token },
+				null
+			]);
+			// Ben took part, but it isn't his bottle.
+			const ben = getHistory(db, 'u-ben', REVEALED)!;
+			expect(ben.map((b) => b.share)).toEqual([
+				null,
+				{ bottleId: bottleIdOf(BEN_ALIAS), token: null }
+			]);
+			expect(JSON.stringify(ben)).not.toContain(token);
+			// The statistics never carry it.
+			expect(JSON.stringify(getStatistics(db, 'u-anna', REVEALED))).not.toContain(token);
+		});
+	});
+
+	describe('getSharedBottle', () => {
+		it('shows the bottle with its position – no score, shares or rules, no bringer', () => {
+			const ctx = setupWithBottles();
+			updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: 'Nur Inseln.' });
+			addPresentation(ctx.ben.id);
+			const token = createShare(db, bottleIdOf(BEN_ALIAS), 'u-ben', REVEALED)!;
+
+			const view = getSharedBottle(db, token, REVEALED);
+			expect(view).toEqual({
+				tasting: { name: 'Inselhüpfen', subtitle: 'Tasting #1', tastingDate: TASTING_DATE },
+				presentation: true,
+				archived: false,
+				algorithm: 'taste',
+				position: 2,
+				total: 2,
+				bottle: {
+					alias: BEN_ALIAS,
+					distillery: 'Ardbeg',
+					bottler: null,
+					bottling: 'Uigeadail',
+					age: 12,
+					abv: 60,
+					whiskybaseUrl: 'https://www.whiskybase.com/whiskies/whisky/1',
+					smoke: 5,
+					cask: 3,
+					value: 4
+				}
+			});
+			// Neither bringer, bottle id, file names, motto description nor the other bottle.
+			const serialized = JSON.stringify(view);
+			for (const hidden of [
+				'Ben',
+				'Anna',
+				bottleIdOf(BEN_ALIAS),
+				'Islay.pptx',
+				'Tasting_2026',
+				'Nur Inseln.',
+				ANNA_ALIAS,
+				ctx.slug,
+				ctx.id
+			]) {
+				expect(serialized).not.toContain(hidden);
+			}
+		});
+
+		it('shows an archived bottle without position', () => {
+			const ctx = setup();
+			insertArchivedBottle(ctx.ben.id, 1, 'Ahorn', { bottling: 'Sherry Cask' });
+			insertArchivedBottle(ctx.anna.id, 1, 'Birke');
+			const token = createShare(db, 'b-Ahorn', 'u-ben', REVEALED)!;
+
+			expect(getSharedBottle(db, token, REVEALED)).toEqual({
+				tasting: { name: 'Tasting #1', subtitle: null, tastingDate: TASTING_DATE },
+				presentation: false,
+				archived: true,
+				bottle: {
+					alias: 'Ahorn',
+					distillery: 'Aberlour',
+					bottler: null,
+					bottling: 'Sherry Cask',
+					age: null,
+					abv: 40,
+					whiskybaseUrl: null
+				}
+			});
+		});
+
+		it('shares only presentations the viewer can show', () => {
+			const ctx = setupWithBottles();
+			addPresentation(ctx.anna.id);
+			db.update(schema.tastingBottle)
+				.set({ presentationFile: 'Tasting_2026-10-24_Nebel.zip' })
+				.where(eq(schema.tastingBottle.participantId, ctx.anna.id))
+				.run();
+			const token = createShare(db, bottleIdOf(ANNA_ALIAS), 'u-anna', REVEALED)!;
+			expect(getSharedBottle(db, token, REVEALED)?.presentation).toBe(false);
+			expect(getSharedPresentation(db, token, REVEALED)).toBeNull();
+		});
+
+		it('is null for a malformed, unknown or revoked token and before the reveal', () => {
+			setupWithBottles();
+			const bottleId = bottleIdOf(ANNA_ALIAS);
+			const token = createShare(db, bottleId, 'u-anna', REVEALED)!;
+			expect(getSharedBottle(db, 'short', REVEALED)).toBeNull();
+			expect(getSharedBottle(db, 'x'.repeat(43), REVEALED)).toBeNull();
+			// Not reachable through the app (the link comes with the reveal) – fail closed anyway.
+			expect(getSharedBottle(db, token, ORDER)).toBeNull();
+			expect(getSharedPresentation(db, token, ORDER)).toBeNull();
+
+			revokeSharesOfUser(db, 'u-anna');
+			expect(getSharedBottle(db, token, REVEALED)).toBeNull();
+		});
+	});
+
+	describe('getSharedPresentation', () => {
+		it('returns the stored file of a viewable presentation', () => {
+			const ctx = setupWithBottles();
+			addPresentation(ctx.anna.id);
+			const token = createShare(db, bottleIdOf(ANNA_ALIAS), 'u-anna', REVEALED)!;
+			expect(getSharedPresentation(db, token, REVEALED)).toEqual({
+				file: 'Tasting_2026-10-24_Nebel.pptx'
+			});
+		});
+
+		it('is null without a presentation', () => {
+			setupWithBottles();
+			const token = createShare(db, bottleIdOf(ANNA_ALIAS), 'u-anna', REVEALED)!;
+			expect(getSharedPresentation(db, token, REVEALED)).toBeNull();
+		});
+	});
+
+	describe('listShares', () => {
+		it('lists every link, newest first, with bottle, tasting and bringer', () => {
+			const ctx = setupWithBottles();
+			db.update(schema.user)
+				.set({ deactivatedAt: REVEALED })
+				.where(eq(schema.user.id, 'u-ben'))
+				.run();
+			const older = createShare(db, bottleIdOf(BEN_ALIAS), 'u-ben', REVEALED)!;
+			const later = new Date(REVEALED.getTime() + 60_000);
+			const newer = createShare(db, bottleIdOf(ANNA_ALIAS), 'u-anna', later)!;
+			updateTastingMotto(db, ctx.id, { motto: 'Inselhüpfen', mottoDescription: null });
+
+			expect(listShares(db, later)).toEqual([
+				{
+					token: newer,
+					bottle: 'Ardbeg Uigeadail',
+					alias: ANNA_ALIAS,
+					tastingName: 'Inselhüpfen',
+					tastingDate: TASTING_DATE,
+					owner: 'Anna',
+					createdAt: later
+				},
+				{
+					token: older,
+					bottle: 'Ardbeg 12 Jahre Uigeadail',
+					alias: BEN_ALIAS,
+					tastingName: 'Inselhüpfen',
+					tastingDate: TASTING_DATE,
+					owner: 'Ben (inaktiv)',
+					createdAt: REVEALED
+				}
+			]);
+		});
+
+		it('is empty without links and leaves out tastings that aren’t revealed', () => {
+			setupWithBottles();
+			expect(listShares(db, REVEALED)).toEqual([]);
+			createShare(db, bottleIdOf(ANNA_ALIAS), 'u-anna', REVEALED);
+			expect(listShares(db, ORDER)).toEqual([]);
+		});
 	});
 });

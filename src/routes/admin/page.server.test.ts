@@ -51,6 +51,19 @@ vi.mock('$lib/server/distilleryVariantSearch', async (importOriginal) => ({
 	isVariantSearchRunning: () => variantSearch.running
 }));
 
+// The admin's revoke: the real one, unless a test lets it fail.
+const shareRevoke = vi.hoisted(() => ({ fail: false }));
+vi.mock('$lib/server/bottleShares', async (importOriginal) => {
+	const original = await importOriginal<typeof import('$lib/server/bottleShares')>();
+	return {
+		...original,
+		revokeShareByToken: (...args: Parameters<typeof original.revokeShareByToken>) => {
+			if (shareRevoke.fail) throw new Error('disk full');
+			return original.revokeShareByToken(...args);
+		}
+	};
+});
+
 import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import {
@@ -61,6 +74,7 @@ import {
 	session,
 	tasting,
 	tastingBottle,
+	tastingBottleShare,
 	tastingParticipant,
 	user
 } from '$lib/server/db/schema';
@@ -137,6 +151,7 @@ beforeEach(() => {
 	db.delete(distilleryVariantSuggestion).run();
 	db.delete(appSetting).run();
 	research.running = false;
+	shareRevoke.fail = false;
 	variantSearch.running = false;
 	variantSearch.search.mockReset();
 	// The current admin always exists (bootstrap guarantees this in prod).
@@ -1054,5 +1069,117 @@ describe('admin distillery rename and variants', () => {
 			status: 500,
 			data: { action: 'rejectVariant', userMessage: expect.any(String) }
 		});
+	});
+});
+
+describe('admin share links', () => {
+	const TOKEN = 'a'.repeat(43);
+	const OTHER_TOKEN = 'b'.repeat(43);
+
+	/** A revealed tasting with a shared bottle of the user, inserted directly. */
+	function sharedBottleOf(userId: string, token: string) {
+		const id = `t-${token[0]}`;
+		db.insert(tasting)
+			.values({
+				id,
+				slug: `slug-${id}`,
+				motto: 'Herbst',
+				tastingDate: '2026-10-24',
+				createdAt: new Date()
+			})
+			.run();
+		db.insert(tastingParticipant)
+			.values({ id: `${id}-p`, tastingId: id, userId, createdAt: new Date() })
+			.run();
+		db.insert(tastingBottle)
+			.values({
+				id: `${id}-b`,
+				participantId: `${id}-p`,
+				slot: 1,
+				alias: `Nebel ${token[0]}`,
+				distillery: 'Ardbeg',
+				abv: 46,
+				smoke: 1,
+				cask: 1,
+				value: 1,
+				updatedAt: new Date()
+			})
+			.run();
+		db.insert(tastingBottleShare)
+			.values({ token, bottleId: `${id}-b`, createdAt: new Date() })
+			.run();
+	}
+
+	const tokens = () =>
+		db
+			.select({ token: tastingBottleShare.token })
+			.from(tastingBottleShare)
+			.all()
+			.map((row) => row.token);
+
+	it('lists the links with bottle, tasting and bringer', () => {
+		const anna = insertUser({ email: 'anna@glenidunno.de', username: 'anna' });
+		sharedBottleOf(anna, TOKEN);
+		const { shares } = load(loadEvent(ADMIN)) as { shares: unknown[] };
+		expect(shares).toEqual([
+			expect.objectContaining({
+				token: TOKEN,
+				bottle: 'Ardbeg',
+				alias: 'Nebel a',
+				tastingName: 'Herbst',
+				owner: 'anna'
+			})
+		]);
+	});
+
+	it('revokes any link by its token', async () => {
+		const anna = insertUser({ email: 'anna@glenidunno.de', username: 'anna' });
+		sharedBottleOf(anna, TOKEN);
+		sharedBottleOf(anna, OTHER_TOKEN);
+		expect(await actions.revokeShare(makeEvent({ token: TOKEN }))).toEqual({
+			action: 'revokeShare',
+			revoked: true
+		});
+		expect(tokens()).toEqual([OTHER_TOKEN]);
+		// A second tab: gone already counts as revoked.
+		expect(await actions.revokeShare(makeEvent({ token: TOKEN }))).toEqual({
+			action: 'revokeShare',
+			revoked: true
+		});
+	});
+
+	it('refuses a malformed token', async () => {
+		expect(await actions.revokeShare(makeEvent({ token: 'short' }))).toMatchObject({
+			status: 400,
+			data: { action: 'revokeShare', userMessage: 'Dieser Link ist ungültig.' }
+		});
+	});
+
+	it('logs and returns 500 on an unexpected error', async () => {
+		shareRevoke.fail = true;
+		expect(await actions.revokeShare(makeEvent({ token: TOKEN }))).toMatchObject({
+			status: 500,
+			data: { action: 'revokeShare' }
+		});
+		expect(logger.error).toHaveBeenCalledWith(expect.anything(), 'admin revoke share failed');
+	});
+
+	it('is for admins only', async () => {
+		await expect(
+			actions.revokeShare(makeEvent({ token: TOKEN }, { id: 'u', isAdmin: false }))
+		).rejects.toMatchObject(NOT_FOUND_REDIRECT);
+	});
+
+	it('revokes the links of a user the admin deactivates – nobody else’s', async () => {
+		const anna = insertUser({ email: 'anna@glenidunno.de', username: 'anna' });
+		const ben = insertUser({ email: 'ben@glenidunno.de', username: 'ben' });
+		sharedBottleOf(anna, TOKEN);
+		sharedBottleOf(ben, OTHER_TOKEN);
+
+		expect(await actions.delete(makeEvent({ id: anna }))).toEqual({
+			action: 'delete',
+			deactivated: true
+		});
+		expect(tokens()).toEqual([OTHER_TOKEN]);
 	});
 });

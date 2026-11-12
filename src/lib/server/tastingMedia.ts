@@ -13,7 +13,13 @@ import {
 	UPLOAD_TEMP_FILE_RE,
 	type FileChange
 } from './presentationFiles';
-import { convertInBackground, discardPdf, ensurePdf, needsConversion } from './presentationPdf';
+import {
+	cachedPdf,
+	convertInBackground,
+	discardPdf,
+	ensurePdf,
+	needsConversion
+} from './presentationPdf';
 
 // Presentation uploads (usually PowerPoint) live as plain files in MEDIA_PATH,
 // named after the scheme in presentationFiles.ts; their converted PDFs in a
@@ -180,6 +186,44 @@ export async function presentationPdfResponse(file: string): Promise<Response | 
 		}
 		pdf = await ensurePdf(file);
 	}
-	const name = `${file.slice(0, file.length - presentationExtension(file).length)}.pdf`;
-	return (await fileResponse(pdf, 'application/pdf', name)) ?? missingFile(file);
+	return (await fileResponse(pdf, 'application/pdf', pdfName(file))) ?? missingFile(file);
+}
+
+/** The stored name with ".pdf" instead of its extension. */
+function pdfName(file: string): string {
+	return `${file.slice(0, file.length - presentationExtension(file).length)}.pdf`;
+}
+
+/**
+ * Path of the presentation's PDF if it is ready right now – an original PDF
+ * on disk or an office file's cached conversion –, `null` otherwise. Never
+ * converts and logs nothing: for the public share link, which leaves out a
+ * presentation it can't serve, and so nobody without a login starts
+ * LibreOffice.
+ */
+async function readyPdf(file: string): Promise<string | null> {
+	if (!PRESENTATION_FILE_RE.test(file) || !isViewablePresentation(file)) return null;
+	const source = join(mediaDir(), file);
+	// Gone from disk counts as gone, also with a converted PDF left in the cache.
+	try {
+		await stat(source);
+	} catch {
+		return null;
+	}
+	return needsConversion(file) ? cachedPdf(file) : source;
+}
+
+/** Whether the presentation's PDF is ready right now (see readyPdf). */
+export async function hasReadyPdf(file: string): Promise<boolean> {
+	return (await readyPdf(file)) !== null;
+}
+
+/**
+ * Like presentationPdfResponse, but only a PDF that is ready right now (see
+ * readyPdf), `null` otherwise – never converts, never throws for a missing
+ * file, never logs.
+ */
+export async function readyPdfResponse(file: string): Promise<Response | null> {
+	const pdf = await readyPdf(file);
+	return pdf ? fileResponse(pdf, 'application/pdf', pdfName(file)) : null;
 }

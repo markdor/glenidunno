@@ -19,6 +19,7 @@
 		type TableQuery
 	} from '$lib/historyTable';
 	import type { HistoryBottle } from '$lib/tasting';
+	import ShareButton from './ShareButton.svelte';
 
 	let { bottles }: { bottles: HistoryBottle[] } = $props();
 
@@ -136,6 +137,10 @@
 				Ansehen
 			</a>
 		{/if}
+	{/if}
+	{#if bottle.share}
+		<!-- Only the user's own bottles carry a share link (see OwnShare). -->
+		<ShareButton share={bottle.share} alias={bottle.alias} />
 	{/if}
 {/snippet}
 
@@ -291,7 +296,7 @@
 									<dt class="text-slate-500">Motto</dt>
 									<dd class="break-words">{bottle.motto}</dd>
 								{/if}
-								{#if bottle.whiskybaseUrl || (bottle.presentation && bottle.slug)}
+								{#if bottle.whiskybaseUrl || (bottle.presentation && bottle.slug) || bottle.share}
 									<dt class="self-center text-slate-500">Links</dt>
 									<dd class="flex flex-wrap gap-x-3">{@render links(bottle)}</dd>
 								{/if}

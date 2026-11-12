@@ -1,4 +1,6 @@
 import {
+	SHARE_PDF_ROUTE_ID,
+	SHARE_ROUTE_ID,
 	TASTING_PRESENTATION_PDF_ROUTE_ID,
 	TASTING_PRESENTATION_ROUTE_ID,
 	TASTING_PRESENTATION_VIEW_ROUTE_ID,
@@ -14,6 +16,8 @@ const TASTING_ROUTE_IDS: ReadonlySet<string> = new Set([
 	TASTING_PRESENTATION_VIEW_ROUTE_ID
 ]);
 
+const SHARE_ROUTE_IDS: ReadonlySet<string> = new Set([SHARE_ROUTE_ID, SHARE_PDF_ROUTE_ID]);
+
 /**
  * Extra response headers per route ID, applied in hooks.server.ts after
  * resolve() so they also cover __data.json, action responses and the
@@ -22,8 +26,16 @@ const TASTING_ROUTE_IDS: ReadonlySet<string> = new Set([
  * - Participant page, its presentation downloads, the viewer and its PDF: no
  *   caching – the data is personal and changes with the phase, a cached page
  *   would not show the pouring order at 18:00.
+ * - A shared bottle's public page and its PDF: no caching either – a revoked
+ *   link must stop working at once. The token is in the URL, so no referrer
+ *   leaves the page (Whiskybase link, footer), and search engines must not
+ *   index it.
  */
 export function getSecurityHeaders(routeId: string | null): Record<string, string> {
-	if (routeId !== null && TASTING_ROUTE_IDS.has(routeId)) return { ...NO_STORE };
+	if (routeId === null) return {};
+	if (TASTING_ROUTE_IDS.has(routeId)) return { ...NO_STORE };
+	if (SHARE_ROUTE_IDS.has(routeId)) {
+		return { ...NO_STORE, 'referrer-policy': 'no-referrer', 'x-robots-tag': 'noindex' };
+	}
 	return {};
 }

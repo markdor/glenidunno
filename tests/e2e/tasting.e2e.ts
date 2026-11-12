@@ -5,8 +5,9 @@ import { test, expect } from '@playwright/test';
 // at 18:00 and 9:00 is covered by route and component tests.
 //
 // The participant page is reached via the start page's hero. This spec
-// enters a single bottle there, only so the tasting history shows a bottle,
-// the bottle database has a real row for its layout check and the
+// enters a single bottle there, only so the tasting history shows a bottle
+// (which the admin then shares and opens without a login), the bottle
+// database has a real row for its layout check and the
 // statistics a record to link to it: entering bottles
 // and the presentation downloads are covered by route and component tests.
 // Its presentation is a small PDF, so the viewer can show its first slide in
@@ -39,7 +40,8 @@ const TABLE_COLUMNS = [
 
 test.describe('Tasting – Ablauf', () => {
 	test('Admin legt mit einem weiteren User ein Tasting an und gibt Reihenfolge und Auflösung frei', async ({
-		page
+		page,
+		browser
 	}) => {
 		// Default storageState of the e2e project: the logged-in admin. The
 		// address is unique per run, so a retry doesn't fail on "taken".
@@ -217,6 +219,48 @@ test.describe('Tasting – Ablauf', () => {
 			await expect(page).toHaveURL(/\/tastings\/[0-9a-f-]{36}$/);
 			await expect(page.getByRole('heading', { level: 1, name: tastingName })).toBeVisible();
 			await expect(page.getByRole('heading', { name: BOTTLE_ALIAS })).toBeVisible();
+		});
+
+		await test.step('Teilen: Link erzeugen, ohne Login öffnen, widerrufen', async () => {
+			// Still on the tasting history's page: the admin brought the bottle.
+			await page.getByRole('button', { name: `${BOTTLE_ALIAS} teilen` }).click();
+			const dialog = page.getByRole('dialog', { name: `„${BOTTLE_ALIAS}“ teilen` });
+			await dialog.getByRole('button', { name: 'Link erzeugen' }).click();
+			const linkField = dialog.getByLabel('Link zum Teilen');
+			await expect(linkField).toHaveValue(/\/share\/[A-Za-z0-9_-]{43}$/);
+			// By path: the link's origin is the configured one, the visitor uses the test server.
+			const sharePath = new URL(await linkField.inputValue()).pathname;
+			const shareUrl = new URL(sharePath, page.url()).href;
+
+			const anonymous = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+			try {
+				const visitor = await anonymous.newPage();
+				const shown = await visitor.goto(shareUrl);
+				expect(shown?.status()).toBe(200);
+				expect(shown?.headers()['x-robots-tag']).toBe('noindex');
+				await expect(visitor).toHaveURL(shareUrl);
+				await expect(visitor.getByRole('heading', { level: 1, name: BOTTLE_ALIAS })).toBeVisible();
+				await expect(visitor.locator('body')).toContainText(`Tasting „${tastingName}“`);
+				await expect(visitor.getByText('Mitgebracht von')).toHaveCount(0);
+				await expect(visitor.getByRole('heading', { name: 'Präsentation' })).toBeVisible();
+
+				await dialog.getByRole('button', { name: 'Link widerrufen' }).click();
+				await page
+					.getByRole('dialog', { name: 'Bestätigung erforderlich' })
+					.getByRole('button', { name: 'Widerrufen' })
+					.click();
+				await expect(page.getByText('Link widerrufen.')).toBeVisible();
+				await expect(dialog.getByRole('button', { name: 'Link erzeugen' })).toBeVisible();
+
+				const revoked = await visitor.goto(shareUrl);
+				expect(revoked?.status()).toBe(404);
+				await expect(
+					visitor.getByRole('heading', { name: 'Dieser Link ist nicht mehr gültig.' })
+				).toBeVisible();
+			} finally {
+				await anonymous.close();
+			}
+			await dialog.getByRole('button', { name: 'Schließen' }).click();
 		});
 
 		await test.step('Flaschen-Datenbank: ab lg alle Spalten, bei 360 px kein horizontales Scrollen, Spaltenköpfe einzeilig', async () => {
@@ -426,6 +470,15 @@ test.describe('Tasting – Zugriff ohne Login', () => {
 			const res = await request.get(path, { maxRedirects: 0 });
 			expect(res.status()).toBe(302);
 			expect(res.headers()['location']).toBe('/login');
+		});
+	}
+
+	// Share links are public: an unknown one is a 404, never the login.
+	for (const path of [`/share/${'A'.repeat(43)}`, '/share/kurz', `/share/${'A'.repeat(43)}/pdf`]) {
+		test(`${path} antwortet ohne Login mit 404`, async ({ request }) => {
+			const res = await request.get(path, { maxRedirects: 0 });
+			expect(res.status()).toBe(404);
+			expect(res.headers()['cache-control']).toBe('no-store');
 		});
 	}
 });
